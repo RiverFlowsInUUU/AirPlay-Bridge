@@ -300,6 +300,13 @@ struct Session {
                                 tmp.preCaptureDevice = cur;
                                 saveConfig(cfgPath, tmp);
                             }
+                        } else {
+                            // 切不过去（没装虚拟声卡、或名字不叫 CABLE Input）。
+                            // 这时是"监听复制"模式：电脑音箱和 HomePod 会同时出声。
+                            // 必须让用户知道 —— 否则他以为在接管模式，会奇怪为什么
+                            // 电脑自己也在响。
+                            logLine("未找到虚拟声卡，退回监听复制模式（电脑与 HomePod 将同时出声）");
+                            if (onStatus) onStatus("已连接（无虚拟声卡，两边同时出声）");
                         }
                     }
                 }
@@ -307,7 +314,15 @@ struct Session {
             connected.store(ok);
             if (onConnected) onConnected(ok);
             if (onStatus) onStatus(ok ? "已连接" : ("连接失败: " + e));
-            if (!ok) wantReconnect.store(true);
+            if (!ok) {
+                // 连接失败：running 必须清掉。
+                // start() 是在 sender->start() 之后才置 running=true 的，
+                // 而这个回调是 sender->start() 内部同步触发的 ——
+                // 如果这里不显式清掉，主循环会把一个失败的会话当成"在跑"，
+                // 并且把重连退避重置回 5 秒，形成密集重试。
+                running.store(false);
+                wantReconnect.store(true);
+            }
         };
         ev.closed = [this]() {
             connected.store(false);
@@ -338,6 +353,11 @@ struct Session {
         });
 
         sender->start(host, 7000, "AirPlay Bridge");
+
+        // 注意：sender->start() 是异步的 —— 它发完握手请求就返回，
+        // 真正的结果要等后续 pump() 里才出来（launched 回调）。
+        // 所以这里不能按 connected 判断成败，只能先置 running，
+        // 让主循环跑起来；失败由 launched(false) 回调负责清掉。
         running.store(true);
         return true;
     }
@@ -437,7 +457,7 @@ int main(int argc, char** argv) {
     // 判断模式与解析参数
     bool wantList = false, wantInstall = false, wantUninstall = false;
     bool wantConsole = false, wantLast = false, wantTray = true;
-    std::string hostArg, wavArg;
+    std::string hostArg;
     int volume = -1;
 
     for (int i = 1; i < argc; ++i) {
@@ -447,7 +467,6 @@ int main(int argc, char** argv) {
         else if (a == "--uninstall") wantUninstall = true;
         else if (a == "--console")   { wantConsole = true; wantTray = false; }
         else if (a == "--last")      wantLast = true;
-        else if (a == "--wav" && i + 1 < argc) wavArg = argv[++i];
         else if (a == "--volume" && i + 1 < argc) volume = std::atoi(argv[++i]);
         else if (!a.empty() && a[0] != '-') { hostArg = a; wantTray = false; }
     }
@@ -580,12 +599,24 @@ int main(int argc, char** argv) {
     // 会以为电脑坏了（完全没声音，且不知道发生了什么）。
     if (!cfg.preCaptureDevice.empty()) {
         const std::string nowDev = getDefaultRenderDeviceName();
-        if (nowDev.find("CABLE") != std::string::npos) {
-            logLine("检测到上次异常退出，恢复默认音频设备: " + cfg.preCaptureDevice);
-            setDefaultRenderDevice(cfg.preCaptureDevice);
+        if (nowDev.find("CABLE") == std::string::npos) {
+            // 当前不是虚拟声卡 —— 说明问题已经不存在了（用户自己切回去了，
+            // 或者上次其实正常退出只是标记没来得及清）。这条记录已经过期。
+            cfg.preCaptureDevice.clear();
+            saveConfig(cfgPath, cfg);
+        } else {
+            // 设备还卡在虚拟声卡上，需要恢复。
+            // 注意：只有恢复成功才清标记 —— 恢复失败（比如原来的声卡被拔了）
+            // 时必须保留，否则下次启动就不会再试，用户永久没声音。
+            logLine("检测到上次异常退出，尝试恢复默认音频设备: " + cfg.preCaptureDevice);
+            if (setDefaultRenderDevice(cfg.preCaptureDevice)) {
+                logLine("已恢复到: " + cfg.preCaptureDevice);
+                cfg.preCaptureDevice.clear();
+            } else {
+                logLine("恢复失败（设备可能已移除），保留记录以便下次重试");
+            }
+            saveConfig(cfgPath, cfg);
         }
-        cfg.preCaptureDevice.clear();
-        saveConfig(cfgPath, cfg);
     }
 
     // 首次扫描
@@ -700,11 +731,23 @@ int main(int argc, char** argv) {
                                 }
                             });
                         } else if (discovered.size() == 1) {
+                            // 只有一个设备：直接连。
+                            // 必须跟多设备分支一样检查返回值 —— 否则启动失败时
+                            // 用户看不到任何提示，tooltip 永远停在"扫描中"。
                             sess.host = discovered[0].host;
                             sess.deviceId = discovered[0].deviceId;
                             sess.deviceName = discovered[0].name;
                             std::string err;
-                            sess.start(err);
+                            if (!sess.start(err)) {
+                                logLine("启动失败: " + err);
+                                tray.setTooltip("AirPlay Bridge - 启动失败");
+                                tray.notify("AirPlay Bridge", "启动失败: " + err);
+                            } else {
+                                cfg.lastHost = sess.host;
+                                if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
+                                if (!sess.deviceName.empty()) cfg.lastDeviceName = sess.deviceName;
+                                saveConfig(cfgPath, cfg);
+                            }
                         }
                         break;
                     case MENU_LATENCY: {

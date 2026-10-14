@@ -155,6 +155,9 @@ struct TrayIcon::Impl {
     HICON current = nullptr;
     bool created = false;
     bool connected = false;
+    // 防重入：菜单弹出时 TrackPopupMenu 自带模态消息循环，
+    // 期间若又有右键消息进来会再弹一层，可能把正在跑的会话拆掉。
+    bool menuOpen = false;
 
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // Explorer 重启：重新把图标挂上去
@@ -289,6 +292,8 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
 void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
                         const std::function<void(int)>& cb) {
     if (!valid()) return;
+    if (d_->menuOpen) return;   // 已经在弹菜单了，忽略这一次
+    d_->menuOpen = true;
 
     HMENU hmenu = CreatePopupMenu();
     if (!hmenu) return;
@@ -333,6 +338,10 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     PostMessageW(d_->hwnd, WM_NULL, 0, 0);
     DestroyMenu(hmenu);
 
+    // 先复位标志再回调 —— 否则回调里弹子菜单（比如延迟档位）会被自己挡掉。
+    // 重入保护要防的是菜单还开着时又来一次右键，不是连续弹菜单。
+    d_->menuOpen = false;
+
     if (cmd != 0 && cb) cb(cmd);
 }
 
@@ -340,8 +349,15 @@ void TrayIcon::pump(const TrayEventHandler& handler) {
     if (!valid()) return;
     g_handler = handler;
 
+    // 每次只取一条消息。
+    // 原来的 while 循环会把队列一次抽干 —— 用户连点几下右键时，
+    // 队列里会堆着好几条 WM_TRAY_CALLBACK，它们会在同一个 pump() 里
+    // 被连续派发。而右键处理会调 TrackPopupMenu（自带模态消息循环），
+    // 于是弹出一层菜单、里面又处理下一条、再弹一层……同时回调里的
+    // "断开" 分支会把正在跑的会话拆掉，有 use-after-free 风险。
+    // 改成每次一条，主循环每 20ms 调一次 pump，天然挡住了这种重入。
     MSG msg;
-    while (PeekMessageW(&msg, d_->hwnd, 0, 0, PM_REMOVE)) {
+    if (PeekMessageW(&msg, d_->hwnd, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }

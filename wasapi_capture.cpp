@@ -269,7 +269,13 @@ bool WasapiCapture::open(std::string* errOut) {
 
     std::vector<ComPtr<IMMDevice>> targets;
 
-    if (true) {   // 临时强制单设备模式，验证多设备混音是否引入了 bug
+    // 目前固定走单设备模式（默认输出设备）。
+    //
+    // 多设备混音（AllDevices）的实现保留在下面，但它实测有未解决的问题：
+    // 多台设备同时打开时采集到的全是静音，单设备则正常。怀疑是各设备
+    // 时钟/缓冲不同步导致的，没查清楚。接管模式下这个功能也用不上
+    // （声音都进虚拟声卡了，采一台就够），所以暂不启用。
+    if (cfg_.mode == CaptureMode::DefaultOnly) {
         ComPtr<IMMDevice> dev;
         if (FAILED(impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &dev)))
             return fail("no default playback device");

@@ -29,7 +29,9 @@ enum class CaptureMode {
 };
 
 struct WasapiCaptureConfig {
-    CaptureMode mode = CaptureMode::AllDevices;
+    // 默认单设备（默认输出设备）。多设备混音实现有未解决的问题，
+    // 见 wasapi_capture.cpp 里的说明；接管模式下也不需要。
+    CaptureMode mode = CaptureMode::DefaultOnly;
     uint32_t    targetSampleRate = 44100;
     uint32_t    bufferMs         = 30;
 };
