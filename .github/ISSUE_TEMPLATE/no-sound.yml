@@ -18,7 +18,7 @@ body:
       label: 用的哪种模式
       options:
         - 接管模式（装了 VB-Audio Virtual Cable，电脑本身静音）
-        - 简单模式（没装虚拟声卡，电脑和 HomePod 同时出声）
+        - 监听复制模式（没装虚拟声卡，电脑和 HomePod 同时出声）
         - 不确定
     validations:
       required: true
