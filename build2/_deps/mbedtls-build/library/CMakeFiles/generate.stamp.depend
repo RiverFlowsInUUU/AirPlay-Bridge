@@ -1,6 +1,0 @@
-# CMake generation dependency list for this directory.
-C:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2/_deps/mbedtls-src/library/CMakeLists.txt
-C:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2/_deps/mbedtls-src/library/error.c
-C:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2/_deps/mbedtls-src/library/psa_crypto_driver_wrappers_no_static.c
-C:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2/_deps/mbedtls-src/library/ssl_debug_helpers_generated.c
-C:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2/_deps/mbedtls-src/library/version_features.c
