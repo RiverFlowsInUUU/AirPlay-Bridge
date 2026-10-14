@@ -50,18 +50,26 @@ add_subdirectory(${UPSTREAM} ${CMAKE_BINARY_DIR}/sender)
 
 # ---- 主程序（托盘）----
 add_executable(airplay_bridge WIN32
-    airplay_bridge.cpp
-    wasapi_capture.cpp
-    discovery.cpp
-    config_store.cpp
-    sysvolume.cpp
-    tray.cpp
-    latency_dialog.cpp
-    bridge.rc
+    # 主程序与配置
+    src/app/airplay_bridge.cpp
+    src/app/config_store.cpp
+    # 音频：系统声音采集、音量与设备切换
+    src/audio/wasapi_capture.cpp
+    src/audio/sysvolume.cpp
+    # 设备：局域网发现
+    src/device/discovery.cpp
+    # 界面：托盘、滑块窗口
+    src/ui/tray.cpp
+    src/ui/latency_dialog.cpp
+    # 图标与资源
+    src/icons/bridge.rc
 )
 
 target_include_directories(airplay_bridge PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    src/app
+    src/audio
+    src/device
+    src/ui
     ${UPSTREAM}/src
 )
 

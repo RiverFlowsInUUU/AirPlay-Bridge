@@ -159,20 +159,28 @@ TuneBlade 是闭源的、2018 年就停更了，没有修复的可能。本项�
 
 ## 项目结构
 
+按职责分层，根目录只放构建入口和文档。
+
 ```
-airplay_bridge.cpp      主程序（托盘 + 命令行）
-wasapi_capture.cpp/h    WASAPI 环回采集（支持多设备混音）
-discovery.cpp/h         设备发现（扫网段 + 单播 mDNS）
-config_store.cpp/h      JSON 配置读写
-tray.cpp/h              Win32 托盘图标与菜单
-latency_dialog.cpp/h    数值调节滑块窗口（延迟/音量共用）
-sysvolume.cpp/h         系统音量 + 默认音频设备切换
-audiodevices.h          音频设备列表（--audio-devices）
-bridge.rc               图标资源（编译进 exe）
-tray_icons/             图标源文件
-tools/                  图标生成脚本
-patches/                上游引擎的补丁
-third_party/            上游引擎（git submodule）
+src/
+  app/        主程序、配置读写
+  audio/      系统声音采集、音量与音频设备切换
+  device/     局域网设备发现、音频设备列表
+  ui/         托盘图标与菜单、滑块调节窗口
+  icons/      图标资源（编译进 exe）
+
+patches/      上游引擎的补丁
+tools/        图标生成脚本
+third_party/  上游引擎（git submodule）
+```
+
+几个关键文件：
+
+```
+src/app/airplay_bridge.cpp    主程序（托盘 + 命令行），流程都在这
+src/audio/wasapi_capture.cpp  环回采集，音频链路的入口
+src/device/discovery.cpp      设备发现（扫网段 + 单播 mDNS）
+src/ui/tray.cpp               托盘图标与右键菜单
 ```
 
 ## 依赖

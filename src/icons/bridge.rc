@@ -8,8 +8,8 @@
 #include <windows.h>
 
 // 程序主图标（任务栏 / 资源管理器里显示的）
-101 ICON "tray_icons\\connected.ico"
+101 ICON "connected.ico"
 
 // 托盘图标：两个状态
-102 ICON "tray_icons\\connected.ico"
-103 ICON "tray_icons\\idle.ico"
+102 ICON "connected.ico"
+103 ICON "idle.ico"
