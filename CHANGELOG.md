@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.3] - 2026-10-15
+
+### Changed
+
+- 延迟、音量、音质、选择设备恢复为从主菜单展开的子菜单。
+  此前改为点击后弹出独立菜单，主菜单会消失，展开时位置也发生跳变。
+
 ## [1.2.2] - 2026-10-15
 
 ### Changed
