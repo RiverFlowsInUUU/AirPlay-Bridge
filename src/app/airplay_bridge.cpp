@@ -79,6 +79,17 @@ const VolumeLevel kVolumeLevels[] = {
 };
 constexpr int kVolumeLevelCount = sizeof(kVolumeLevels) / sizeof(kVolumeLevels[0]);
 constexpr int kVolumeMenuBase = 1200;   // 音量档位菜单 id = base + index
+
+// 音质档位。跟音量一样是离散的，所以用"固定档 + 滑块"两套入口。
+struct QualityLevel { int value; const char* label; };
+const QualityLevel kQualityLevels[] = {
+    { 0, "关（最快）" },
+    { 1, "线性（高频有失真）" },
+    { 2, "好（16 抽头）" },
+    { 3, "最好（32 抽头，推荐）" },
+};
+constexpr int kQualityLevelCount = sizeof(kQualityLevels) / sizeof(kQualityLevels[0]);
+constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index
 constexpr int kLatencyMenuBase = 1100;   // 档位菜单 id = base + index
 
 // 托盘菜单 ID
@@ -91,7 +102,8 @@ enum : int {
     MENU_LATENCY_CUSTOM = 106,   // 自定义延迟（无极滑块）
     MENU_VOLUME   = 107,   // 音量（子菜单）
     MENU_VOLUME_CUSTOM = 108,   // 自定义音量（滑块）
-    MENU_QUALITY   = 110,   // 音质档位
+    MENU_QUALITY   = 110,   // 音质（子菜单）
+    MENU_QUALITY_CUSTOM = 111,   // 自定义音质（滑块）
     MENU_OPEN_LOG  = 109,   // 打开日志文件夹
     MENU_QUIT      = 104,   // 退出
 };
@@ -838,14 +850,15 @@ int main(int argc, char** argv) {
                 std::string volLabel = "音量  " + std::to_string(cfg.volume) + "%";
                 menu.push_back({volLabel, MENU_VOLUME});
             }
-            menu.push_back({"", 0, true, true, false});
-            menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
+            // 音质跟延迟/音量并列 —— 三个都是音频参数
             {
                 const char* qname = cfg.quality <= 0 ? "关" :
                                     cfg.quality == 1 ? "线性" :
                                     cfg.quality == 2 ? "好" : "最好";
                 menu.push_back({std::string("音质  ") + qname, MENU_QUALITY});
             }
+            menu.push_back({"", 0, true, true, false});
+            menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"退出", MENU_QUIT});
@@ -987,8 +1000,27 @@ int main(int argc, char** argv) {
                         setAutoStart(!isAutoStartEnabled());
                         break;
                     case MENU_QUALITY: {
-                        int picked = showQualityDialog(cfg.quality);
-                        if (picked >= 0) {
+                        // 跟延迟/音量一致的样式：固定档 + 最后是自定义滑块
+                        std::vector<TrayMenuItem> qsub;
+                        for (int i = 0; i < kQualityLevelCount; ++i) {
+                            qsub.push_back({kQualityLevels[i].label,
+                                            kQualityMenuBase + i,
+                                            true, false,
+                                            cfg.quality == kQualityLevels[i].value});
+                        }
+                        qsub.push_back({"", 0, true, true, false});
+                        qsub.push_back({"自定义（滑块）...", MENU_QUALITY_CUSTOM,
+                                        true, false, false});
+                        tray.showMenu(qsub, [&](int sid) {
+                            int picked = -1;
+                            if (sid == MENU_QUALITY_CUSTOM) {
+                                picked = showQualityDialog(cfg.quality);
+                            } else {
+                                const int idx = sid - kQualityMenuBase;
+                                if (idx >= 0 && idx < kQualityLevelCount)
+                                    picked = kQualityLevels[idx].value;
+                            }
+                            if (picked < 0) return;
                             cfg.quality = picked;
                             saveConfig(cfgPath, cfg);
                             logLine("音质档位改为 " + std::to_string(picked) + "，重连生效");
@@ -1000,7 +1032,7 @@ int main(int argc, char** argv) {
                                 sess.teardown();
                                 tryConnect();
                             }
-                        }
+                        });
                         break;
                     }
                     case MENU_OPEN_LOG:
