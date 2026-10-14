@@ -232,25 +232,30 @@ int showLatencyDialog(int currentMs) {
     return showSliderDialog(spec, currentMs);
 }
 
-const char* qualityGrade(int q) {
-    // 实测曲线（19.9kHz 信噪比）：5% 约 20dB，30% 约 35dB，
-    // 70% 到顶 39.5dB。所以按这个分档描述。
-    if (q <= 0)  return "关闭（最快）";
-    if (q < 20)  return "低（高频有失真）";
-    if (q < 45)  return "中";
-    if (q < 70)  return "高";
-    return "最高（约 32 抽头）";
+
+
+const char* qualityLevelName(int q) {
+    // 档位划分依据实测曲线（19.9kHz 信噪比）：
+    //   <20%   -> 20-30 dB，失方可闻
+    //   20-44% -> 30-38 dB，明显改善
+    //   45-74% -> 38-39.5 dB，接近透明
+    //   >=75%  -> 39.5 dB（到顶）
+    if (q <= 0)  return "关闭";
+    if (q < 20)  return "标准";
+    if (q < 45)  return "高";
+    if (q < 75)  return "极高";
+    return "至臻";
 }
 
 int showQualityDialog(int currentLevel) {
     SliderDialogSpec spec;
     spec.title = "AirPlay Bridge — 音质";
-    spec.hint = "采集到的设备音频要转到 44.1kHz 才能推给 HomePod。\n这个档位决定转换算法：越往下高频越干净，但 CPU 也越贵。";
+    spec.hint = "声卡通常跑 48kHz，推给 HomePod 要先转到 44.1kHz。\n这里决定转换的质量：越往右高频越干净，CPU 也越贵。";
     spec.minValue = 0;
     spec.maxValue = 100;
     spec.tickFreq = 10;
-    spec.unit = "%";
-    spec.grade = qualityGrade;
+    spec.unit = "";   // 不显示百分比 —— 用户看档位名就够了
+    spec.grade = qualityLevelName;
     return showSliderDialog(spec, currentLevel);
 }
 

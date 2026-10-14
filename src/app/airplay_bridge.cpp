@@ -85,11 +85,11 @@ constexpr int kVolumeMenuBase = 1200;   // 音量档位菜单 id = base + index
 //   5% 约 20dB / 20% 约 30dB / 45% 约 38dB / 70% 到顶 39.5dB
 struct QualityLevel { int value; const char* label; };
 const QualityLevel kQualityLevels[] = {
-    {  0, "关（最快）" },
-    { 20, "低 20%" },
-    { 45, "中 45%" },
-    { 70, "高 70%（到顶了）" },
-    {100, "最高 100%" },
+    {  0, "关闭" },
+    { 15, "标准" },
+    { 40, "高" },
+    { 60, "极高" },
+    { 85, "至臻" },
 };
 constexpr int kQualityLevelCount = sizeof(kQualityLevels) / sizeof(kQualityLevels[0]);
 constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index
@@ -604,9 +604,7 @@ int main(int argc, char** argv) {
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
     logLine("已加载设置: 音量 " + std::to_string(cfg.volume) + "%" +
             ", 延迟 " + std::to_string(cfg.latencyMs) + "ms" +
-            ", 音质 " + (cfg.qualityLevel <= 0
-                             ? std::string("关")
-                             : (std::to_string(cfg.qualityLevel) + "%")) +
+            ", 音质 " + qualityLevelName(cfg.qualityLevel) +
             (cfg.lastDeviceName.empty() ? "" : (", 设备 " + cfg.lastDeviceName)));
 
     // ---- 一次性命令 ----
@@ -848,9 +846,7 @@ int main(int argc, char** argv) {
             }
             // 音质跟延迟/音量并列 —— 三个都是音频参数
             {
-                const std::string qname = cfg.qualityLevel <= 0
-                    ? std::string("关")
-                    : (std::to_string(cfg.qualityLevel) + "%");
+                const std::string qname = qualityLevelName(cfg.qualityLevel);
                 menu.push_back({std::string("音质  ") + qname, MENU_QUALITY});
             }
             menu.push_back({"", 0, true, true, false});

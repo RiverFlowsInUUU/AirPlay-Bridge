@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.1.4] - 2026-10-14
+
+### Changed
+
+- 音质改用档位名显示（关闭 / 标准 / 高 / 极高 / 至臻），不再显示百分比
+- 音质菜单的预设档位与滑块使用同一套名称
+
 ## [1.1.3] - 2026-10-14
 
 ### Changed
