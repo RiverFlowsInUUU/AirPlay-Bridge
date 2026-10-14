@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.4] - 2026-10-15
+
+### Changed
+
+- 图标四周的透明留白由约 11% 减少到 1.5%，图标在同尺寸下显示得更大。
+
 ## [1.2.3] - 2026-10-15
 
 ### Changed

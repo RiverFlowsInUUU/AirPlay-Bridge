@@ -67,8 +67,8 @@ def main():
         src = src.crop(bbox)
         w, h = src.size
         side = max(w, h)
-        # 放大到正方形画布，四周留白 = 边长的 6%（原来的 60% 被砍掉）
-        pad = int(side * 0.06)
+        # 四周留白 = 边长的 1.5%（原来是 11%，砍掉近九成）
+        pad = int(side * 0.015)
         canvas = Image.new("RGBA", (side + pad * 2, side + pad * 2), (0, 0, 0, 0))
         canvas.paste(src, ((side - w) // 2 + pad, (side - h) // 2 + pad), src)
         src = canvas
