@@ -80,13 +80,16 @@ const VolumeLevel kVolumeLevels[] = {
 constexpr int kVolumeLevelCount = sizeof(kVolumeLevels) / sizeof(kVolumeLevels[0]);
 constexpr int kVolumeMenuBase = 1200;   // 音量档位菜单 id = base + index
 
-// 音质档位。跟音量一样是离散的，所以用"固定档 + 滑块"两套入口。
+// 音质是 0-100 连续可调的（底层是 sinc 抽头数，4..32）。
+// 这几个是快捷预设 —— 实测曲线上的几个拐点，不是为了凑数：
+//   5% 约 20dB / 20% 约 30dB / 45% 约 38dB / 70% 到顶 39.5dB
 struct QualityLevel { int value; const char* label; };
 const QualityLevel kQualityLevels[] = {
-    { 0, "关（最快）" },
-    { 1, "线性（高频有失真）" },
-    { 2, "好（16 抽头）" },
-    { 3, "最好（32 抽头，推荐）" },
+    {  0, "关（最快）" },
+    { 20, "低 20%" },
+    { 45, "中 45%" },
+    { 70, "高 70%（到顶了）" },
+    {100, "最高 100%" },
 };
 constexpr int kQualityLevelCount = sizeof(kQualityLevels) / sizeof(kQualityLevels[0]);
 constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index
@@ -384,20 +387,11 @@ struct Session {
         const uint32_t kAirPlayRate = 44100;
         bool needResample = (inputRate != kAirPlayRate);
         if (needResample) {
-            // 按配置的档位选质量。0/1 都表示不启用我们的重采样
-            // （交给引擎自带的线性插值处理），2/3 用窗函数 sinc。
-            ResampleQuality q = ResampleQuality::Best;
-            if (cfg) {
-                switch (cfg->quality) {
-                    case 0:  q = ResampleQuality::Off;    break;
-                    case 1:  q = ResampleQuality::Linear; break;
-                    case 2:  q = ResampleQuality::Good;   break;
-                    default: q = ResampleQuality::Best;   break;
-                }
-            }
+            // 按配置的百分比配重采样器（0 = 关，交给引擎自带的线性插值）
+            const int q = cfg ? cfg->qualityLevel : 100;
             resampler.configure(inputRate, kAirPlayRate, q);
-            // 如果档位是"关"，就让引擎自己处理（用它的线性插值）
-            if (q == ResampleQuality::Off) {
+            // 品质为 0 时不做重采样，让引擎自己处理
+            if (q <= kQualityOff) {
                 needResample = false;
             }
         }
@@ -610,7 +604,9 @@ int main(int argc, char** argv) {
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
     logLine("已加载设置: 音量 " + std::to_string(cfg.volume) + "%" +
             ", 延迟 " + std::to_string(cfg.latencyMs) + "ms" +
-            ", 音质 " + std::to_string(cfg.quality) + " 档" +
+            ", 音质 " + (cfg.qualityLevel <= 0
+                             ? std::string("关")
+                             : (std::to_string(cfg.qualityLevel) + "%")) +
             (cfg.lastDeviceName.empty() ? "" : (", 设备 " + cfg.lastDeviceName)));
 
     // ---- 一次性命令 ----
@@ -852,9 +848,9 @@ int main(int argc, char** argv) {
             }
             // 音质跟延迟/音量并列 —— 三个都是音频参数
             {
-                const char* qname = cfg.quality <= 0 ? "关" :
-                                    cfg.quality == 1 ? "线性" :
-                                    cfg.quality == 2 ? "好" : "最好";
+                const std::string qname = cfg.qualityLevel <= 0
+                    ? std::string("关")
+                    : (std::to_string(cfg.qualityLevel) + "%");
                 menu.push_back({std::string("音质  ") + qname, MENU_QUALITY});
             }
             menu.push_back({"", 0, true, true, false});
@@ -1006,7 +1002,7 @@ int main(int argc, char** argv) {
                             qsub.push_back({kQualityLevels[i].label,
                                             kQualityMenuBase + i,
                                             true, false,
-                                            cfg.quality == kQualityLevels[i].value});
+                                            cfg.qualityLevel == kQualityLevels[i].value});
                         }
                         qsub.push_back({"", 0, true, true, false});
                         qsub.push_back({"自定义（滑块）...", MENU_QUALITY_CUSTOM,
@@ -1014,14 +1010,14 @@ int main(int argc, char** argv) {
                         tray.showMenu(qsub, [&](int sid) {
                             int picked = -1;
                             if (sid == MENU_QUALITY_CUSTOM) {
-                                picked = showQualityDialog(cfg.quality);
+                                picked = showQualityDialog(cfg.qualityLevel);
                             } else {
                                 const int idx = sid - kQualityMenuBase;
                                 if (idx >= 0 && idx < kQualityLevelCount)
                                     picked = kQualityLevels[idx].value;
                             }
                             if (picked < 0) return;
-                            cfg.quality = picked;
+                            cfg.qualityLevel = picked;
                             saveConfig(cfgPath, cfg);
                             logLine("音质档位改为 " + std::to_string(picked) + "，重连生效");
                             tray.notify("AirPlay Bridge",

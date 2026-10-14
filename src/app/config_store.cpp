@@ -112,7 +112,22 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.lastHost       = jsonGetString(j, "lastHost");
     out.volume         = static_cast<int>(jsonGetInt(j, "volume", out.volume));
     out.latencyMs      = static_cast<int>(jsonGetInt(j, "latencyMs", out.latencyMs));
-    out.quality        = static_cast<int>(jsonGetInt(j, "quality", out.quality));
+    // 新的连续品质字段
+    if (j.find("\"qualityLevel\"") != std::string::npos) {
+        out.qualityLevel = static_cast<int>(jsonGetInt(j, "qualityLevel", 100));
+    } else if (j.find("\"quality\"") != std::string::npos) {
+        // 老配置是 0-3 的档位，换算成 0-100。
+        // 不换算的话，老的"3=最好"会被当成"3/100=很差"。
+        const int old = static_cast<int>(jsonGetInt(j, "quality", 3));
+        switch (old) {
+            case 0:  out.qualityLevel = 0;   break;   // 关
+            case 1:  out.qualityLevel = 30;  break;   // 老的"线性"
+            case 2:  out.qualityLevel = 60;  break;   // 老的"好"
+            default: out.qualityLevel = 100; break;   // 老的"最好"
+        }
+    }
+    if (out.qualityLevel < 0)   out.qualityLevel = 0;
+    if (out.qualityLevel > 100) out.qualityLevel = 100;
     out.preCaptureDevice = jsonGetString(j, "preCaptureDevice");
     out.autoReconnect  = jsonGetBool(j, "autoReconnect", out.autoReconnect);
     out.hideAppleTV    = jsonGetBool(j, "hideAppleTV", out.hideAppleTV);
@@ -146,7 +161,7 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
     f << "  \"lastHost\": \""       << escapeJson(cfg.lastHost)       << "\",\n";
     f << "  \"volume\": "           << cfg.volume                       << ",\n";
     f << "  \"latencyMs\": "        << cfg.latencyMs                    << ",\n";
-    f << "  \"quality\": "          << cfg.quality                      << ",\n";
+    f << "  \"qualityLevel\": "     << cfg.qualityLevel                 << ",\n";
     f << "  \"preCaptureDevice\": \"" << escapeJson(cfg.preCaptureDevice) << "\",\n";
     f << "  \"autoReconnect\": "    << (cfg.autoReconnect ? "true" : "false") << ",\n";
     f << "  \"hideAppleTV\": "      << (cfg.hideAppleTV ? "true" : "false")   << ",\n";

@@ -2,11 +2,17 @@
 //
 // resampler_test -- 重采样器的自测。
 //
-// 测量方法用「单频点 DFT」而不是逐点比对 —— 后者会被相位差干扰，
-// 测出来的是相位误差不是失真。
+// 测两件事：
+//   1. 基本正确性：帧数对得上、幅度不失真
+//   2. 质量曲线：品质 0-100 各档在高频下的信噪比
+//      （用来确认"连续可调"是真有意义，不是摆设）
 //
-// 做法：对输出信号做一次目标频点的 DFT 得到信号能量，
-// 再把非目标频点的能量加起来算噪声，求信噪比（SNR）。
+// 测量用单频点 DFT（Goertzel），不用逐点比对 —— 后者测出来的是
+// 相位误差不是失真。
+//
+// 注意：这个测量的噪声底受限于频谱泄漏（探针频率是任意 bin，
+// 纯音的泄漏会被算进噪声），所以绝对值偏低。但不同品质之间用
+// 同一种方法测，相减比较是有效的。
 
 #include "resampler.h"
 
@@ -31,7 +37,6 @@ std::vector<int16_t> sine(uint32_t rate, double freq, double seconds, double amp
     return out;
 }
 
-// 在指定频点做 Goertzel 滤波，返回该频点的幅度
 double goertzel(const std::vector<double>& x, double freq, uint32_t rate) {
     const size_t n = x.size();
     const double k = 0.5 + n * freq / rate;
@@ -48,7 +53,6 @@ double goertzel(const std::vector<double>& x, double freq, uint32_t rate) {
     return 2.0 * std::sqrt(real * real + imag * imag) / n;
 }
 
-// 算 SNR：目标频点幅度 vs 其余频点的总能量
 double snrDb(const std::vector<int16_t>& out, uint32_t rate, double freq) {
     const size_t frames = out.size() / 2;
     const size_t skip = 2000;
@@ -61,10 +65,9 @@ double snrDb(const std::vector<int16_t>& out, uint32_t rate, double freq) {
 
     const double signal = goertzel(x, freq, rate);
 
-    // 扫一遍频谱，把目标频点附近以外的能量当噪声
     double noise = 0.0;
     for (double f = 100; f < rate / 2 - 100; f += 100) {
-        if (std::fabs(f - freq) < 200) continue;   // 跳过目标频点
+        if (std::fabs(f - freq) < 200) continue;
         const double a = goertzel(x, f, rate);
         noise += a * a;
     }
@@ -82,13 +85,14 @@ int main() {
 
     std::printf("重采样器自测（%u Hz -> %u Hz）\n\n", inRate, outRate);
 
+    // ---- 1. 基本正确性 ----
     {
         auto in = sine(inRate, 1000, 1.0, amp);
         Resampler r;
-        r.configure(inRate, outRate, ResampleQuality::Good);
+        r.configure(inRate, outRate, 100);
         std::vector<int16_t> out;
-        size_t got = r.process(in.data(), in.size() / 2, out);
-        size_t expect = (in.size() / 2) * outRate / inRate;
+        const size_t got = r.process(in.data(), in.size() / 2, out);
+        const size_t expect = (in.size() / 2) * outRate / inRate;
 
         double peak = 0;
         for (auto s : out) peak = (std::max)(peak, std::fabs(double(s)) / 32767.0);
@@ -100,38 +104,30 @@ int main() {
                     (peak > amp * 0.95 && peak < amp * 1.05) ? " OK" : " FAIL");
     }
 
-    std::printf("\n2. 信噪比对比（越高越好，单位 dB）\n");
-    std::printf("   %-10s %10s %10s\n", "信号频率", "线性插值", "窗函数sinc");
+    // ---- 2. 质量曲线 ----
+    std::printf("\n2. 品质 -> 质量曲线（19.9kHz 处信噪比）\n");
+    std::printf("   %-8s %-8s %12s\n", "品质", "抽头数", "信噪比dB");
 
-    struct { double freq; const char* label; } cases[] = {
-        {1000,  "1 kHz"},
-        {5000,  "5 kHz"},
-        {10000, "10 kHz"},
-        {15000, "15 kHz"},
-        {19900, "19.9kHz"},
-    };
+    double prev = -999;
+    for (int q : {0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}) {
+        auto in = sine(inRate, 19900, 0.5, amp);
+        Resampler r;
+        r.configure(inRate, outRate, q);
 
-    for (auto& c : cases) {
-        auto in = sine(inRate, c.freq, 0.5, amp);
-
-        double sLin = 0, sSinc = 0;
-        {
-            Resampler r;
-            r.configure(inRate, outRate, ResampleQuality::Linear);
-            std::vector<int16_t> out;
-            r.process(in.data(), in.size() / 2, out);
-            sLin = snrDb(out, outRate, c.freq);
-        }
-        {
-            Resampler r;
-            r.configure(inRate, outRate, ResampleQuality::Best);
-            std::vector<int16_t> out;
-            r.process(in.data(), in.size() / 2, out);
-            sSinc = snrDb(out, outRate, c.freq);
+        if (!r.enabled()) {
+            std::printf("   %-8d %-8s %12s\n", q, "-", "关闭");
+            continue;
         }
 
-        const char* verdict = (sSinc > sLin + 2.0) ? "  <-- sinc 明显更好" : "";
-        std::printf("   %-10s %10.1f %10.1f%s\n", c.label, sLin, sSinc, verdict);
+        std::vector<int16_t> out;
+        r.process(in.data(), in.size() / 2, out);
+        const double snr = snrDb(out, outRate, 19900);
+
+        const int taps = kQualityMinTaps +
+                         (kQualityMaxTaps - kQualityMinTaps) * q / 100;
+        const char* mark = (prev > -900 && snr - prev < 0.3) ? "  <- 差不多到顶了" : "";
+        std::printf("   %-8d %-8d %12.1f%s\n", q, taps, snr, mark);
+        prev = snr;
     }
 
     return 0;
