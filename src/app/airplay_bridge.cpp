@@ -875,40 +875,47 @@ int main(int argc, char** argv) {
                             tryConnect();
                         }
                         break;
-                    case MENU_RESCAN:
+                    case MENU_RESCAN: {
                         sess.teardown();
                         cfg.lastDeviceId.clear();   // 强制重新选择
                         tray.setConnected(false);
                         tray.setTooltip("AirPlay Bridge - 扫描中");
-                        discovered = filterDevices(discoverAirPlayDevices(2500), cfg);
-                        if (discovered.size() > 1) {
-                            std::vector<TrayMenuItem> sub;
-                            for (size_t i = 0; i < discovered.size(); ++i)
+
+                        // 先给个反馈再扫。扫描要一两秒，期间主循环是卡住的，
+                        // 没有这句话用户会以为点击没生效。
+                        tray.notify("AirPlay Bridge", "正在扫描局域网设备…");
+                        discovered = filterDevices(discoverAirPlayDevices(2000), cfg);
+                        logLine("扫描完成，找到 " + std::to_string(discovered.size()) + " 台设备");
+
+                        // 不论扫到几台，都弹设备列表。
+                        // 原来只有 2 台以上才弹：1 台直接连、0 台毫无动静，
+                        // 用户点完菜单就消失，完全不知道发生了什么。
+                        std::vector<TrayMenuItem> sub;
+
+                        if (discovered.empty()) {
+                            // 扫不到也给个明确交代，并提示该查什么
+                            sub.push_back({"未找到设备", 0, false, false, false});
+                            sub.push_back({"", 0, true, true, false});
+                            sub.push_back({"请确认 HomePod 已通电", 0, false, false, false});
+                            sub.push_back({"且与电脑在同一 WiFi", 0, false, false, false});
+                            tray.setTooltip("AirPlay Bridge - 未找到设备");
+                        } else {
+                            for (size_t i = 0; i < discovered.size(); ++i) {
                                 sub.push_back({deviceLabel(discovered[i]),
-                                               static_cast<int>(1000 + i)});
-                            tray.showMenu(sub, [&](int sid) {
-                                size_t idx = static_cast<size_t>(sid - 1000);
-                                if (idx >= discovered.size()) return;
-                                sess.host = discovered[idx].host;
-                                sess.deviceId = discovered[idx].deviceId;
-                                sess.deviceName = discovered[idx].name;
-                                std::string err;
-                                if (!sess.start(err)) {
-                                    tray.notify("AirPlay Bridge", "启动失败: " + err);
-                                } else {
-                                    cfg.lastHost = sess.host;
-                                    if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
-                                    if (!sess.deviceName.empty()) cfg.lastDeviceName = sess.deviceName;
-                                    saveConfig(cfgPath, cfg);
-                                }
-                            });
-                        } else if (discovered.size() == 1) {
-                            // 只有一个设备：直接连。
-                            // 必须跟多设备分支一样检查返回值 —— 否则启动失败时
-                            // 用户看不到任何提示，tooltip 永远停在"扫描中"。
-                            sess.host = discovered[0].host;
-                            sess.deviceId = discovered[0].deviceId;
-                            sess.deviceName = discovered[0].name;
+                                               static_cast<int>(1000 + i),
+                                               true, false, false});
+                            }
+                            tray.setTooltip("AirPlay Bridge - 找到 " +
+                                            std::to_string(discovered.size()) + " 台设备");
+                        }
+
+                        tray.showMenu(sub, [&](int sid) {
+                            const size_t idx = static_cast<size_t>(sid - 1000);
+                            if (idx >= discovered.size()) return;   // 包括"未找到设备"
+
+                            sess.host = discovered[idx].host;
+                            sess.deviceId = discovered[idx].deviceId;
+                            sess.deviceName = discovered[idx].name;
                             std::string err;
                             if (!sess.start(err)) {
                                 logLine("启动失败: " + err);
@@ -920,8 +927,10 @@ int main(int argc, char** argv) {
                                 if (!sess.deviceName.empty()) cfg.lastDeviceName = sess.deviceName;
                                 saveConfig(cfgPath, cfg);
                             }
-                        }
+                        });
                         break;
+                    }
+
                     case MENU_LATENCY: {
                         // 一个窗口里放：固定档（当前档打勾）+ 自定义滑块
                         std::vector<TrayMenuItem> sub;
