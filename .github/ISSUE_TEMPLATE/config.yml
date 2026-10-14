@@ -1,0 +1,12 @@
+# 新建 issue 时的选项配置
+#
+# 把"空白 issue"关掉，引导用户走模板 —— 这个项目的 issue
+# 九成是"没声音"，模板能一次性收集到定位需要的全部信息。
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明 / 常见问题
+    url: https://github.com/RiverFlowsInUUU/AirPlay-Bridge/blob/master/README.md
+    about: 先看一眼 README，很多问题那里已经有答案
+  - name: 音频设备诊断方法
+    url: https://github.com/RiverFlowsInUUU/AirPlay-Bridge/blob/master/README.md
+    about: 跑 --audio-devices 看默认设备对不对

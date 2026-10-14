@@ -1,0 +1,70 @@
+name: 检查上游补丁
+
+# 只做一件事：确认 patches/ 里的补丁还能干净应用。
+#
+# 为什么不做完整编译：
+#   首次配置要 FetchContent 拉 Mbed TLS（约 190MB），
+#   在 Windows runner 上跑一次要十分钟以上，烧分钟数不划算。
+#   而完整编译只在改代码时需要 —— 那种情况下本地就会跑，
+#   不需要 CI 来发现。
+#
+# 而这个补丁是真正会腐烂的东西：上游一旦改动那 4 个文件，
+# 补丁就打不上了。用几秒的成本抓住这个问题。
+
+on:
+  push:
+    paths:
+      - 'patches/**'
+      - '.gitmodules'
+      - '.github/workflows/check-patch.yml'
+  pull_request:
+    paths:
+      - 'patches/**'
+      - '.gitmodules'
+  # 每周一早上跑一次，主动发现上游变动
+  schedule:
+    - cron: '0 1 * * 1'
+  workflow_dispatch:
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 确认 submodule 拉下来了
+        run: |
+          test -f third_party/airplay2-sender-cpp/CMakeLists.txt \
+            || { echo "::error::submodule 没拉下来"; exit 1; }
+
+      - name: 确认补丁是 LF 行尾
+        run: |
+          file patches/upstream-airplay2-sender-cpp.patch
+          if file patches/upstream-airplay2-sender-cpp.patch | grep -q CRLF; then
+            echo "::error::补丁是 CRLF 行尾，git apply 会失败。检查 .gitattributes"
+            exit 1
+          fi
+
+      - name: 试打补丁
+        run: |
+          cd third_party/airplay2-sender-cpp
+          if ! git apply --check ../../patches/upstream-airplay2-sender-cpp.patch; then
+            echo "::error::补丁打不上。上游可能改动了相关文件，需要重新生成补丁。"
+            echo "重新生成：cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch"
+            exit 1
+          fi
+          git apply ../../patches/upstream-airplay2-sender-cpp.patch
+          echo "补丁应用成功"
+
+      - name: 确认补丁覆盖了预期的文件
+        run: |
+          cd third_party/airplay2-sender-cpp
+          for f in CMakeLists.txt src/raop_sender.cpp src/raop_sender.h test/core_tests.cpp; do
+            if ! git diff --name-only | grep -q "^$f$"; then
+              echo "::error::补丁没有覆盖 $f —— 补丁可能不完整"
+              exit 1
+            fi
+          done
+          echo "4 个文件都已覆盖"

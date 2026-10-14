@@ -1,0 +1,88 @@
+name: 连不上 / 没声音
+description: HomePod 连不上，或者连上了但没声音
+title: "[没声音] "
+labels: ["troubleshooting"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这个项目收到的 issue 里，绝大多数是环境问题（虚拟声卡没装、默认设备不对、
+        防火墙），而不是程序本身的 bug。
+
+        下面这几项信息能一次性定位大部分问题 —— 填了就不用来回问。
+        看不懂的项可以留空，但填得越多解决越快。
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 用的哪种模式
+      options:
+        - 接管模式（装了 VB-Audio Virtual Cable，电脑本身静音）
+        - 简单模式（没装虚拟声卡，电脑和 HomePod 同时出声）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 具体现象
+      description: 说清楚卡在哪一步
+      placeholder: |
+        比如：
+        - 托盘图标一直是灰色，从来没绿过
+        - 图标是绿的，但 HomePod 一点声音都没有
+        - 响了十几秒就断，然后自己重连
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      description: 按 Win+R 输入 winver 可以看到
+      placeholder: "比如 Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: audio-devices
+    attributes:
+      label: 音频设备列表
+      description: |
+        在命令行里跑 `airplay_bridge.exe --audio-devices`，
+        然后把 `%LOCALAPPDATA%\AirPlayBridge\audio-devices.log` 的内容贴在这里。
+
+        这一步最关键 —— 能看出系统默认设备是不是虚拟声卡。
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 日志尾部
+      description: |
+        `%LOCALAPPDATA%\AirPlayBridge\bridge.log` 最后 30 行左右。
+        （托盘菜单里有「打开日志文件夹」，一下就到。）
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: homepod
+    attributes:
+      label: HomePod 系统版本
+      description: 在「家庭」App 里点 HomePod → 设置 可以看到
+      placeholder: "比如 HomePod OS 27.0"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认一下
+      options:
+        - label: 手机上的 AirPlay 能正常连到这个 HomePod（排除设备本身的问题）
+        - label: 已经重启过程序（不是托盘图标残留的状态）
+        - label: 如果是接管模式，已经装好 VB-Audio Virtual Cable 并重启过
