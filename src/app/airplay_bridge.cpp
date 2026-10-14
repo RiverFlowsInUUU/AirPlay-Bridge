@@ -118,15 +118,26 @@ void logLine(const std::string& msg) {
         CreateDirectoryA(dir.c_str(), nullptr);
         return dir + "bridge.log";
     }();
-    // 简单轮转：超过 512KB 就丢掉旧内容重开。
-    // 否则长时间挂机（每 2 秒一条心跳）会把日志撑到几十 MB。
+    // 日志清理，两条规则：
+    //   1) 超过 30 天没动过 -> 删掉重开（老日志没参考价值了）
+    //   2) 超过 512KB -> 也删掉重开（长时间挂机每 2 秒一条心跳，
+    //      不限制会涨到几十 MB）
     {
-        FILE* chk = std::fopen(path.c_str(), "rb");
-        if (chk) {
-            std::fseek(chk, 0, SEEK_END);
-            long sz = std::ftell(chk);
-            std::fclose(chk);
-            if (sz > 512 * 1024) std::remove(path.c_str());
+        WIN32_FILE_ATTRIBUTE_DATA attr{};
+        if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &attr)) {
+            const ULONGLONG size = (ULONGLONG(attr.nFileSizeHigh) << 32) |
+                                   attr.nFileSizeLow;
+            // FILETIME -> 100ns 单位。30 天 = 30*24*3600*10^7
+            constexpr ULONGLONG k30Days = 30ULL * 24 * 3600 * 10000000ULL;
+            ULONGLONG lastWrite = (ULONGLONG(attr.ftLastWriteTime.dwHighDateTime) << 32) |
+                                  attr.ftLastWriteTime.dwLowDateTime;
+            FILETIME nowFt{};
+            GetSystemTimeAsFileTime(&nowFt);
+            const ULONGLONG now = (ULONGLONG(nowFt.dwHighDateTime) << 32) |
+                                  nowFt.dwLowDateTime;
+            const bool tooOld = (now > lastWrite) && (now - lastWrite > k30Days);
+            const bool tooBig = size > 512 * 1024;
+            if (tooOld || tooBig) std::remove(path.c_str());
         }
     }
     FILE* f = std::fopen(path.c_str(), "a");
@@ -583,6 +594,12 @@ int main(int argc, char** argv) {
     BridgeConfig cfg;
     loadConfig(cfgPath, cfg);
     if (volume < 0) volume = cfg.volume;
+
+    // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
+    logLine("已加载设置: 音量 " + std::to_string(cfg.volume) + "%" +
+            ", 延迟 " + std::to_string(cfg.latencyMs) + "ms" +
+            ", 音质 " + std::to_string(cfg.quality) + " 档" +
+            (cfg.lastDeviceName.empty() ? "" : (", 设备 " + cfg.lastDeviceName)));
 
     // ---- 一次性命令 ----
     if (wantAudioDevices || !setDefaultArg.empty()) {
