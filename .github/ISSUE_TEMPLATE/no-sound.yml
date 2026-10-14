@@ -15,10 +15,10 @@ body:
   - type: dropdown
     id: mode
     attributes:
-      label: 用的哪种模式
+      label: 电脑会不会同时出声
       options:
-        - 接管模式（装了 VB-Audio Virtual Cable，电脑本身静音）
-        - 监听复制模式（没装虚拟声卡，电脑和 HomePod 同时出声）
+        - 不会，电脑是静音的
+        - 会，电脑扬声器也在响
         - 不确定
     validations:
       required: true
