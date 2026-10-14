@@ -791,7 +791,11 @@ int main(int argc, char** argv) {
 
     while (!g_stop.load()) {
         tray.pump([&](TrayEvent e) {
-            if (e != TrayEvent::RightClick) return;
+            // 左键和右键都弹菜单。
+            // 只认右键的话，习惯左键的人会以为程序坏了 ——
+            // 托盘工具没有别的入口，点不开等于失联。
+            // 托盘图标的约定本来就是"点它看菜单"，左右键不该有区别。
+            if (e != TrayEvent::RightClick && e != TrayEvent::LeftClick) return;
 
             std::vector<TrayMenuItem> menu;
             // 状态区：拆成两行，避免设备名把菜单撑得过宽。

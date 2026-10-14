@@ -3,6 +3,14 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.1.6] - 2026-10-14
+
+### Changed
+
+- 左键单击托盘图标同样打开菜单（此前仅响应右键）。
+  托盘图标是程序唯一的入口，只认右键会让习惯左键的用户
+  以为程序没有响应。
+
 ## [1.1.5] - 2026-10-14
 
 ### Changed
