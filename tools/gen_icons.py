@@ -1,88 +1,104 @@
 # -*- coding: utf-8 -*-
 """
-生成托盘图标 —— AirPlay 风格：圆角方框 + 底部三角 + 上方声波。
-两种状态：
-  connected  绿色（#2ECC71）+ 白色符号
-  idle       灰色（#8A8F98）+ 白色符号
+从一张源图生成托盘/程序图标（多尺寸 .ico）。
 
-输出 16/20/24/32 px 的 ICO，写到 tray_icons/ 下。
+用法:
+    python gen_icons.py <源图.png>
+
+输出（写到 tray_icons/）:
+    connected.ico   原样（彩色），用于"已连接"
+    idle.ico        灰度版，用于"未连接"
+    app.ico         程序图标（任务栏 / 资源管理器），用彩色版
+
+托盘图标走 Windows 的 SM_CXSMICON 尺寸（通常 16px），
+所以小尺寸的可读性最重要 —— 缩完做一次锐化，避免糊成一团。
 """
 import os
-from PIL import Image, ImageDraw
+import sys
+
+from PIL import Image, ImageEnhance, ImageFilter
 
 OUT_DIR = "tray_icons"
+SIZES = [16, 20, 24, 32, 48, 64, 128, 256]
 
 
-def make_icon(accent, size=256):
-    """画一张大图（后面缩放出各尺寸）。"""
-    S = size
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+def to_gray(img):
+    """转成灰度，并稍微提一点对比度 —— 全灰会显得脏。"""
+    g = img.convert("L").convert("RGBA")
+    # 保留原图的 alpha
+    g.putalpha(img.getchannel("A"))
+    g = ImageEnhance.Contrast(g.convert("RGB")).enhance(1.15).convert("RGBA")
+    g.putalpha(img.getchannel("A"))
+    return g
 
-    # --- 圆角方框背景 ---
-    pad = int(S * 0.06)
-    radius = int(S * 0.22)
-    d.rounded_rectangle([pad, pad, S - pad, S - pad],
-                        radius=radius, fill=accent)
 
-    # --- AirPlay 符号：底部梯形（屏幕）+ 三角形（播放头）+ 上方弧线（信号） ---
-    white = (255, 255, 255, 255)
+def shrink_icon(src, size):
+    """缩小到目标尺寸。小图锐化一下，不然托盘里看不清。"""
+    out = src.resize((size, size), Image.LANCZOS)
+    if size <= 32:
+        out = out.filter(ImageFilter.UnsharpMask(radius=0.6, percent=80, threshold=2))
+    return out
 
-    # 屏幕/底座：一个下方收窄的矩形
-    scr_w = int(S * 0.46)
-    scr_h = int(S * 0.26)
-    scr_x = (S - scr_w) // 2
-    scr_y = int(S * 0.30)
-    d.rectangle([scr_x, scr_y, scr_x + scr_w, scr_y + scr_h], fill=white)
 
-    # 底座小脚
-    foot_w = int(S * 0.14)
-    foot_h = int(S * 0.05)
-    d.rectangle([(S - foot_w) // 2, scr_y + scr_h,
-                 (S + foot_w) // 2, scr_y + scr_h + foot_h], fill=white)
-
-    # 播放三角（自下而上，指向屏幕）
-    tri_w = int(S * 0.44)
-    tri_h = int(S * 0.22)
-    tri_top_y = scr_y + scr_h + foot_h + int(S * 0.02)
-    d.polygon([
-        ((S - tri_w) // 2, tri_top_y + tri_h),
-        ((S + tri_w) // 2, tri_top_y + tri_h),
-        (S // 2,           tri_top_y),
-    ], fill=white)
-
-    # 两道弧线（信号）
-    for i, scale in enumerate([0.30, 0.40]):
-        r = int(S * scale)
-        lw = max(2, int(S * 0.035))
-        cx, cy = S // 2, int(S * 0.44)
-        d.arc([cx - r, cy - r, cx + r, cy + r],
-              start=200, end=340, fill=white, width=lw)
-
-    return img
+def save_ico(img, path):
+    frames = [shrink_icon(img, s) for s in SIZES]
+    frames[-1].save(path, format="ICO", sizes=[(s, s) for s in SIZES])
+    print("  " + path)
 
 
 def main():
+    if len(sys.argv) < 2:
+        print("用法: python gen_icons.py <源图.png>")
+        return 1
+
+    src_path = sys.argv[1]
+    if not os.path.exists(src_path):
+        print("找不到: " + src_path)
+        return 1
+
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    colors = {
-        "connected": (46, 204, 113, 255),    # 绿
-        "idle":      (138, 143, 152, 255),   # 灰
-    }
+    src = Image.open(src_path).convert("RGBA")
 
-    sizes = [16, 20, 24, 32, 48, 256]
+    # 裁掉四周透明留白，然后只保留 40% 的留白 —— 让图标在托盘里显得大一些。
+    # （托盘图标只有 16px，边缘空白多的话主体会小得看不清。）
+    bbox = src.getbbox()
+    if bbox:
+        src = src.crop(bbox)
+        w, h = src.size
+        side = max(w, h)
+        # 放大到正方形画布，四周留白 = 边长的 6%（原来的 60% 被砍掉）
+        pad = int(side * 0.06)
+        canvas = Image.new("RGBA", (side + pad * 2, side + pad * 2), (0, 0, 0, 0))
+        canvas.paste(src, ((side - w) // 2 + pad, (side - h) // 2 + pad), src)
+        src = canvas
+        print("  （已裁剪留白: %dx%d -> %dx%d）" % (bbox[2]-bbox[0], bbox[3]-bbox[1], *src.size))
 
-    for name, accent in colors.items():
-        big = make_icon(accent, 256)
-        frames = [big.resize((s, s), Image.LANCZOS) for s in sizes]
-        ico_path = os.path.join(OUT_DIR, name + ".ico")
-        frames[-1].save(ico_path, format="ICO",
-                        sizes=[(s, s) for s in sizes])
-        # 同时存一张 PNG 方便预览
-        big.resize((128, 128), Image.LANCZOS).save(
-            os.path.join(OUT_DIR, name + "_preview.png"))
-        print("wrote " + ico_path)
+    # 有些图带白底，把接近纯白的边角抠掉，让托盘图标背景透明
+    if src.getextrema()[3][0] == 255:   # 完全不透明 => 可能是白底
+        px = src.load()
+        w, h = src.size
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = px[x, y]
+                if r > 246 and g > 246 and b > 246:
+                    px[x, y] = (r, g, b, 0)
+        print("  （已抠掉白色背景）")
+
+    print("生成图标:")
+    save_ico(src, os.path.join(OUT_DIR, "connected.ico"))
+    save_ico(to_gray(src), os.path.join(OUT_DIR, "idle.ico"))
+    save_ico(src, os.path.join(OUT_DIR, "app.ico"))
+
+    # 预览图，方便肉眼检查
+    src.resize((128, 128), Image.LANCZOS).save(
+        os.path.join(OUT_DIR, "preview_connected.png"))
+    to_gray(src).resize((128, 128), Image.LANCZOS).save(
+        os.path.join(OUT_DIR, "preview_idle.png"))
+
+    print("完成")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

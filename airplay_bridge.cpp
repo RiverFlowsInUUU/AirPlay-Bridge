@@ -628,6 +628,11 @@ int main(int argc, char** argv) {
     auto lastCheck = std::chrono::steady_clock::now();
     // 重连退避：连续失败时逐次翻倍，避免每 5 秒猛扫一次
     int retryBackoffSec = 5;
+    // 用户主动断开标记。
+    // true = 用户自己点的"断开"，不要自动重连；
+    // false = 正常状态（网络断线仍然自动重连）。
+    // 没有这个标志的话，用户点完断开 5 秒后它又自己连上了。
+    bool userDisconnected = false;
     // 后台扫描（避免阻塞托盘消息循环）
     std::future<std::vector<AirPlayDevice>> scanFuture;
     std::vector<AirPlayDevice> scanResult;
@@ -696,10 +701,15 @@ int main(int argc, char** argv) {
                 switch (id) {
                     case MENU_TOGGLE:
                         if (sess.running.load()) {
+                            // 用户主动断开：标记一下，别再自动连回来
+                            userDisconnected = true;
                             sess.teardown();
                             tray.setConnected(false);
-                            tray.setTooltip("AirPlay Bridge - 已断开");
+                            tray.setTooltip("AirPlay Bridge - 已断开（手动）");
+                            logLine("用户手动断开，暂停自动重连");
                         } else {
+                            // 用户手动连接：清掉标记，恢复正常
+                            userDisconnected = false;
                             tryConnect();
                         }
                         break;
@@ -855,8 +865,10 @@ int main(int argc, char** argv) {
                 sess.wantReconnect.store(false);
                 sess.teardown();
                 tryConnect();
-            } else if (!sess.running.load() && cfg.autoReconnect) {
-                // 启动时没连上（设备还没通电）。
+            } else if (!sess.running.load() && cfg.autoReconnect && !userDisconnected) {
+                // 启动时没连上（设备还没通电），或中途掉线。
+                // userDisconnected 挡住的只是"用户自己点的断开" ——
+                // 那种情况重连是骚扰，不是帮忙。
                 // 扫描放到后台，避免冻结 UI；连续失败则退避。
                 if (!scanFuture.valid()) {
                     scanFuture = std::async(std::launch::async, [&cfg]() {
