@@ -1,0 +1,25 @@
+# 统一行尾，别让 Windows 的 core.autocrlf 破坏补丁。
+#
+# 背景：patches/*.patch 是 unified diff，上下文行必须与上游源文件逐字节吻合。
+# 上游源文件是 LF，若 patch 在 checkout 时被转成 CRLF，`git apply` 会
+# 报 "patch does not apply" —— 任何 Windows 用户 clone 后都编译不了。
+# 这里显式声明：补丁永远用 LF 存、用 LF 检出。
+
+*.patch  -text
+*.diff   -text
+
+# 源码统一 LF 入库（C/C++、CMake、脚本）
+*.c      text eol=lf
+*.cc     text eol=lf
+*.cpp    text eol=lf
+*.h      text eol=lf
+*.hpp    text eol=lf
+*.txt    text eol=lf
+*.cmake  text eol=lf
+CMakeLists.txt  text eol=lf
+*.py     text eol=lf
+*.md     text eol=lf
+
+# Windows 专用资源保持二进制
+*.ico    binary
+*.rc     text eol=crlf
