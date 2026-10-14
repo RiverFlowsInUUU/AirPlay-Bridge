@@ -1,0 +1,10 @@
+^C:\USERS\ADMINISTRATOR\.CONFIG\ALMA\SCRATCH\AIRPLAY-BRIDGE-REPO\BUILD2\CMAKEFILES\A0FA49BF059F300B09495E10BF122E47\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo -BC:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2 --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/Administrator/.config/alma/scratch/airplay-bridge-repo/build2/airplay_bridge.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

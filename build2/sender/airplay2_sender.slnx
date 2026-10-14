@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Solution>
+	<Configurations>
+		<BuildType Name="Debug"/>
+		<BuildType Name="Release"/>
+		<BuildType Name="MinSizeRel"/>
+		<BuildType Name="RelWithDebInfo"/>
+		<Platform Name="x64"/>
+	</Configurations>
+	<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="7f1c2be7-e977-313a-a859-066db1cd4c7a" DefaultStartup="true">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="airplay_crypto.vcxproj"/>
+		<BuildDependency Project="ed25519.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedcrypto.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedtls.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedx509.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj"/>
+		<BuildDependency Project="raop_sender.vcxproj"/>
+	</Project>
+	<Project Path="INSTALL.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="480bf535-98c0-335c-a1e2-03c5c63ccbc3">
+		<BuildDependency Project="ALL_BUILD.vcxproj"/>
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="../ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="9bbd63f6-01d0-34dd-a026-22c338cab458"/>
+	<Project Path="airplay_crypto.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="4ecb266e-344c-3b75-bc11-af86a659a6f0">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="ed25519.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedcrypto.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/apidoc.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="6c8fe4f2-0cf1-3b2a-aacb-844efe568ab0">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="ed25519.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="4b95a8f3-9205-3589-965d-9c864a3cb6ad">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d0e2292c-c521-334d-8091-d74e80091115">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/library/lib.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="7d70e701-4be1-3628-b553-bc8be7053468">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedcrypto.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedtls.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedx509.vcxproj"/>
+		<Build Solution="Debug|*" Project="false"/>
+		<Build Solution="Release|*" Project="false"/>
+		<Build Solution="MinSizeRel|*" Project="false"/>
+		<Build Solution="RelWithDebInfo|*" Project="false"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/library/mbedcrypto.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="6dad66c9-099d-391d-984d-72fe84b24336">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/library/mbedtls.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="c28603aa-b94f-35a3-b13c-fa734509b765">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedcrypto.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedx509.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/library/mbedx509.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="4828bace-cfc7-3b02-8df4-973c356035f8">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedcrypto.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj"/>
+	</Project>
+	<Project Path="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="765d0196-7d58-3d70-a675-c81c3cd5791a">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+	</Project>
+	<Project Path="raop_sender.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="1dfe6a80-0ae9-37e5-b14c-2f95bb2bc681">
+		<BuildDependency Project="../ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="airplay_crypto.vcxproj"/>
+		<BuildDependency Project="ed25519.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/everest/everest.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/library/mbedcrypto.vcxproj"/>
+		<BuildDependency Project="../_deps/mbedtls-build/3rdparty/p256-m/p256m.vcxproj"/>
+	</Project>
+</Solution>

@@ -1,0 +1,94 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6f5c72d..c9d488b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -43,7 +43,12 @@ target_include_directories(ed25519 PUBLIC
+ # warnings for our own code only (the dependencies keep their flags).
+ function(airplay_warnings target)
+     if(MSVC)
+-        target_compile_options(${target} PRIVATE /W4)
++        # /utf-8: the sources are UTF-8 (they carry Chinese comments). Without
++        # it MSVC decodes them in the system codepage (936/GBK here), and a
++        # UTF-8 sequence whose last byte is a GBK lead byte (e.g. U+FF0C ",",
++        # ...\xef\xbc\x8c) swallows the following newline, merging the comment
++        # with the next declaration and making members "undeclared".
++        target_compile_options(${target} PRIVATE /W4 /utf-8)
+         target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
+     else()
+         target_compile_options(${target} PRIVATE -Wall -Wextra)
+diff --git a/src/raop_sender.cpp b/src/raop_sender.cpp
+index 0e282e1..f0978db 100644
+--- a/src/raop_sender.cpp
++++ b/src/raop_sender.cpp
+@@ -1548,6 +1548,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
+         ap2_->controlIn  = hkdfSha512("Control-Salt",
+                                       "Control-Read-Encryption-Key",
+                                       ap2_->sharedSecret, 32);
++        // 事件通道密钥：瞬态配对也必须派生这四把里的另两把。
++        // eventPort 是反向连接，读写密钥与控制通道相反：
++        //   用 Events-Write 解密接收端推来的事件，
++        //   用 Events-Read  加密我们回的 200 OK。
++        // 缺了这两把，接收端推来的请求无法解密、不回 ack，
++        // 它会在约 30 秒后主动拆掉整条会话。
++        ap2_->eventIn  = hkdfSha512("Events-Salt",
++                                    "Events-Write-Encryption-Key",
++                                    ap2_->sharedSecret, 32);
++        ap2_->eventOut = hkdfSha512("Events-Salt",
++                                    "Events-Read-Encryption-Key",
++                                    ap2_->sharedSecret, 32);
+         pairStage_ = PairStage::Done;
+         afterAuthOk_();
+         return;
+@@ -1859,8 +1871,12 @@ void RaopSender::sendAp2SetupStream_() {
+     stream.emplace_back("controlPort", Value::integer(localControlPort_));
+     stream.emplace_back("ct", Value::integer(2));        // ALAC
+     stream.emplace_back("isMedia", Value::boolean(true));
+-    stream.emplace_back("latencyMax", Value::integer(88200));
+-    stream.emplace_back("latencyMin", Value::integer(11025));
++    // 调度窗口同步缩小（原 88200/11025 = 2s/0.25s）。
++    // 这是允许接收端缓冲的上限，调小才能压住延迟。
++    // 调度窗口跟随运行时设置的延迟：上限给 2 倍余量，下限给 1/3。
++    // 这个窗口是"允许接收端缓冲的范围"，必须跟 latency_ 匹配。
++    stream.emplace_back("latencyMax", Value::integer(int(latency_) * 2));
++    stream.emplace_back("latencyMin", Value::integer(int(latency_) / 3));
+     stream.emplace_back("shk", Value::bytes(ap2_->audioKey));
+     stream.emplace_back("spf", Value::integer(352));     // samples per frame
+     stream.emplace_back("sr", Value::integer(44100));
+diff --git a/src/raop_sender.h b/src/raop_sender.h
+index 5560966..3768e72 100644
+--- a/src/raop_sender.h
++++ b/src/raop_sender.h
+@@ -142,6 +142,19 @@ public:
+     // the receiver keeps its own current volume.
+     void setVolume(double pct);
+ 
++    // 运行时设置端到端延迟（毫秒）。必须在 start() 之前调用：
++    // 这个值会写进 SETUP 的 latencyMax/Min，并作为 RTP 时间戳的基准偏移。
++    // 调小可以降低延迟，但太小会导致接收端 underrun（爆音）。
++    // 合理范围约 100-2000 ms。
++    void setLatencyMs(int ms) {
++        if (ms < 60)    ms = 60;      // 低于 60ms 基本都撑不住
++        if (ms > 1000)  ms = 1000;
++        // 44100 Hz 下每毫秒 44.1 帧
++        latency_ = static_cast<uint32_t>(ms * 44100 / 1000);
++        latencyMs_ = ms;
++    }
++    int latencyMs() const { return latencyMs_; }
++
+     // Now-playing metadata pushed to the receiver via DMAP-tagged
+     // SET_PARAMETER (title/artist/album) + the cover as image/jpeg|png.
+     // Stored when not streaming and (re)sent on the next RECORD; sent
+@@ -343,7 +356,12 @@ private:
+     Clock::time_point clockStart_{};     // monotonic pacing reference
+     uint64_t startTs_ = 0;       // NTP-derived start timestamp (pyatv model)
+     uint64_t framesSent_ = 0;    // 44.1 kHz frames put on the wire
+-    uint32_t latency_ = 22050 + 44100;   // fixed RAOP latency (pyatv)
++    // 端到端延迟调优：原值 22050+44100 = 1.5s 是 pyatv 选的安全值，
++    // 协议并未要求。0.25s 接近 AP2 现实下限（shairport-sync 作者称约 250ms）。
++    // 端到端延迟（帧数）。由 setLatencyMs() 在 start() 前设置，
++    // 默认 150ms。原来是从 pyatv 抄的 1.5s，那个值协议并未要求。
++    uint32_t latency_ = 6615;    // 150 ms
++    int      latencyMs_ = 150;   // 毫秒形式，便于回读
+     uint16_t seq_ = 0;           // RTP sequence number
+     bool     firstAudio_ = true; // marker bit on the first audio packet
+     double   pendingVolumeDb_ = kNoVolume;   // setVolume before RECORD

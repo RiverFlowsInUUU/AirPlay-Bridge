@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Administrator\.config\alma\scratch\airplay-bridge-repo\build2\CMakeFiles\a5e9c1db2fdc82b0f1d8530b76592228\apidoc.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\Administrator\.config\alma\scratch\airplay-bridge-repo\build2\_deps\mbedtls-src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\Administrator\.config\alma\scratch\airplay-bridge-repo\build2\_deps\mbedtls-build\CMakeFiles\apidoc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{02314ED9-69A2-3F74-8684-0F0DA7818EA9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

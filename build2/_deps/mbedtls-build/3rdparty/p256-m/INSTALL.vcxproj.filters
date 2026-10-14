@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Administrator\.config\alma\scratch\airplay-bridge-repo\build2\CMakeFiles\ff2f4d54b4d1a4f4723f7a83a4bf79d6\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{02314ED9-69A2-3F74-8684-0F0DA7818EA9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

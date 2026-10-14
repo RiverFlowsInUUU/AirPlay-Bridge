@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// bridge.rc -- 把托盘图标和程序图标编译进 exe。
+//
+// 这样 exe 是单文件、零外挂：图标直接嵌在资源段里，
+// 运行时用 LoadIconW(GetModuleHandleW(nullptr), ...) 取出来。
+
+#include <windows.h>
+
+// 程序主图标（任务栏 / 资源管理器里显示的）
+101 ICON "tray_icons\\connected.ico"
+
+// 托盘图标：两个状态
+102 ICON "tray_icons\\connected.ico"
+103 ICON "tray_icons\\idle.ico"

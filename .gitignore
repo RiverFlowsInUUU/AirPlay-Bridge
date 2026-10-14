@@ -1,0 +1,24 @@
+# 编译产物
+build/
+out/
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# 运行时数据
+*.log
+bridge_config.json
+airplay_creds_*.json
+
+# 测试音频（体积大，不入库）
+testaudio/
