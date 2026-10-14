@@ -252,6 +252,16 @@ airplay_bridge.exe --audio-devices
 | K2 | 多设备混音采集全是静音 | 单设备正常。接管模式下不需要，暂搁置 |
 | K3 | `IPolicyConfig` 是未公开接口 | Windows 更新可能失效。已做重试 + 复核 |
 
+## 待做（挂账中）
+
+| 项 | 说明 | 位置 |
+|---|---|---|
+| macOS 版 | 不是本项目移植。需求是「开机自动把音频输出切到 HomePod」。经调研，
+macOS 不提供该能力（AirPlay 设备自 Big Sur 起不再作为普通 Core Audio 设备暴露，
+脚本访问权限已被 Apple 移除），界面自动化方案在 macOS 26 上已失效。
+可自动化的路线反而是自行采集系统音频（Core Audio process taps，需 macOS 14.2+）。
+暂不启动。 | issue #1 |
+
 ## 发布
 
 ```
