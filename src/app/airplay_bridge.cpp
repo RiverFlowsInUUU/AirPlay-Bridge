@@ -90,6 +90,7 @@ enum : int {
     MENU_LATENCY_CUSTOM = 106,   // 自定义延迟（无极滑块）
     MENU_VOLUME   = 107,   // 音量（子菜单）
     MENU_VOLUME_CUSTOM = 108,   // 自定义音量（滑块）
+    MENU_OPEN_LOG  = 109,   // 打开日志文件夹
     MENU_QUIT      = 104,   // 退出
 };
 
@@ -248,6 +249,8 @@ struct Session {
 
     // 事件回调（由外部设置）
     std::function<void(bool)>  onConnected;      // true = 已连接
+    // 首次连上时调一次（之后置空）—— 用来弹一次性的欢迎提示
+    std::function<void(const std::string&)> onFirstConnect;
     std::function<void(const std::string&)> onStatus;
 
     bool start(std::string& err) {
@@ -316,6 +319,12 @@ struct Session {
             connected.store(ok);
             if (onConnected) onConnected(ok);
             if (onStatus) onStatus(ok ? "已连接" : ("连接失败: " + e));
+            // 首次连上时弹一次气泡。
+            // 只在首次 —— 自动重连时不弹，否则隔一会儿蹦一个很烦。
+            if (ok && onFirstConnect) {
+                onFirstConnect(deviceName);
+                onFirstConnect = nullptr;
+            }
             if (!ok) {
                 // 连接失败：running 必须清掉。
                 // start() 是在 sender->start() 之后才置 running=true 的，
@@ -637,6 +646,12 @@ int main(int argc, char** argv) {
     sess.cfg = &cfg;
     sess.volume = volume;
     sess.cfgPath = cfgPath;   // 崩溃保护要用
+    sess.onFirstConnect = [&tray](const std::string& dev) {
+        // 首次连上弹一次。托盘图标只有 16px，颜色变化不明显，
+        // 新用户需要一个明确的"连上了"信号。
+        tray.notify("AirPlay Bridge",
+                    dev.empty() ? "已连接" : ("已连接: " + dev));
+    };
     sess.onStatus = [&tray](const std::string& s) {
         tray.setTooltip("AirPlay Bridge - " + s);
         logLine(s);
@@ -765,6 +780,7 @@ int main(int argc, char** argv) {
             }
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
+            menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"退出", MENU_QUIT});
 
@@ -862,6 +878,9 @@ int main(int argc, char** argv) {
                             cfg.latencyMs = kLatencyLevels[idx].ms;
                             saveConfig(cfgPath, cfg);
                             logLine("延迟切换为 " + std::to_string(cfg.latencyMs) + "ms，重连生效");
+                            tray.notify("AirPlay Bridge",
+                                        "延迟已设为 " + std::to_string(cfg.latencyMs) +
+                                        "ms，正在重连…");
                             // 延迟要在 start() 前设，所以必须重连一次
                             if (sess.running.load()) {
                                 sess.teardown();
@@ -900,6 +919,13 @@ int main(int argc, char** argv) {
                     }
                     case MENU_AUTOSTART:
                         setAutoStart(!isAutoStartEnabled());
+                        break;
+                    case MENU_OPEN_LOG:
+                        // 用资源管理器打开数据目录。
+                        // 出错时用户要去看日志，那个路径带空格又是隐藏的，
+                        // 手打太痛苦 —— 给个入口。
+                        ShellExecuteA(nullptr, "open", appDataDir().c_str(),
+                                      nullptr, nullptr, SW_SHOWNORMAL);
                         break;
                     case MENU_QUIT:
                         g_stop.store(true);

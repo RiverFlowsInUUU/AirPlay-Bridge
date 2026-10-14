@@ -28,7 +28,10 @@ struct BridgeConfig {
     std::vector<std::string> ignoredDeviceIds;   // 用户手动忽略的设备
 };
 
-// 默认路径：exe 同目录的 bridge_config.json
+// 运行时数据目录（%LOCALAPPDATA%\\AirPlayBridge\\），不存在则创建。
+std::string appDataDir();
+
+// 默认配置路径
 std::string defaultConfigPath();
 
 bool loadConfig(const std::string& path, BridgeConfig& out);
