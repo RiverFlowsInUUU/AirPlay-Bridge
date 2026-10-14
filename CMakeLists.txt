@@ -12,6 +12,11 @@
 #   cmake --build build --config Release
 
 cmake_minimum_required(VERSION 3.16)
+# 静态链接 CRT：产物不依赖 MSVCP140.dll / VCRUNTIME140.dll，
+# 用户下载 exe 双击即用，不用先装 VC++ 运行库。
+# 必须在 project() 之前设置才生效。
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
+
 project(airplay_bridge CXX)
 
 set(CMAKE_CXX_STANDARD 20)
