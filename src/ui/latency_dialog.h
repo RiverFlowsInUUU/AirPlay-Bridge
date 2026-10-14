@@ -32,4 +32,7 @@ int showLatencyDialog(int currentMs);
 // 便捷封装：音量调节（0-100%）
 int showVolumeDialog(int currentPct);
 
+// 便捷封装：重采样质量（0-3）
+int showQualityDialog(int currentLevel);
+
 } // namespace fxchain

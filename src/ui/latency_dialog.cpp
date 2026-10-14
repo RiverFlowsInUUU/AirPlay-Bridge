@@ -232,6 +232,27 @@ int showLatencyDialog(int currentMs) {
     return showSliderDialog(spec, currentMs);
 }
 
+const char* qualityGrade(int level) {
+    switch (level) {
+        case 0:  return "关闭（最快）";
+        case 1:  return "线性（快，高频有失真）";
+        case 2:  return "好（16 抽头）";
+        default: return "最好（32 抽头）";
+    }
+}
+
+int showQualityDialog(int currentLevel) {
+    SliderDialogSpec spec;
+    spec.title = "AirPlay Bridge — 音质";
+    spec.hint = "采集到的设备音频要转到 44.1kHz 才能推给 HomePod。\n这个档位决定转换算法：越往下高频越干净，但 CPU 也越贵。";
+    spec.minValue = 0;
+    spec.maxValue = 3;
+    spec.tickFreq = 1;
+    spec.unit = "";
+    spec.grade = qualityGrade;
+    return showSliderDialog(spec, currentLevel);
+}
+
 int showVolumeDialog(int currentPct) {
     SliderDialogSpec spec;
     spec.title = "AirPlay Bridge — 音量调节";

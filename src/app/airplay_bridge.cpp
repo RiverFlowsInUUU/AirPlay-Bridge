@@ -21,6 +21,7 @@
 #include "discovery.h"
 #include "config_store.h"
 #include "wasapi_capture.h"
+#include "resampler.h"
 #include "tray.h"
 #include "sysvolume.h"
 #include "audiodevices.h"
@@ -90,6 +91,7 @@ enum : int {
     MENU_LATENCY_CUSTOM = 106,   // 自定义延迟（无极滑块）
     MENU_VOLUME   = 107,   // 音量（子菜单）
     MENU_VOLUME_CUSTOM = 108,   // 自定义音量（滑块）
+    MENU_QUALITY   = 110,   // 音质档位
     MENU_OPEN_LOG  = 109,   // 打开日志文件夹
     MENU_QUIT      = 104,   // 退出
 };
@@ -235,6 +237,10 @@ struct Session {
     std::unique_ptr<RaopLoop>            loop;
     std::unique_ptr<RaopSender>          sender;
     std::unique_ptr<WasapiCapture>       capture;
+    // 采集侧重采样：把设备采样率转到 44100，
+    // 让引擎走 pass-through（绕开它那个线性插值）
+    Resampler resampler;
+    std::vector<int16_t> resampleBuf;
     std::thread                          producer;
 
     std::atomic<bool> connected{false};
@@ -349,17 +355,54 @@ struct Session {
             logLine(tag + m);
         };
 
+        // 采集侧重采样：把设备采样率转到 44100。
+        // 这样引擎走 pass-through，不用它自带的线性插值 ——
+        // 那个在高频段失真很重（实测 15kHz 信噪比只有 14dB）。
+        const uint32_t kAirPlayRate = 44100;
+        bool needResample = (inputRate != kAirPlayRate);
+        if (needResample) {
+            // 按配置的档位选质量。0/1 都表示不启用我们的重采样
+            // （交给引擎自带的线性插值处理），2/3 用窗函数 sinc。
+            ResampleQuality q = ResampleQuality::Best;
+            if (cfg) {
+                switch (cfg->quality) {
+                    case 0:  q = ResampleQuality::Off;    break;
+                    case 1:  q = ResampleQuality::Linear; break;
+                    case 2:  q = ResampleQuality::Good;   break;
+                    default: q = ResampleQuality::Best;   break;
+                }
+            }
+            resampler.configure(inputRate, kAirPlayRate, q);
+            // 如果档位是"关"，就让引擎自己处理（用它的线性插值）
+            if (q == ResampleQuality::Off) {
+                needResample = false;
+            }
+        }
+        // 告诉引擎送进去的是什么采样率：
+        // 我们自己转过 -> 44100（引擎走直通）；没转 -> 原采样率（引擎自己转）
+        uint32_t engineInputRate = needResample ? kAirPlayRate : inputRate;
+
         sender = std::make_unique<RaopSender>(*loop, std::move(ev), std::move(log));
         sender->attachRing(ring.get());
-        sender->setInputFormat(inputRate);
+        sender->setInputFormat(engineInputRate);
         sender->setIdentity({"AirPlay Bridge", "AA:BB:CC:DD:EE:FF", "MacBookPro18,3"});
         sender->setAuth(RaopDeviceInfo::Auth::HapTransient, true, "", "", "");
         sender->setVolume(volume);
         if (cfg) sender->setLatencyMs(cfg->latencyMs);   // 延迟必须 start() 前设
 
-        producer = std::thread([this]() {
-            capture->run([this](const int16_t* d, size_t n) {
-                ring->tryPush(std::span<const int16_t>(d, n * 2));
+        producer = std::thread([this, needResample]() {
+            capture->run([this, needResample](const int16_t* d, size_t n) {
+                if (!needResample) {
+                    // 设备本来就是 44.1k，直接送
+                    ring->tryPush(std::span<const int16_t>(d, n * 2));
+                    return;
+                }
+                // 转到 44.1k 再送。resampleBuf 复用，避免每回调都分配。
+                resampleBuf.clear();
+                resampler.process(d, n, resampleBuf);
+                if (!resampleBuf.empty())
+                    ring->tryPush(std::span<const int16_t>(resampleBuf.data(),
+                                                           resampleBuf.size()));
             });
         });
 
@@ -780,6 +823,12 @@ int main(int argc, char** argv) {
             }
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
+            {
+                const char* qname = cfg.quality <= 0 ? "关" :
+                                    cfg.quality == 1 ? "线性" :
+                                    cfg.quality == 2 ? "好" : "最好";
+                menu.push_back({std::string("音质  ") + qname, MENU_QUALITY});
+            }
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"退出", MENU_QUIT});
@@ -920,6 +969,23 @@ int main(int argc, char** argv) {
                     case MENU_AUTOSTART:
                         setAutoStart(!isAutoStartEnabled());
                         break;
+                    case MENU_QUALITY: {
+                        int picked = showQualityDialog(cfg.quality);
+                        if (picked >= 0) {
+                            cfg.quality = picked;
+                            saveConfig(cfgPath, cfg);
+                            logLine("音质档位改为 " + std::to_string(picked) + "，重连生效");
+                            tray.notify("AirPlay Bridge",
+                                        "音质已调整，正在重连…");
+                            // 重采样质量在采集线程初始化时确定，
+                            // 改完要重连才能生效（跟延迟同理）
+                            if (sess.running.load()) {
+                                sess.teardown();
+                                tryConnect();
+                            }
+                        }
+                        break;
+                    }
                     case MENU_OPEN_LOG:
                         // 用资源管理器打开数据目录。
                         // 出错时用户要去看日志，那个路径带空格又是隐藏的，

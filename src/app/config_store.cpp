@@ -112,6 +112,7 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.lastHost       = jsonGetString(j, "lastHost");
     out.volume         = static_cast<int>(jsonGetInt(j, "volume", out.volume));
     out.latencyMs      = static_cast<int>(jsonGetInt(j, "latencyMs", out.latencyMs));
+    out.quality        = static_cast<int>(jsonGetInt(j, "quality", out.quality));
     out.preCaptureDevice = jsonGetString(j, "preCaptureDevice");
     out.autoReconnect  = jsonGetBool(j, "autoReconnect", out.autoReconnect);
     out.hideAppleTV    = jsonGetBool(j, "hideAppleTV", out.hideAppleTV);
@@ -145,6 +146,7 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
     f << "  \"lastHost\": \""       << escapeJson(cfg.lastHost)       << "\",\n";
     f << "  \"volume\": "           << cfg.volume                       << ",\n";
     f << "  \"latencyMs\": "        << cfg.latencyMs                    << ",\n";
+    f << "  \"quality\": "          << cfg.quality                      << ",\n";
     f << "  \"preCaptureDevice\": \"" << escapeJson(cfg.preCaptureDevice) << "\",\n";
     f << "  \"autoReconnect\": "    << (cfg.autoReconnect ? "true" : "false") << ",\n";
     f << "  \"hideAppleTV\": "      << (cfg.hideAppleTV ? "true" : "false")   << ",\n";

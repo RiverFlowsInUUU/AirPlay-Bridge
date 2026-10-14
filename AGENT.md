@@ -86,7 +86,20 @@ cmake -S . -B build -G "<generator>" -A x64 \
 - 正确做法：`CommandLineToArgvW(GetCommandLineW(), &argc)`
 - 需要 `<shellapi.h>`，链接 `shell32`
 
-### C7 — 无控制台程序的诊断输出要落盘
+### C7 — 音质档位改的是采集侧重采样
+
+- 位置：`src/audio/resampler.h`（窗函数 sinc 实现）
+- 原理：采集端拿到的是设备混音格式（通常 48000），AirPlay 流固定 44100。
+  引擎自带的转换是两点线性插值，高频失真严重（实测 15kHz 信噪比仅 14dB）。
+  我们在采集回调里先转到 44100，然后 `setInputFormat(44100)` ——
+  引擎会走 pass-through 分支，完全绕过它自己的重采样。
+- **好处是不动第三方代码**，patch 不需要更新。
+- 档位 0-3 映射：`Off` / `Linear` / `Good`(16 抽头) / `Best`(32 抽头)
+- 档位是 0 时 `needResample` 会被改成 false，让引擎自己处理
+- 改档位要重连（`Resampler::configure()` 在会话建立时调）
+- 自测：`resampler_test` 目标，输出信噪比对比表
+
+### C8 — 无控制台程序的诊断输出要落盘
 
 - 本项目是 `WIN32` 子系统（`add_executable(... WIN32 ...)`），没有控制台
 - `AttachConsole(ATTACH_PARENT_PROCESS)` 在重定向场景下会失败
@@ -101,6 +114,7 @@ src/app/airplay_bridge.cpp     主流程：参数解析 → 托盘循环 → 会
 src/app/config_store.*         JSON 配置（%LOCALAPPDATA%\AirPlayBridge\）
 src/audio/wasapi_capture.*     环回采集
 src/audio/sysvolume.*          系统音量 + 默认播放设备切换
+src/audio/resampler.h          采集侧重采样（窗函数 sinc）
 src/device/discovery.*         设备发现（扫网段 + 单播 mDNS）
 src/device/audiodevices.h      --audio-devices 的实现
 src/ui/tray.*                  托盘图标与菜单

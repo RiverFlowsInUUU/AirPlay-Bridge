@@ -93,3 +93,10 @@ endif()
 
 
 
+
+# 重采样器自测（不参与发布）
+add_executable(resampler_test src/audio/resampler_test.cpp)
+target_include_directories(resampler_test PRIVATE src/audio)
+if(MSVC)
+    target_compile_options(resampler_test PRIVATE /W3)
+endif()
