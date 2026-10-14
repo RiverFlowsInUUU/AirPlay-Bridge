@@ -930,8 +930,13 @@ int main(int argc, char** argv) {
                                            cfg.latencyMs == kLatencyLevels[i].ms});
                 }
                 it.children.push_back({"", 0, true, true, false});
+                // 当前值不等于任何预设档位时，勾打在「自定义」上 ——
+                // 光比档位会让滑块调出来的值一个勾都没有。
+                bool latencyCustom = true;
+                for (int i = 0; i < kLatencyLevelCount; ++i)
+                    if (cfg.latencyMs == kLatencyLevels[i].ms) latencyCustom = false;
                 it.children.push_back({"自定义（滑块）...", MENU_LATENCY_CUSTOM,
-                                       true, false, false});
+                                       true, false, latencyCustom});
                 menu.push_back(std::move(it));
             }
 
@@ -947,8 +952,13 @@ int main(int argc, char** argv) {
                                            cfg.volume == kVolumeLevels[i].pct});
                 }
                 it.children.push_back({"", 0, true, true, false});
+                // 当前值不等于任何预设档位时，勾打在「自定义」上 ——
+                // 光比档位会让滑块调出来的值一个勾都没有。
+                bool volumeCustom = true;
+                for (int i = 0; i < kVolumeLevelCount; ++i)
+                    if (cfg.volume == kVolumeLevels[i].pct) volumeCustom = false;
                 it.children.push_back({"自定义（滑块）...", MENU_VOLUME_CUSTOM,
-                                       true, false, false});
+                                       true, false, volumeCustom});
                 menu.push_back(std::move(it));
             }
 
@@ -964,8 +974,13 @@ int main(int argc, char** argv) {
                                            cfg.qualityLevel == kQualityLevels[i].value});
                 }
                 it.children.push_back({"", 0, true, true, false});
+                // 当前值不等于任何预设档位时，勾打在「自定义」上 ——
+                // 光比档位会让滑块调出来的值一个勾都没有。
+                bool qualityCustom = true;
+                for (int i = 0; i < kQualityLevelCount; ++i)
+                    if (cfg.qualityLevel == kQualityLevels[i].value) qualityCustom = false;
                 it.children.push_back({"自定义（滑块）...", MENU_QUALITY_CUSTOM,
-                                       true, false, false});
+                                       true, false, qualityCustom});
                 menu.push_back(std::move(it));
             }
             menu.push_back({"", 0, true, true, false});
