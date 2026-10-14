@@ -222,15 +222,15 @@ std::vector<AirPlayDevice> filterDevices(const std::vector<AirPlayDevice>& in,
     return out;
 }
 
+// 菜单里显示的设备名。
+//
+// 只要名字就够了。原来还会拼上 "[HomePod AudioAccessory5,1] AP2"
+// 这种尾巴，既重复又难懂：
+//   名字里本来就带 HomePod，模型号是内部标识，AP2 是协议版本。
+//   这些属于诊断信息，该出现在日志和 --list 里，不该塞进菜单。
 std::string deviceLabel(const AirPlayDevice& d) {
-    std::string kind = d.isHomePod ? "HomePod" : (d.isAppleTV ? "Apple TV" : "AirPlay");
-    std::string s = d.name;
-    if (!s.empty()) s += " ";
-    s += "[" + kind;
-    if (!d.model.empty()) s += " " + d.model;
-    s += "]";
-    if (d.isAirPlay2) s += " AP2";
-    return s;
+    if (!d.name.empty()) return d.name;
+    return d.host;   // 拿不到名字就退回 IP，至少能区分
 }
 
 // ---- 命令行模式的选择 ----
@@ -940,7 +940,18 @@ int main(int argc, char** argv) {
                         // 没有这句话用户会以为点击没生效。
                         tray.notify("AirPlay Bridge", "正在扫描局域网设备…");
                         discovered = filterDevices(discoverAirPlayDevices(2000), cfg);
-                        logLine("扫描完成，找到 " + std::to_string(discovered.size()) + " 台设备");
+                        {
+                            // 型号、协议版本这类诊断信息写日志，不进菜单
+                            std::string detail;
+                            for (auto& d : discovered) {
+                                if (!detail.empty()) detail += "; ";
+                                detail += d.name + " / " + d.model;
+                                if (d.isAirPlay2) detail += " / AP2";
+                            }
+                            logLine("扫描完成，找到 " +
+                                    std::to_string(discovered.size()) + " 台设备" +
+                                    (detail.empty() ? std::string() : (": " + detail)));
+                        }
 
                         // 不论扫到几台，都弹设备列表。
                         // 原来只有 2 台以上才弹：1 台直接连、0 台毫无动静，

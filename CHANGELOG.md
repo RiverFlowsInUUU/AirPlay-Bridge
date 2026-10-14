@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.1.9] - 2026-10-14
+
+### Changed
+
+- 设备列表只显示设备名称，不再附带型号标识与协议版本。
+  这些信息改为写入日志，需要时可在日志中查看。
+
 ## [1.1.8] - 2026-10-14
 
 ### Changed
