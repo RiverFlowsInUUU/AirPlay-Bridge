@@ -99,7 +99,21 @@ cmake --build build --config Release
 程序是 WIN32 子系统，没有控制台。`AttachConsole(ATTACH_PARENT_PROCESS)`
 在重定向场景下会失败 —— 从部分终端调用时 stdout 看不到输出。
 
-诊断命令：
+### 命令行参数
+
+全部参数只供开发与诊断使用，**不是用户路径** —— 用户走托盘菜单。
+
+| 参数 | 说明 |
+|---|---|
+| （无） | 托盘模式 |
+| `--console` | 命令行模式 |
+| `--list` | 列出发现的设备 |
+| `<ip>` | 直连指定 IP |
+| `--last` | 重连上次的设备 |
+| `--install` | 注册开机自启 |
+| `--uninstall` | 取消开机自启 |
+| `--audio-devices` | 列出音频设备及缓冲参数 |
+| `--set-default <名>` | 切换默认播放设备 |
 
 ```bash
 airplay_bridge --audio-devices             列出音频设备及缓冲参数
