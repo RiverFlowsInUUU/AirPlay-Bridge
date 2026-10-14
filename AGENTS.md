@@ -123,6 +123,8 @@ AirPlay 流固定 44100。引擎自带两点线性插值，15kHz 处信噪比仅
 
 **不要在单元测试里依赖 `latency_` 的字面值。** 见 C1。
 
+**对外文案不要写 Apple TV。** 设备列表默认屏蔽 Apple TV（`hideAppleTV=true`，只显示 HomePod），README、仓库 About、发布说明等所有对外描述只写「AirPlay 2 设备」。
+
 ## 已知未解问题
 
 | ID | 问题 | 状态 |

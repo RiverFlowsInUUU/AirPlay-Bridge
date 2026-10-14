@@ -1,6 +1,6 @@
 # AirPlay Bridge
 
-把 Windows 的系统声音实时串流到 AirPlay 2 设备（HomePod / Apple TV），跑在托盘里。
+把 Windows 的系统声音实时串流到 AirPlay 2 设备，跑在托盘里。
 
 TuneBlade 在 HomePod OS 27 上失效了 —— Apple 改动了 AirPlay 1 的握手路径，
 所有走 RAOP 的第三方发送端（TuneBlade、Airfoil、Roon）一起哑火。
@@ -42,8 +42,8 @@ Windows 10 / 11，64 位。单文件，不需要安装，不需要运行库。
 
 ```
 ✓ 已连接
-  卧室のHomePod mini
-  192.168.1.100
+  <设备名>
+  <设备 IP>
 ────────────────
   断开
   选择设备  ›
