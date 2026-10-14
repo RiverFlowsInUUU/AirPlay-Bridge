@@ -22,3 +22,4 @@ airplay_creds_*.json
 
 # 测试音频（体积大，不入库）
 testaudio/
+build2/
