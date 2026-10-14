@@ -527,10 +527,42 @@ bool resolveDevice(Session& sess, const BridgeConfig& cfg,
 
 // WIN32 子系统的入口。
 //
+#ifndef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((DPI_AWARENESS_CONTEXT)-4)
+#endif
+
+// 声明 DPI 感知。
+//
+// 不声明的话，系统缩放不是 100% 时 Windows 会把整个进程的界面按比例
+// 位图放大（DPI 虚拟化）—— 托盘菜单、托盘图标、滑块窗口全部发虚。
+// 本机 1920x1080 @125% 实测菜单被放大 1.25 倍，字是糊的。
+//
+// 必须在创建任何窗口之前调用，所以放在 WinMain 第一行。
+static void enableDpiAwareness() {
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (!user32) return;
+
+    // Win10 1703+ 的 per-monitor v2，托盘图标能按当前显示器 DPI 取到正确尺寸
+    using SetContextFn = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+    if (auto fn = reinterpret_cast<SetContextFn>(
+            GetProcAddress(user32, "SetProcessDpiAwarenessContext"))) {
+        if (fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return;
+    }
+
+    // 更老的系统退回 system-aware
+    using SetAwareFn = BOOL(WINAPI*)();
+    if (auto fn = reinterpret_cast<SetAwareFn>(
+            GetProcAddress(user32, "SetProcessDPIAware"))) {
+        fn();
+    }
+}
+
 // 注意：这里不能用 __argc/__argv —— 在 WIN32 子系统下 CRT 不保证填好它们，
 // 实测拿不到参数（--audio-devices 之类会被静默忽略）。
 // 改成从 GetCommandLineW 自己切分。
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    enableDpiAwareness();
+
     int argc = 0;
     LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!wargv) return main(0, nullptr);
