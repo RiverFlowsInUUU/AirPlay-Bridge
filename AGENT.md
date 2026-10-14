@@ -86,6 +86,14 @@ cmake -S . -B build -G "<generator>" -A x64 \
 - 正确做法：`CommandLineToArgvW(GetCommandLineW(), &argc)`
 - 需要 `<shellapi.h>`，链接 `shell32`
 
+### C6b — 日志清理策略
+
+- 位置：`src/app/airplay_bridge.cpp` 的 `logLine()`
+- 两条规则任一满足就 `remove()` 重开：
+  - 超过 30 天没写入（`k30Days = 30*24*3600*10^7`，FILETIME 是 100ns 单位）
+  - 超过 512KB（挂机时每 2 秒一条心跳，不限制会涨到几十 MB）
+- 用 `GetFileAttributesExA` 取大小和最后写入时间
+
 ### C7 — 音质档位改的是采集侧重采样
 
 - 位置：`src/audio/resampler.h`（窗函数 sinc 实现）
