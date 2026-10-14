@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.2] - 2026-10-15
+
+### Changed
+
+- 延迟、音量、音质、选择设备四项改为点击后才展开，不再在鼠标经过时自动展开。
+- 四项右侧的展开提示改为与其余菜单文字对齐的样式。
+
 ## [1.2.1] - 2026-10-14
 
 ### Changed
