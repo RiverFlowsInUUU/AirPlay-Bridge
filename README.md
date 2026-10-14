@@ -10,16 +10,20 @@ TuneBlade 在 HomePod OS 27 失效后的替代方案。
 
 ## 安装
 
-从 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest) 下载 exe，双击运行。
+1. 安装 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费，装完需重启）
+2. 从 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest) 下载 exe，双击运行
 
-Windows 10 / 11，64 位。不需要安装，不需要运行库。
+Windows 10 / 11，64 位。程序是单文件，不需要安装，不需要运行库。
 
 > 首次运行 Windows 可能拦一次，点「更多信息」→「仍要运行」。
+
+## 声音输出
+
+连接后，声音只从 AirPlay 设备出，电脑保持安静，断开时自动还原。
 
 ## 特性
 
 - 自动发现局域网内的设备
-- 电脑可完全静音，声音只从设备出
 - 断线自动重连，设备换 IP 也能找回
 - 被强杀后，下次启动自动恢复音频设备
 - 延迟 / 音量 / 音质可调
@@ -45,12 +49,6 @@ Windows 10 / 11，64 位。不需要安装，不需要运行库。
 ────────────────
   退出
 ```
-
-## 声音输出
-
-连接后，声音只从 AirPlay 设备出，电脑保持安静，断开时自动还原。
-
-需要 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费，装完需重启）。
 
 ## 三个可调项
 
