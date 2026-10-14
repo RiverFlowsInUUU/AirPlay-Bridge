@@ -233,6 +233,16 @@ std::string deviceLabel(const AirPlayDevice& d) {
     return d.host;   // 拿不到名字就退回 IP，至少能区分
 }
 
+// 菜单里显示的设备项：名字 + 局域网 IP。
+//
+// 带上 IP 是为了能区分同名设备 —— 家里有两台同型号 HomePod 时，
+// 光看名字分不出哪个是哪个。
+std::string deviceMenuLabel(const AirPlayDevice& d) {
+    const std::string name = deviceLabel(d);
+    if (d.host.empty()) return name;
+    return name + "  [" + d.host + "]";
+}
+
 // ---- 命令行模式的选择 ----
 const AirPlayDevice* pickDeviceConsole(const std::vector<AirPlayDevice>& devs) {
     if (devs.empty()) return nullptr;
@@ -856,7 +866,7 @@ int main(int argc, char** argv) {
                 } else {
                     for (size_t i = 0; i < discovered.size(); ++i) {
                         TrayMenuItem d;
-                        d.label = deviceLabel(discovered[i]);
+                        d.label = deviceMenuLabel(discovered[i]);
                         d.id = static_cast<int>(kDeviceMenuBase + i);
                         // 当前连着的打勾
                         d.checked = sess.connected.load() &&
@@ -967,7 +977,7 @@ int main(int argc, char** argv) {
                             tray.setTooltip("AirPlay Bridge - 未找到设备");
                         } else {
                             for (size_t i = 0; i < discovered.size(); ++i) {
-                                sub.push_back({deviceLabel(discovered[i]),
+                                sub.push_back({deviceMenuLabel(discovered[i]),
                                                static_cast<int>(1000 + i),
                                                true, false, false});
                             }

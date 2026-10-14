@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.0] - 2026-10-14
+
+### Changed
+
+- 设备列表在设备名称后显示局域网 IP，便于区分同型号设备。
+
 ## [1.1.9] - 2026-10-14
 
 ### Changed
