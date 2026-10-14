@@ -102,17 +102,24 @@ airplay_bridge <ip>               直连指定 IP
 airplay_bridge --last             重连上次的设备
 airplay_bridge --install          注册开机自启
 airplay_bridge --uninstall        取消开机自启
+airplay_bridge --audio-devices    列出音频设备（诊断用）
+airplay_bridge --set-default <名> 切换默认播放设备
 ```
 
-### 辅助工具
+### 诊断与音频设备
+
+这两个功能已经并进主程序，不需要额外的小工具：
 
 ```
-listaudio.exe          列出所有音频设备及其缓冲参数（诊断用）
-setdefault.exe         切换系统默认播放设备
-                         不带参数运行会列出所有设备
-setdefault.exe "CABLE Input"     切到虚拟声卡
-setdefault.exe "Realtek"         切回物理声卡
+airplay_bridge --audio-devices            列出音频设备及缓冲参数
+airplay_bridge --set-default "CABLE Input"  切换默认播放设备
+airplay_bridge --set-default "Realtek"      切回物理声卡
 ```
+
+> `--audio-devices` 的输出同时写一份到
+> `%LOCALAPPDATA%\AirPlayBridge\audio-devices.log`，
+> 因为这个程序是 WIN32 子系统（没有控制台），从某些终端调用时
+> stdout 可能看不到 —— 那个文件里一定有。
 
 排查"串流没声音"时先跑 `listaudio.exe` —— 确认默认设备是不是你以为的那个。
 
@@ -277,9 +284,10 @@ config_store.cpp/h      JSON 配置读写
 tray.cpp/h              Win32 托盘图标与菜单
 latency_dialog.cpp/h    数值调节滑块窗口（延迟/音量共用）
 sysvolume.cpp/h         系统音量 + 默认音频设备切换
+audiodevices.h          音频设备列表（--audio-devices）
 bridge.rc               图标资源（编译进 exe）
 tray_icons/             图标源文件
-tools/                  辅助工具（诊断、设备切换）
+tools/                  图标生成脚本
 patches/                上游引擎的补丁
 third_party/            上游引擎（git submodule）
 ```

@@ -23,6 +23,7 @@
 #include "wasapi_capture.h"
 #include "tray.h"
 #include "sysvolume.h"
+#include "audiodevices.h"
 #include "latency_dialog.h"
 
 #include "raop_loop.h"
@@ -31,6 +32,7 @@
 #include "ring_buffer.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <objbase.h>
 
 #include <atomic>
@@ -441,22 +443,67 @@ bool resolveDevice(Session& sess, const BridgeConfig& cfg,
 
 } // namespace
 
-// WIN32 子系统需要 WinMain 作为入口（而不是 main）
+// WIN32 子系统的入口。
+//
+// 注意：这里不能用 __argc/__argv —— 在 WIN32 子系统下 CRT 不保证填好它们，
+// 实测拿不到参数（--audio-devices 之类会被静默忽略）。
+// 改成从 GetCommandLineW 自己切分。
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    return main(__argc, __argv);
+    int argc = 0;
+    LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!wargv) return main(0, nullptr);
+
+    // 宽字符 -> UTF-8，凑一份 argv 给 main
+    std::vector<std::string> storage;
+    std::vector<char*> argv;
+    storage.reserve(static_cast<size_t>(argc));
+    for (int i = 0; i < argc; ++i) {
+        int need = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0,
+                                       nullptr, nullptr);
+        std::string u(need > 1 ? static_cast<size_t>(need - 1) : 0, 0);
+        if (need > 1)
+            WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, u.data(), need,
+                                nullptr, nullptr);
+        storage.push_back(std::move(u));
+    }
+    LocalFree(wargv);
+
+    for (auto& x : storage) argv.push_back(x.data());
+    int rc = main(static_cast<int>(argv.size()), argv.data());
+
+    // 命令行模式下确保输出刷干净再退出
+    std::fflush(stdout);
+    std::fflush(stderr);
+    return rc;
 }
 
 int main(int argc, char** argv) {
-    // WIN32 子系统默认没有控制台；命令行模式下把父进程的控制台接过来
-    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+    // WIN32 子系统默认没有控制台。命令行模式下要把输出送到终端，
+    // 得先 AttachConsole 接上父进程的控制台，再重绑 stdout/stderr。
+    // （直接 printf 是没有地方去的 —— 所以这里是必须的。）
+    // 命令行参数存在时说明用户是在终端里用的，把输出接出去。
+    // 先试 AttachConsole（复用当前终端），失败再 AllocConsole（新开一个窗口）。
+    bool hasArgs = argc > 1;
+    bool hasConsole = false;
+    if (hasArgs) {
+        hasConsole = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
+        if (!hasConsole) hasConsole = AllocConsole() != 0;
+    }
+    if (hasConsole) {
         FILE* f = nullptr;
         freopen_s(&f, "CONOUT$", "w", stdout);
         freopen_s(&f, "CONOUT$", "w", stderr);
+        // 行缓冲，保证日志能实时看到
+        setvbuf(stdout, nullptr, _IONBF, 0);
+        setvbuf(stderr, nullptr, _IONBF, 0);
     }
+    // 退出前统一 flush（见文件末尾的 atexit）
 
     // 判断模式与解析参数
     bool wantList = false, wantInstall = false, wantUninstall = false;
     bool wantConsole = false, wantLast = false, wantTray = true;
+    bool wantAudioDevices = false;      // --audio-devices
+    std::string setDefaultArg;          // --set-default <设备名子串>
     std::string hostArg;
     int volume = -1;
 
@@ -467,6 +514,11 @@ int main(int argc, char** argv) {
         else if (a == "--uninstall") wantUninstall = true;
         else if (a == "--console")   { wantConsole = true; wantTray = false; }
         else if (a == "--last")      wantLast = true;
+        else if (a == "--audio-devices") { wantAudioDevices = true; wantTray = false; }
+        else if (a == "--set-default" && i + 1 < argc) {
+            setDefaultArg = argv[++i];
+            wantTray = false;
+        }
         else if (a == "--volume" && i + 1 < argc) volume = std::atoi(argv[++i]);
         else if (!a.empty() && a[0] != '-') { hostArg = a; wantTray = false; }
     }
@@ -481,6 +533,25 @@ int main(int argc, char** argv) {
     if (volume < 0) volume = cfg.volume;
 
     // ---- 一次性命令 ----
+    if (wantAudioDevices || !setDefaultArg.empty()) {
+        printAudioDevices();
+        if (!setDefaultArg.empty()) {
+            audioOut("\n");
+            if (setDefaultRenderDevice(setDefaultArg)) {
+                Sleep(200);
+                audioOut("已切换到: %s\n",
+                         getDefaultRenderDeviceName().c_str());
+            } else {
+                audioOut("切换失败: 没有匹配 '%s' 的设备\n",
+                         setDefaultArg.c_str());
+                CoUninitialize();
+                return 1;
+            }
+        }
+        CoUninitialize();
+        return 0;
+    }
+
     if (wantInstall) {
         bool ok = setAutoStart(true);
         std::printf(ok ? "已注册开机自启。\n" : "注册失败。\n");

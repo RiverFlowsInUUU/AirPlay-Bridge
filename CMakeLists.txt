@@ -83,18 +83,5 @@ if(MSVC)
     target_compile_options(airplay_bridge PRIVATE /W3)
 endif()
 
-# ---- 辅助工具 ----
 
-# 列出音频设备及其参数（诊断用）
-add_executable(listaudio tools/listaudio.cpp)
-target_link_libraries(listaudio PRIVATE ole32 uuid)
-if(MSVC)
-    target_compile_options(listaudio PRIVATE /W3)
-endif()
 
-# 切换系统默认播放设备
-add_executable(setdefault tools/setdefault.cpp sysvolume.cpp)
-target_link_libraries(setdefault PRIVATE ole32 uuid)
-if(MSVC)
-    target_compile_options(setdefault PRIVATE /W3)
-endif()
