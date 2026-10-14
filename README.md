@@ -58,7 +58,7 @@ Windows 10 / 11，64 位。程序是单文件，不需要安装，不需要运�
 | 音量 | 5 – 100%，20% 一档 + 滑块 | 立即 |
 | 音质 | 0 – 100%，5 档 + 滑块 | 重连后 |
 
-音质档位：快速 / 标准 / 高 / 极高 / 至臻。
+音质档位：快速 / 标准 / 高 / 极高 / 至臻（默认）。
 
 ## 没声音
 
@@ -73,15 +73,13 @@ Windows 10 / 11，64 位。程序是单文件，不需要安装，不需要运�
 - 未安装虚拟声卡时，电脑扬声器会同时出声
 - 延迟和音质改档需要重连一次
 - 仅支持 Windows
-- 事件通道断线不重连，有上层 6 秒兜底
+- 断连后有数秒静音，随后自动恢复
 
 ## 相关
 
-- 构建、验收、发布 → [AGENTS.md](AGENTS.md)
-- 架构与实测数据 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- 设计决策 → [docs/DECISIONS.md](docs/DECISIONS.md)
-- 术语表 → [docs/GLOSSARY.md](docs/GLOSSARY.md)
+- 问题反馈 → [Issues](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/issues)
 - 变更记录 → [CHANGELOG.md](CHANGELOG.md)
+- 开发文档 → [AGENTS.md](AGENTS.md) · [docs/](docs/)
 
 ## 致谢
 
