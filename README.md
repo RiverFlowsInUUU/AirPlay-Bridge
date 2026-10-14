@@ -51,7 +51,6 @@ Windows 10 / 11，64 位。不需要安装，不需要运行库。
 连接后，声音只从 AirPlay 设备出，电脑保持安静，断开时自动还原。
 
 需要 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费，装完需重启）。
-电脑本身不接扬声器时无需安装。
 
 ## 三个可调项
 
