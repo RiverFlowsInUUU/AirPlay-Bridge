@@ -3,6 +3,14 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.1] - 2026-10-14
+
+### Changed
+
+- 延迟、音量、音质改为子菜单，与「选择设备」一致。
+  菜单项右侧会显示展开箭头，此前这三项没有该提示，
+  用户不易看出可以展开。
+
 ## [1.2.0] - 2026-10-14
 
 ### Changed

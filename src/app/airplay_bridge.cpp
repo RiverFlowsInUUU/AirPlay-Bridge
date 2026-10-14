@@ -880,19 +880,61 @@ int main(int argc, char** argv) {
                 menu.push_back(std::move(devItem));
             }
 
-            // 延迟合并成一个子菜单，当前值显示在右侧
+            // 延迟 / 音量 / 音质 —— 三个都是音频参数，都做成真子菜单。
+            //
+            // 内容都是固定的预设档位，不需要扫描，所以可以直接建成
+            // 带 children 的子菜单 —— 这样系统会自动加个 › 箭头，
+            // 用户一眼就知道能展开。
+
+            // 延迟
             {
-                std::string latLabel = "延迟  " + std::to_string(cfg.latencyMs) + "ms";
-                menu.push_back({latLabel, MENU_LATENCY});
+                TrayMenuItem it;
+                it.id = MENU_LATENCY;   // 父项本身不可点，但保留 id 便于识别
+                it.label = "延迟  " + std::to_string(cfg.latencyMs) + "ms";
+                for (int i = 0; i < kLatencyLevelCount; ++i) {
+                    it.children.push_back({kLatencyLevels[i].label,
+                                           kLatencyMenuBase + i,
+                                           true, false,
+                                           cfg.latencyMs == kLatencyLevels[i].ms});
+                }
+                it.children.push_back({"", 0, true, true, false});
+                it.children.push_back({"自定义（滑块）...", MENU_LATENCY_CUSTOM,
+                                       true, false, false});
+                menu.push_back(std::move(it));
             }
+
+            // 音量
             {
-                std::string volLabel = "音量  " + std::to_string(cfg.volume) + "%";
-                menu.push_back({volLabel, MENU_VOLUME});
+                TrayMenuItem it;
+                it.id = MENU_VOLUME;
+                it.label = "音量  " + std::to_string(cfg.volume) + "%";
+                for (int i = 0; i < kVolumeLevelCount; ++i) {
+                    it.children.push_back({kVolumeLevels[i].label,
+                                           kVolumeMenuBase + i,
+                                           true, false,
+                                           cfg.volume == kVolumeLevels[i].pct});
+                }
+                it.children.push_back({"", 0, true, true, false});
+                it.children.push_back({"自定义（滑块）...", MENU_VOLUME_CUSTOM,
+                                       true, false, false});
+                menu.push_back(std::move(it));
             }
-            // 音质跟延迟/音量并列 —— 三个都是音频参数
+
+            // 音质
             {
-                const std::string qname = qualityLevelName(cfg.qualityLevel);
-                menu.push_back({std::string("音质  ") + qname, MENU_QUALITY});
+                TrayMenuItem it;
+                it.id = MENU_QUALITY;
+                it.label = std::string("音质  ") + qualityLevelName(cfg.qualityLevel);
+                for (int i = 0; i < kQualityLevelCount; ++i) {
+                    it.children.push_back({kQualityLevels[i].label,
+                                           kQualityMenuBase + i,
+                                           true, false,
+                                           cfg.qualityLevel == kQualityLevels[i].value});
+                }
+                it.children.push_back({"", 0, true, true, false});
+                it.children.push_back({"自定义（滑块）...", MENU_QUALITY_CUSTOM,
+                                       true, false, false});
+                menu.push_back(std::move(it));
             }
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
@@ -920,6 +962,87 @@ int main(int argc, char** argv) {
                         if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
                         if (!sess.deviceName.empty()) cfg.lastDeviceName = sess.deviceName;
                         saveConfig(cfgPath, cfg);
+                    }
+                    return;
+                }
+
+                // 延迟档位
+                if (id >= kLatencyMenuBase && id < kLatencyMenuBase + kLatencyLevelCount) {
+                    cfg.latencyMs = kLatencyLevels[id - kLatencyMenuBase].ms;
+                    saveConfig(cfgPath, cfg);
+                    logLine("延迟切换为 " + std::to_string(cfg.latencyMs) + "ms，重连生效");
+                    tray.notify("AirPlay Bridge",
+                                "延迟已设为 " + std::to_string(cfg.latencyMs) +
+                                "ms，正在重连…");
+                    // 延迟写在握手参数里，必须重连才生效
+                    if (sess.running.load()) {
+                        sess.teardown();
+                        tryConnect();
+                    }
+                    return;
+                }
+                if (id == MENU_LATENCY_CUSTOM) {
+                    const int picked = showLatencyDialog(cfg.latencyMs);
+                    if (picked > 0) {
+                        cfg.latencyMs = picked;
+                        saveConfig(cfgPath, cfg);
+                        logLine("延迟改为 " + std::to_string(picked) + "ms，重连生效");
+                        tray.notify("AirPlay Bridge",
+                                    "延迟已设为 " + std::to_string(picked) +
+                                    "ms，正在重连…");
+                        if (sess.running.load()) {
+                            sess.teardown();
+                            tryConnect();
+                        }
+                    }
+                    return;
+                }
+
+                // 音量档位
+                if (id >= kVolumeMenuBase && id < kVolumeMenuBase + kVolumeLevelCount) {
+                    const int v = kVolumeLevels[id - kVolumeMenuBase].pct;
+                    cfg.volume = v;
+                    saveConfig(cfgPath, cfg);
+                    // 音量是运行时参数，改了立刻生效，不用重连
+                    if (sess.sender) sess.sender->setVolume(v);
+                    logLine("音量改为 " + std::to_string(v) + "%");
+                    return;
+                }
+                if (id == MENU_VOLUME_CUSTOM) {
+                    const int v = showVolumeDialog(cfg.volume);
+                    if (v >= 0) {
+                        cfg.volume = v;
+                        saveConfig(cfgPath, cfg);
+                        if (sess.sender) sess.sender->setVolume(v);
+                        logLine("音量改为 " + std::to_string(v) + "%");
+                    }
+                    return;
+                }
+
+                // 音质档位
+                if (id >= kQualityMenuBase && id < kQualityMenuBase + kQualityLevelCount) {
+                    cfg.qualityLevel = kQualityLevels[id - kQualityMenuBase].value;
+                    saveConfig(cfgPath, cfg);
+                    logLine("音质档位改为 " + std::to_string(cfg.qualityLevel) + "，重连生效");
+                    tray.notify("AirPlay Bridge", "音质已调整，正在重连…");
+                    // 重采样器在会话建立时初始化，要重连才生效
+                    if (sess.running.load()) {
+                        sess.teardown();
+                        tryConnect();
+                    }
+                    return;
+                }
+                if (id == MENU_QUALITY_CUSTOM) {
+                    const int q = showQualityDialog(cfg.qualityLevel);
+                    if (q >= 0) {
+                        cfg.qualityLevel = q;
+                        saveConfig(cfgPath, cfg);
+                        logLine("音质档位改为 " + std::to_string(q) + "，重连生效");
+                        tray.notify("AirPlay Bridge", "音质已调整，正在重连…");
+                        if (sess.running.load()) {
+                            sess.teardown();
+                            tryConnect();
+                        }
                     }
                     return;
                 }
@@ -1007,115 +1130,9 @@ int main(int argc, char** argv) {
                         break;
                     }
 
-                    case MENU_LATENCY: {
-                        // 一个窗口里放：固定档（当前档打勾）+ 自定义滑块
-                        std::vector<TrayMenuItem> sub;
-                        for (int i = 0; i < kLatencyLevelCount; ++i) {
-                            sub.push_back({kLatencyLevels[i].label,
-                                           kLatencyMenuBase + i,
-                                           true, false,
-                                           cfg.latencyMs == kLatencyLevels[i].ms});
-                        }
-                        sub.push_back({"", 0, true, true, false});   // 分隔线
-                        sub.push_back({"自定义（滑块）...",
-                                       MENU_LATENCY_CUSTOM, true, false, false});
-                        tray.showMenu(sub, [&](int sid) {
-                            if (sid == MENU_LATENCY_CUSTOM) {
-                                int picked = showLatencyDialog(cfg.latencyMs);
-                                if (picked > 0) {
-                                    cfg.latencyMs = picked;
-                                    saveConfig(cfgPath, cfg);
-                                    logLine("延迟改为 " + std::to_string(picked) + "ms，重连生效");
-                                    if (sess.running.load()) {
-                                        sess.teardown();
-                                        tryConnect();
-                                    }
-                                }
-                                return;
-                            }
-                            int idx = sid - kLatencyMenuBase;
-                            if (idx < 0 || idx >= kLatencyLevelCount) return;
-                            cfg.latencyMs = kLatencyLevels[idx].ms;
-                            saveConfig(cfgPath, cfg);
-                            logLine("延迟切换为 " + std::to_string(cfg.latencyMs) + "ms，重连生效");
-                            tray.notify("AirPlay Bridge",
-                                        "延迟已设为 " + std::to_string(cfg.latencyMs) +
-                                        "ms，正在重连…");
-                            // 延迟要在 start() 前设，所以必须重连一次
-                            if (sess.running.load()) {
-                                sess.teardown();
-                                tryConnect();
-                            }
-                        });
-                        break;
-                    }
-                    case MENU_VOLUME: {
-                        std::vector<TrayMenuItem> vsub;
-                        for (int i = 0; i < kVolumeLevelCount; ++i) {
-                            vsub.push_back({kVolumeLevels[i].label,
-                                            kVolumeMenuBase + i,
-                                            true, false,
-                                            cfg.volume == kVolumeLevels[i].pct});
-                        }
-                        vsub.push_back({"", 0, true, true, false});
-                        vsub.push_back({"自定义（滑块）...", MENU_VOLUME_CUSTOM, true, false, false});
-                        tray.showMenu(vsub, [&](int sid) {
-                            int newVol = -1;
-                            if (sid == MENU_VOLUME_CUSTOM) {
-                                newVol = showVolumeDialog(cfg.volume);
-                            } else {
-                                int idx = sid - kVolumeMenuBase;
-                                if (idx >= 0 && idx < kVolumeLevelCount)
-                                    newVol = kVolumeLevels[idx].pct;
-                            }
-                            if (newVol < 0) return;
-                            cfg.volume = newVol;
-                            saveConfig(cfgPath, cfg);
-                            // 音量是运行时参数，改了立刻生效，不用重连
-                            if (sess.sender) sess.sender->setVolume(newVol);
-                            logLine("音量改为 " + std::to_string(newVol) + "%");
-                        });
-                        break;
-                    }
                     case MENU_AUTOSTART:
                         setAutoStart(!isAutoStartEnabled());
                         break;
-                    case MENU_QUALITY: {
-                        // 跟延迟/音量一致的样式：固定档 + 最后是自定义滑块
-                        std::vector<TrayMenuItem> qsub;
-                        for (int i = 0; i < kQualityLevelCount; ++i) {
-                            qsub.push_back({kQualityLevels[i].label,
-                                            kQualityMenuBase + i,
-                                            true, false,
-                                            cfg.qualityLevel == kQualityLevels[i].value});
-                        }
-                        qsub.push_back({"", 0, true, true, false});
-                        qsub.push_back({"自定义（滑块）...", MENU_QUALITY_CUSTOM,
-                                        true, false, false});
-                        tray.showMenu(qsub, [&](int sid) {
-                            int picked = -1;
-                            if (sid == MENU_QUALITY_CUSTOM) {
-                                picked = showQualityDialog(cfg.qualityLevel);
-                            } else {
-                                const int idx = sid - kQualityMenuBase;
-                                if (idx >= 0 && idx < kQualityLevelCount)
-                                    picked = kQualityLevels[idx].value;
-                            }
-                            if (picked < 0) return;
-                            cfg.qualityLevel = picked;
-                            saveConfig(cfgPath, cfg);
-                            logLine("音质档位改为 " + std::to_string(picked) + "，重连生效");
-                            tray.notify("AirPlay Bridge",
-                                        "音质已调整，正在重连…");
-                            // 重采样质量在采集线程初始化时确定，
-                            // 改完要重连才能生效（跟延迟同理）
-                            if (sess.running.load()) {
-                                sess.teardown();
-                                tryConnect();
-                            }
-                        });
-                        break;
-                    }
                     case MENU_OPEN_LOG:
                         // 用资源管理器打开数据目录。
                         // 出错时用户要去看日志，那个路径带空格又是隐藏的，
