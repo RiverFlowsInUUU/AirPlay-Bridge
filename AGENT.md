@@ -217,6 +217,28 @@ ctest --test-dir tbuild -C Release
 airplay_bridge.exe --audio-devices
 ```
 
+## 发布说明文风（硬性）
+
+参考 Keep a Changelog + Flow Launcher 的写法。发布说明是给用户的，
+不是开发周记。
+
+**必须**：
+- 按 `Added` / `Changed` / `Fixed` / `Removed` / `Deprecated` / `Security` 分组
+- 一条 bullet 一个改动，一句话说清
+- 用户视角：写「修复了 X 时会 Y」，不写「重构了 Z 模块」
+- 破坏性变更单独一节，位置显眼
+- 可扫读 —— 用户 10 秒内能判断要不要升级
+
+**禁止**：
+- 第一人称和叙事（「我」「我们觉得」「被指出」「之前偷懒了」）
+- 解释「为什么这么改」的段落
+- 实现细节（文件路径、函数名、commit hash、PR 编号）
+- 开篇句式「这一版改了什么」
+
+**正确开头**：直接 `## Added` / `## Fixed` 开列。
+
+维护 `CHANGELOG.md`，发版时同步更新。日期用 ISO 格式。
+
 ## 已知未解问题
 
 | ID | 问题 | 状态 |
