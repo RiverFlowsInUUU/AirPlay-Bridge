@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.5] - 2026-10-15
+
+### Fixed
+
+- 图标四周的透明留白此前未生效，1.2.4 中显示的仍为旧图标。
+
 ## [1.2.4] - 2026-10-15
 
 ### Changed

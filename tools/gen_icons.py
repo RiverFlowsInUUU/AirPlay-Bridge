@@ -5,7 +5,7 @@
 用法:
     python gen_icons.py <源图.png>
 
-输出（写到 tray_icons/）:
+输出（写到 src/icons/）:
     connected.ico   原样（彩色），用于"已连接"
     idle.ico        灰度版，用于"未连接"
     app.ico         程序图标（任务栏 / 资源管理器），用彩色版
@@ -18,7 +18,7 @@ import sys
 
 from PIL import Image, ImageEnhance, ImageFilter
 
-OUT_DIR = "tray_icons"
+OUT_DIR = "src/icons"
 SIZES = [16, 20, 24, 32, 48, 64, 128, 256]
 
 

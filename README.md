@@ -169,7 +169,7 @@ TuneBlade 是闭源的、2018 年就停更了，没有修复的可能。本项�
 
 ## 日志
 
-位置：`%LOCALAPPDATA%\AirPlayBridgeridge.log`（托盘菜单有「打开日志文件夹」）。
+位置：`%LOCALAPPDATA%\AirPlayBridge\bridge.log`（托盘菜单有「打开日志文件夹」）。
 
 自动清理，两条规则任一满足就重开：超过 30 天没动过，或超过 512KB。
 
