@@ -30,6 +30,10 @@ struct TrayMenuItem {
     // 左侧彩色圆点：0=无，1=绿（已连接），2=灰（未连接）
     // 原生菜单不能给文字上色，只能靠位图做视觉指示。
     int  dot = 0;
+    // 非空即表示这是一项可展开的子菜单（会有个右箭头）。
+    // 注意：内容必须在 showMenu 之前就确定 —— Windows 的菜单树
+    // 是弹出前一次性建好的，没法在展开时再去算。
+    std::vector<TrayMenuItem> children;
 };
 
 class TrayIcon {

@@ -93,6 +93,7 @@ const QualityLevel kQualityLevels[] = {
 };
 constexpr int kQualityLevelCount = sizeof(kQualityLevels) / sizeof(kQualityLevels[0]);
 constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index
+constexpr int kDeviceMenuBase  = 1400;   // 设备列表菜单 id = base + index
 constexpr int kLatencyMenuBase = 1100;   // 档位菜单 id = base + index
 
 // 托盘菜单 ID
@@ -100,6 +101,8 @@ enum : int {
     MENU_STATUS    = 100,   // 状态（禁用项，只显示）
     MENU_TOGGLE    = 101,   // 连接 / 断开
     MENU_RESCAN    = 102,   // 重新扫描并选择设备
+    MENU_DEVICES   = 112,   // 选择设备（子菜单）
+    MENU_RESCAN_SUB = 113,  // 子菜单里的"重新扫描"
     MENU_AUTOSTART = 103,   // 开机自启开关
     MENU_LATENCY   = 105,   // 延迟档位（子菜单）
     MENU_LATENCY_CUSTOM = 106,   // 自定义延迟（无极滑块）
@@ -838,7 +841,35 @@ int main(int argc, char** argv) {
             }
             menu.push_back({"", 0, true, true, false});   // 分隔线
             menu.push_back({sess.running.load() ? "断开" : "连接", MENU_TOGGLE});
-            menu.push_back({"重新扫描设备", MENU_RESCAN});
+
+            // "选择设备"是个真子菜单（向右展开），内容来自缓存的设备列表。
+            // 之所以要缓存：Windows 的菜单树必须在弹出前一次建好，
+            // 没法在展开的那一刻去扫网段。
+            {
+                TrayMenuItem devItem;
+                devItem.id = MENU_DEVICES;
+                devItem.label = "选择设备";
+
+                if (discovered.empty()) {
+                    // 缓存是空的（还没扫过，或者上次啥也没找到）
+                    devItem.children.push_back({"尚未扫描到设备", 0, false, false, false});
+                } else {
+                    for (size_t i = 0; i < discovered.size(); ++i) {
+                        TrayMenuItem d;
+                        d.label = deviceLabel(discovered[i]);
+                        d.id = static_cast<int>(kDeviceMenuBase + i);
+                        // 当前连着的打勾
+                        d.checked = sess.connected.load() &&
+                                    !discovered[i].host.empty() &&
+                                    discovered[i].host == sess.host;
+                        devItem.children.push_back(std::move(d));
+                    }
+                }
+                devItem.children.push_back({"", 0, true, true, false});
+                devItem.children.push_back({"重新扫描", MENU_RESCAN_SUB, true, false, false});
+                menu.push_back(std::move(devItem));
+            }
+
             // 延迟合并成一个子菜单，当前值显示在右侧
             {
                 std::string latLabel = "延迟  " + std::to_string(cfg.latencyMs) + "ms";
@@ -860,6 +891,29 @@ int main(int argc, char** argv) {
             menu.push_back({"退出", MENU_QUIT});
 
             tray.showMenu(menu, [&](int id) {
+                // 设备列表里点了一项：直接连它。
+                // 这些 id 在子菜单里（kDeviceMenuBase + 序号）。
+                if (id >= kDeviceMenuBase &&
+                    id < kDeviceMenuBase + static_cast<int>(discovered.size())) {
+                    const size_t idx = static_cast<size_t>(id - kDeviceMenuBase);
+                    sess.teardown();
+                    sess.host = discovered[idx].host;
+                    sess.deviceId = discovered[idx].deviceId;
+                    sess.deviceName = discovered[idx].name;
+                    std::string err;
+                    if (!sess.start(err)) {
+                        logLine("启动失败: " + err);
+                        tray.setTooltip("AirPlay Bridge - 启动失败");
+                        tray.notify("AirPlay Bridge", "启动失败: " + err);
+                    } else {
+                        cfg.lastHost = sess.host;
+                        if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
+                        if (!sess.deviceName.empty()) cfg.lastDeviceName = sess.deviceName;
+                        saveConfig(cfgPath, cfg);
+                    }
+                    return;
+                }
+
                 switch (id) {
                     case MENU_TOGGLE:
                         if (sess.running.load()) {
@@ -875,6 +929,7 @@ int main(int argc, char** argv) {
                             tryConnect();
                         }
                         break;
+                    case MENU_RESCAN_SUB:   // 子菜单里的"重新扫描"走同一条路
                     case MENU_RESCAN: {
                         sess.teardown();
                         cfg.lastDeviceId.clear();   // 强制重新选择

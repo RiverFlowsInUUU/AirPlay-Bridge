@@ -132,6 +132,55 @@ HBITMAP makeDotBitmap(int kind) {
     return CreateBitmap(SZ, SZ, 1, 1, bits);
 }
 
+// 递归建菜单。返回建好的 HMENU。
+//
+// 子菜单用 MF_POPUP 挂上 —— 这才是真子菜单（向右展开、带右箭头），
+// 而不是"弹完一个再弹下一个"那种两个独立的框。
+//
+// 注意：菜单树必须在 TrackPopupMenu 之前一次建好，所以子菜单的内容
+// 也得提前准备好 —— 这就是设备列表需要缓存的原因。
+static HMENU buildMenuTree(const std::vector<TrayMenuItem>& menu,
+                           HBITMAP* dotGreen, HBITMAP* dotGray) {
+    HMENU hmenu = CreatePopupMenu();
+    if (!hmenu) return nullptr;
+
+    UINT posIndex = 0;
+    for (auto& item : menu) {
+        if (item.separator) {
+            AppendMenuW(hmenu, MF_SEPARATOR, 0, nullptr);
+            ++posIndex;
+            continue;
+        }
+
+        wchar_t wbuf[256] = {};
+        MultiByteToWideChar(CP_UTF8, 0, item.label.c_str(), -1, wbuf, 255);
+
+        if (!item.children.empty()) {
+            HMENU hsub = buildMenuTree(item.children, dotGreen, dotGray);
+            UINT flags = MF_POPUP | MF_STRING;
+            if (!item.enabled) flags |= MF_GRAYED;
+            AppendMenuW(hmenu, flags, reinterpret_cast<UINT_PTR>(hsub), wbuf);
+            ++posIndex;
+            continue;
+        }
+
+        UINT flags = MF_STRING;
+        if (!item.enabled) flags |= MF_GRAYED;
+        if (item.checked)  flags |= MF_CHECKED;
+        AppendMenuW(hmenu, flags, static_cast<UINT_PTR>(item.id), wbuf);
+
+        // 状态点：按位置挂位图（同一 id 的多项也能各自挂上）
+        if (item.dot != 0 && dotGreen && dotGray) {
+            HBITMAP* slot = (item.dot == 1) ? dotGreen : dotGray;
+            if (*slot == nullptr) *slot = makeDotBitmap(item.dot);
+            if (*slot)
+                SetMenuItemBitmaps(hmenu, posIndex, MF_BYPOSITION, *slot, *slot);
+        }
+        ++posIndex;
+    }
+    return hmenu;
+}
+
 // 图标已编译进 exe 资源段（见 bridge.rc），这里按 ID 取出来。
 // 取不到就回退到画圆点，绝不因为缺图标而挂掉。
 // 资源 ID: 102 = 已连接（绿）, 103 = 未连接（灰）
@@ -295,37 +344,10 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     if (d_->menuOpen) return;   // 已经在弹菜单了，忽略这一次
     d_->menuOpen = true;
 
-    HMENU hmenu = CreatePopupMenu();
-    if (!hmenu) return;
-
-    // 按位置记录每个菜单项的索引，供后面挂位图用。
-    // 不能用 MF_BYCOMMAND：状态行有两项共用同一个 id，
-    // 按命令 id 定位会永远命中的是第一项。
-    UINT posIndex = 0;
-    for (auto& item : menu) {
-        if (item.separator) {
-            AppendMenuW(hmenu, MF_SEPARATOR, 0, nullptr);
-            ++posIndex;
-            continue;
-        }
-        UINT flags = MF_STRING;
-        if (!item.enabled) flags |= MF_GRAYED;
-        if (item.checked)  flags |= MF_CHECKED;
-        wchar_t wbuf[256] = {};
-        MultiByteToWideChar(CP_UTF8, 0, item.label.c_str(), -1, wbuf, 255);
-        AppendMenuW(hmenu, flags, static_cast<UINT_PTR>(item.id), wbuf);
-
-        // 状态点：菜单项左侧挂一张彩色圆点位图。
-        // 缓存在 d_ 里，避免每次弹菜单都重建（位图会随菜单销毁而释放）。
-        if (item.dot != 0) {
-            HBITMAP* slot = (item.dot == 1) ? &d_->dotGreen : &d_->dotGray;
-            if (*slot == nullptr) *slot = makeDotBitmap(item.dot);
-            if (*slot) {
-                // 按位置挂（MF_BYPOSITION），同一 id 的多项也能各自挂上
-                SetMenuItemBitmaps(hmenu, posIndex, MF_BYPOSITION, *slot, *slot);
-            }
-        }
-        ++posIndex;
+    HMENU hmenu = buildMenuTree(menu, &d_->dotGreen, &d_->dotGray);
+    if (!hmenu) {
+        d_->menuOpen = false;
+        return;
     }
 
     POINT pt;
