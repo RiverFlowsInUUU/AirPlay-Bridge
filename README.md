@@ -127,9 +127,9 @@ airplay_bridge --set-default "Realtek"      切回物理声卡
 
 线性插值在 15 kHz 以上基本塌掉，sinc 全程稳在 40 dB 左右。
 
-音质分五档，跟音乐 App 的叫法一致：
+音质分五档，按音频软件的惯例命名（SoX 用 quick/low/medium/high，Audacity 用 Low/Medium/High/Best）：
 
-- **关闭** —— 不做额外转换，交给系统默认处理
+- **快速** —— 最省 CPU，但高频有可闻失真
 - **标准** —— 高频仍有可闻失真
 - **高** —— 明显改善
 - **极高** —— 接近透明

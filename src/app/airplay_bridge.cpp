@@ -85,11 +85,11 @@ constexpr int kVolumeMenuBase = 1200;   // 音量档位菜单 id = base + index
 //   5% 约 20dB / 20% 约 30dB / 45% 约 38dB / 70% 到顶 39.5dB
 struct QualityLevel { int value; const char* label; };
 const QualityLevel kQualityLevels[] = {
-    {  0, "关闭" },
-    { 15, "标准" },
-    { 40, "高" },
-    { 60, "极高" },
-    { 85, "至臻" },
+    {  0, "快速" },
+    { 20, "标准" },
+    { 45, "高" },
+    { 70, "极高" },
+    { 90, "至臻" },
 };
 constexpr int kQualityLevelCount = sizeof(kQualityLevels) / sizeof(kQualityLevels[0]);
 constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index

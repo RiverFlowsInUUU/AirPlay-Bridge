@@ -235,15 +235,21 @@ int showLatencyDialog(int currentMs) {
 
 
 const char* qualityLevelName(int q) {
-    // 档位划分依据实测曲线（19.9kHz 信噪比）：
-    //   <20%   -> 20-30 dB，失方可闻
-    //   20-44% -> 30-38 dB，明显改善
-    //   45-74% -> 38-39.5 dB，接近透明
-    //   >=75%  -> 39.5 dB（到顶）
-    if (q <= 0)  return "关闭";
-    if (q < 20)  return "标准";
-    if (q < 45)  return "高";
-    if (q < 75)  return "极高";
+    // 档位按实测曲线（19.9kHz 信噪比）划分：
+    //   <10%   -> 15-25 dB，失方可闻
+    //   10-29% -> 25-33 dB
+    //   30-54% -> 33-38 dB
+    //   55-79% -> 接近透明
+    //   >=80%  -> 39.5 dB（到顶）
+    //
+    // 最低档不叫「关闭」—— 它并不是"不转换"，只是用的算法更省 CPU。
+    // 命名沿用音频软件惯例（SoX 用 quick/low/medium/high，
+    // Audacity 用 Low/Medium/High/Best）：按快慢和质量命名，
+    // 不用「关」这种会被误解成"没声音"的词。
+    if (q < 10)  return "快速";
+    if (q < 30)  return "标准";
+    if (q < 55)  return "高";
+    if (q < 80)  return "极高";
     return "至臻";
 }
 
