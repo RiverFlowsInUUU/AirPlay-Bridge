@@ -42,6 +42,16 @@ Roon 等）集体哑火。这个是走 AirPlay 2 的新实现，不受影响。
 - 断开/退出时切回原来的设备
 - 如果程序被强杀，下次启动自动恢复设备
 
+## 系统要求
+
+- Windows 10 / 11，64 位
+- 接管模式需要装 VB-Audio Virtual Cable（见上）
+
+> **首次运行会弹「Windows 已保护你的电脑」** —— 这是 SmartScreen 对
+> 未签名程序的常规提示，不是报毒。点「更多信息」→「仍要运行」即可。
+> 没有代码签名证书是因为那玩意儿要年费，个人项目不划算。
+> 介意的话可以自己从源码编译。
+
 ## 自己编译
 
 构建步骤和注意事项见 [AGENT.md](AGENT.md)。
@@ -96,7 +106,7 @@ airplay_bridge --set-default "Realtek"      切回物理声卡
 > 因为这个程序是 WIN32 子系统（没有控制台），从某些终端调用时
 > stdout 可能看不到 —— 那个文件里一定有。
 
-排查"串流没声音"时先跑 `listaudio.exe` —— 确认默认设备是不是你以为的那个。
+排查"串流没声音"时先跑 `airplay_bridge.exe --audio-devices` —— 确认默认设备是不是你以为的那个。
 
 ## 关于延迟
 
@@ -130,12 +140,17 @@ TuneBlade 是闭源的、2018 年就停更了，没有修复的可能。本项�
 
 ## 改代码
 
-踩过的坑和构建注意事项都在 [DEVELOPMENT.md](DEVELOPMENT.md)。
+构建步骤见上一节；踩过的坑和验收流程在 [AGENT.md](AGENT.md)（那份是写给 AI 的，内容是准的）。
 
 ## 依赖
 
 - [airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp) — AirPlay 2 协议实现（Apache-2.0）
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — 加密（由上游自动拉取）
+
+协议层带有一个本地补丁（`patches/`），内容是在瞬态配对路径上补齐
+事件通道的密钥派生 —— 缺了它会连上约 30 秒后被 HomePod 主动断开。
+补丁固定在某个上游 commit 上，所以上游更新不会自动破坏它；
+但反过来说，**协议跟进依赖上游继续维护**。
 
 ## 许可证
 
