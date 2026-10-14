@@ -42,34 +42,9 @@ Roon 等）集体哑火。这个是走 AirPlay 2 的新实现，不受影响。
 - 断开/退出时切回原来的设备
 - 如果程序被强杀，下次启动自动恢复设备
 
-## 编译
+## 自己编译
 
-前置：
-
-- CMake 3.16+
-- Visual Studio 2022 / 2026（C++20）
-- Windows SDK（要有 WASAPI 头文件）
-
-```bash
-# 1. 克隆（含上游引擎）
-git clone --recursive https://github.com/RiverFlowsInUUU/airplay-bridge.git
-cd airplay-bridge
-
-# 2. 给上游引擎打补丁
-cd third_party/airplay2-sender-cpp
-git apply ../../patches/upstream-airplay2-sender-cpp.patch
-cd ../..
-
-# 3. 编译
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
-```
-
-产物：`build/Release/airplay_bridge.exe`
-
-> 首次配置会通过 CMake FetchContent 下载 Mbed TLS（约 190MB）。
-> 如果网络不稳，可以先手动 clone 到 `build/_deps/mbedtls-src`，
-> 再带 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` 配置。
+构建步骤和注意事项见 [AGENT.md](AGENT.md)。
 
 ## 用法
 
@@ -156,32 +131,6 @@ TuneBlade 是闭源的、2018 年就停更了，没有修复的可能。本项�
 ## 改代码
 
 踩过的坑和构建注意事项都在 [DEVELOPMENT.md](DEVELOPMENT.md)。
-
-## 项目结构
-
-按职责分层，根目录只放构建入口和文档。
-
-```
-src/
-  app/        主程序、配置读写
-  audio/      系统声音采集、音量与音频设备切换
-  device/     局域网设备发现、音频设备列表
-  ui/         托盘图标与菜单、滑块调节窗口
-  icons/      图标资源（编译进 exe）
-
-patches/      上游引擎的补丁
-tools/        图标生成脚本
-third_party/  上游引擎（git submodule）
-```
-
-几个关键文件：
-
-```
-src/app/airplay_bridge.cpp    主程序（托盘 + 命令行），流程都在这
-src/audio/wasapi_capture.cpp  环回采集，音频链路的入口
-src/device/discovery.cpp      设备发现（扫网段 + 单播 mDNS）
-src/ui/tray.cpp               托盘图标与右键菜单
-```
 
 ## 依赖
 
