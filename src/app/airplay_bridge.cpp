@@ -1736,25 +1736,16 @@ int main(int argc, char** argv) {
 
             // 防火墙修复入口：**只在需要时才出现**。
             //
-            // 判据是「本机没有本程序的入站放行规则」—— 有规则时这项
-            // 完全不出现在菜单里，菜单保持干净；没规则时它紧跟在
-            // 连接/断开之后，是用户一眼就能看到的位置。
+            // 常驻显示，不做任何条件判断。
             //
-            // 查规则要过一遍全部防火墙规则（COM 枚举），菜单是主线程
-            // 弹出的，不能每次都查 —— 所以只在确实可能出问题时查：
-            //   1) 已经连续握手失败够多次（g_handshakeFailStreak 到阈值），或
-            //   2) 这项被点过、但规则还是没加成功（用户还得能再点一次）
-            // 正常连得上时连枚举都不做。
-            {
-                const bool needCheck =
-                    g_handshakeFailStreak.load() >= kFirewallHintAfterFails ||
-                    g_fixFirewallOffered.load();
-                if (needCheck && !firewallRuleExists()) {
-                    g_fixFirewallOffered.store(true);
-                    menu.push_back({"修复连接问题（需要管理员权限）",
-                                    MENU_FIX_FIREWALL});
-                }
-            }
+            // 之前试着「只在缺规则时显示」，结果是把唯一的入口藏起来了：
+            // 刚装好还没连过 -> 失败计数是 0 -> 不显示；已经加过规则 ->
+            // 也不需要显示。两头都看不到它，用户根本不知道有这个东西。
+            //
+            // 点它时的行为才是分流的地方（见 MENU_FIX_FIREWALL 分支）：
+            // 没规则就加，有规则就告诉用户已经配好了。
+            menu.push_back({"修复连接问题（需要管理员权限）",
+                            MENU_FIX_FIREWALL});
 
             // "选择设备"是个真子菜单（向右展开），内容来自缓存的设备列表。
             // 之所以要缓存：Windows 的菜单树必须在弹出前一次建好，
@@ -2126,6 +2117,19 @@ int main(int argc, char** argv) {
                         // 用户点了菜单后能看到的反馈来自：
                         //   1) 立即弹出的 UAC 窗口；
                         //   2) 那一份跑完后弹的结果提示框。
+                        // 已经有规则就直接告知，不再走提权 —— 免得多弹一次 UAC。
+                        if (firewallRuleExists()) {
+                            logLine("「修复连接问题」：本机已有放行规则，无需重复添加");
+                            // 用 (wchar_t)10 拼换行，避免在源码里写转义字符。
+                            const wchar_t kNLw = static_cast<wchar_t>(10);
+                            std::wstring tip;
+                            tip += L"本机已有本程序的放行规则，无需重复添加。";
+                            tip += kNLw; tip += kNLw;
+                            tip += L"若仍连不上，请确认接收端与本程序在同一网络下。";
+                            MessageBoxW(nullptr, tip.c_str(),
+                                        L"AirPlay Bridge", MB_OK | MB_ICONINFORMATION);
+                            break;
+                        }
                         logLine("用户点击「修复连接问题」，请求提权添加防火墙入站规则");
                         elevateAndRunFixFirewall();
                         break;
