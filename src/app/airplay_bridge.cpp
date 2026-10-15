@@ -497,10 +497,12 @@ bool deleteFirewallRuleByName() {
 
 // 已经加过规则了吗？（菜单项「只在需要时才出现」的判据）
 //
-// 只看规则名，不看覆盖了哪个程序 —— 名字是本程序独有的一固定串，
-// 撞名的可能性忽略。也不用上面那个 hasInboundRuleForThisApp()：
-// 那个按程序路径模糊匹配（老版本可能是用户手敲 netsh 加的、名字各异），
-// 拿它来控制菜单显隐会时灵时不灵。
+// 判断「本程序当前这个 exe」是否已经放行。
+//
+// 必须同时比对**规则名**和**规则指向的 exe 路径** —— 只看名字会出错：
+// 规则绑定的是 exe 路径，用户换版本/换目录/改文件名之后旧规则还在，
+// 但它指向的是已经不存在的文件。只看名字就会误判成「已配好」，
+// 于是拒绝执行修复，用户点了菜单还是连不上。
 bool firewallRuleExists() {
     INetFwPolicy2* policy = nullptr;
     INetFwRules* rules = nullptr;   // 提前声明：后面收尾统一释放
@@ -529,7 +531,26 @@ bool firewallRuleExists() {
                         BSTR name = nullptr;
                         if (SUCCEEDED(rule->get_Name(&name)) && name) {
                             std::wstring wide(name);
-                            if (wide == L"AirPlay Bridge inbound UDP") found = true;
+                            // 名字对了还不够 —— 还要看这条规则到底放行的是不是
+                            // 当前这个 exe。
+                            //
+                            // 规则是绑定 exe **路径**的。用户下载了新版本、换了目录
+                            // 或改了文件名之后，旧规则仍然在（名字还叫这个），但它
+                            // 指向的是那个已经不存在的老文件。只看名字的话程序会
+                            // 以为「已经配好了」而拒绝干活 —— 用户看到的就是
+                            // 「点了修复却说已搞过，但还是连不上」。
+                            if (wide == L"AirPlay Bridge inbound UDP") {
+                                BSTR appPath = nullptr;
+                                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
+                                    appPath && *appPath) {
+                                    const std::string want = exePath();
+                                    const std::wstring cur(want.begin(), want.end());
+                                    if (_wcsicmp(appPath, cur.c_str()) == 0) {
+                                        found = true;
+                                    }
+                                }
+                                if (appPath) SysFreeString(appPath);
+                            }
                         }
                         if (name) SysFreeString(name);
                         rule->Release();
