@@ -3,6 +3,16 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.35] - 2026-10-15
+
+### Added
+
+- 托盘菜单新增「检查更新」，可直接查看是否有新版本并前往下载。
+
+### Fixed
+
+- 修正「关于」里显示的版本号。
+
 ## [1.2.34] - 2026-10-15
 
 ### Added

@@ -17,7 +17,10 @@ cmake_minimum_required(VERSION 3.16)
 # 必须在 project() 之前设置才生效。
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
 
-project(airplay_bridge CXX)
+# 版本号唯一来源 —— 发版只改这一行（PROJECT_VERSION）。
+# 它通过下面的 target_compile_definitions(APP_VERSION=...) 注入到代码里，
+# 托盘菜单「关于」自动跟着走，不会再出现"忘了改源码里的版本号"。
+project(airplay_bridge VERSION 1.2.35 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -73,6 +76,11 @@ target_include_directories(airplay_bridge PRIVATE
     ${UPSTREAM}/src
 )
 
+# 版本号注入：源码用 APP_VERSION 拿，值就是 project(... VERSION x.y.z)。
+# 引号在这里带上 —— APP_VERSION 在代码里当字符串用。
+target_compile_definitions(airplay_bridge PRIVATE
+    APP_VERSION="${PROJECT_VERSION}")
+
 target_link_libraries(airplay_bridge PRIVATE
     raop_sender
     Threads::Threads
@@ -80,6 +88,7 @@ target_link_libraries(airplay_bridge PRIVATE
     uuid        # __uuidof / IID
     avrt        # 音频线程优先级
     winmm
+    winhttp     # 检查更新（WinHTTP 拉 GitHub release）
     ws2_32      # socket
     bcrypt      # 加密
     shell32     # 托盘

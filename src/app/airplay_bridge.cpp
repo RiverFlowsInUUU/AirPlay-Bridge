@@ -50,6 +50,8 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <mutex>
+#include <winhttp.h>   // 检查更新
 #include <vector>
 
 using namespace fxchain;
@@ -143,15 +145,147 @@ enum : int {
     MENU_STANDBY   = 114,   // 静音自动待机（子菜单）
     MENU_STANDBY_CUSTOM = 115,   // 自定义静音待机（无极滑块）
     MENU_FIX_FIREWALL = 116,   // 修复连接问题（一键加入站放行规则）
+    MENU_CHECK_UPDATE = 118,   // 检查更新（紧邻「关于」上方）
     MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
 
-// 版本号。发版时改这里 —— 托盘菜单和「关于」都读它。
-constexpr const char* kAppVersion = "1.2.33";
+// 版本号由 CMake 在编译期注入（见 CMakeLists.txt 的
+// target_compile_definitions APP_VERSION），值来自 project(... VERSION x.y.z)。
+//
+// 唯一的版本来源就是 CMakeLists.txt 那一行 —— 源码里不再手写版本号，
+// 所以不会再出现"发版忘了改这里"的情况（v1.2.33 就是这样漏掉的）。
+// 兜底 0.0.0 只对"脱离 CMake 直接编译"的情况生效。
+#ifndef APP_VERSION
+#define APP_VERSION "0.0.0"
+#endif
+constexpr const char* kAppVersion = APP_VERSION;
 
 // 项目主页。「关于」里点一下跳这里。
 constexpr const char* kProjectUrl = "https://github.com/RiverFlowsInUUU/AirPlay-Bridge";
+
+// ============================================================
+// 检查更新（托盘菜单）
+// ============================================================
+//
+// 为什么不用更省事的办法：项目要单文件、不装运行库，所以不能引 libcurl
+// 之类的东西。WinHTTP 是系统自带的，链接 winhttp.lib 就能用，
+// 而且原生支持 TLS，正好。
+//
+// 注意 GitHub API 对没有 User-Agent 的请求会返回 403，必须带上。
+constexpr const char* kLatestReleaseApi =
+    "https://api.github.com/repos/RiverFlowsInUUU/AirPlay-Bridge/releases/latest";
+
+// 按 . 拆成数字逐段比较。
+// 不能字符串比较 —— "1.2.9" > "1.2.10" 会得到错误结论。
+bool isNewerVersion(const std::string& remote, const std::string& local) {
+    auto parse = [](const std::string& v) {
+        std::vector<int> out;
+        size_t i = 0;
+        // 去掉可能的 v 前缀
+        size_t start = (i < v.size() && (v[i] == 'v' || v[i] == 'V')) ? 1 : 0;
+        int cur = 0; bool has = false;
+        for (size_t k = start; k < v.size(); ++k) {
+            const char c = v[k];
+            if (c >= '0' && c <= '9') { cur = cur * 10 + (c - '0'); has = true; }
+            else if (c == '.') { out.push_back(has ? cur : 0); cur = 0; has = false; }
+            else break;   // 遇到 -rc 之类就停
+        }
+        if (has) out.push_back(cur);
+        return out;
+    };
+    const auto a = parse(remote), b = parse(local);
+    for (size_t k = 0; k < a.size() || k < b.size(); ++k) {
+        const int x = (k < a.size()) ? a[k] : 0;
+        const int y = (k < b.size()) ? b[k] : 0;
+        if (x != y) return x > y;
+    }
+    return false;
+}
+
+// 检查更新的结果。网络线程填、主线程读 —— 用 mutex + atomic 传递。
+enum class UpdateState { Failed, UpToDate, HasNew };
+struct UpdateResult {
+    UpdateState state = UpdateState::Failed;
+    std::string tag;
+    std::string url;
+};
+UpdateResult           g_updateResult;
+std::mutex             g_updateMutex;
+std::atomic<bool>      g_updateReady{false};
+
+// 从 GitHub 的 JSON 里抠出某个字符串字段（够用就行，不引 JSON 库）。
+std::string jsonField(const std::string& body, const std::string& key) {
+    const std::string pat = std::string(1, '"') + key + std::string(1, '"');
+    size_t pos = body.find(pat);
+    if (pos == std::string::npos) return "";
+    pos = body.find(':', pos + pat.size());
+    if (pos == std::string::npos) return "";
+    pos = body.find('"', pos);
+    if (pos == std::string::npos) return "";
+    const size_t end = body.find('"', pos + 1);
+    if (end == std::string::npos) return "";
+    return body.substr(pos + 1, end - pos - 1);
+}
+
+// 拉一次最新 release。成功返回 true，结果填进 tag / url。
+bool fetchLatestRelease(std::string& tag, std::string& url) {
+    HINTERNET hS = WinHttpOpen(L"AirPlayBridge/" L"" APP_VERSION,
+                               WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                               WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hS) return false;
+
+    // 5 秒超时：检查更新是个可选动作，不该让用户等太久。
+    WinHttpSetTimeouts(hS, 5000, 5000, 5000, 5000);
+
+    bool ok = false;
+    std::string body;
+    HINTERNET hC = WinHttpConnect(hS, L"api.github.com",
+                                  INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (hC) {
+        HINTERNET hR = WinHttpOpenRequest(hC, L"GET",
+                                          L"/repos/RiverFlowsInUUU/AirPlay-Bridge/releases/latest",
+                                          nullptr, WINHTTP_NO_REFERER,
+                                          WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                          WINHTTP_FLAG_SECURE);
+        if (hR) {
+            // User-Agent 必须带 —— 不带的话 GitHub API 直接 403。
+            WinHttpAddRequestHeaders(hR,
+                L"User-Agent: AirPlayBridge" L"", (DWORD)-1L,
+                WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+            WinHttpAddRequestHeaders(hR,
+                L"Accept: application/vnd.github+json", (DWORD)-1L,
+                WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+
+            if (WinHttpSendRequest(hR, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                   WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+                WinHttpReceiveResponse(hR, nullptr)) {
+                DWORD code = 0, len = sizeof(code);
+                WinHttpQueryHeaders(hR,
+                    WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                    WINHTTP_HEADER_NAME_BY_INDEX, &code, &len,
+                    WINHTTP_NO_HEADER_INDEX);
+                if (code == 200) {
+                    char buf[4096];
+                    DWORD got = 0;
+                    while (WinHttpReadData(hR, buf, sizeof(buf), &got) && got > 0) {
+                        body.append(buf, got);
+                        if (body.size() > 512 * 1024) break;   // 防御：别被撑爆
+                    }
+                    ok = true;
+                }
+            }
+            WinHttpCloseHandle(hR);
+        }
+        WinHttpCloseHandle(hC);
+    }
+    WinHttpCloseHandle(hS);
+    if (!ok) return false;
+
+    tag = jsonField(body, "tag_name");
+    url = jsonField(body, "html_url");
+    return !tag.empty();
+}
 
 // 静音判定的峰值阈值（int16 满量程 32767）。
 // 300 约等于 -40dBFS：底噪、鼠标点击声这种级别的残留不算"有声音"，
@@ -1987,6 +2121,7 @@ int main(int argc, char** argv) {
             }
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
+            menu.push_back({"检查更新", MENU_CHECK_UPDATE});
             // 版本号就在标题里，一眼看到 —— 省得用户回复问题时还要去翻文件属性。
             menu.push_back({"关于 AirPlay Bridge v" + std::string(kAppVersion),
                             MENU_ABOUT});
@@ -2257,6 +2392,30 @@ int main(int argc, char** argv) {
                         ShellExecuteA(nullptr, "open", appDataDir().c_str(),
                                       nullptr, nullptr, SW_SHOWNORMAL);
                         break;
+                    case MENU_CHECK_UPDATE: {
+                        // 网络请求放独立线程 —— 托盘程序卡一下就会被当成死掉。
+                        // 结果通过 g_updateResult 交给主循环去弹窗（见下面轮询）。
+                        static std::atomic<bool> running{false};
+                        if (running.load()) break;   // 防连点
+                        running.store(true);
+                        logLine("开始检查更新，当前版本 " + std::string(kAppVersion));
+                        std::thread([&]() {
+                            std::string tag, url;
+                            const bool ok = fetchLatestRelease(tag, url);
+                            UpdateResult r;
+                            r.state = ok ? (isNewerVersion(tag, kAppVersion)
+                                            ? UpdateState::HasNew : UpdateState::UpToDate)
+                                         : UpdateState::Failed;
+                            r.tag = tag; r.url = url;
+                            {
+                                std::lock_guard<std::mutex> lk(g_updateMutex);
+                                g_updateResult = std::move(r);
+                            }
+                            g_updateReady.store(true);
+                            running.store(false);
+                        }).detach();
+                        break;
+                    }
                     case MENU_ABOUT:
                         // 打开项目主页 —— 用户找更新、报问题、看说明都在那里。
                         ShellExecuteA(nullptr, "open", kProjectUrl,
@@ -2270,6 +2429,46 @@ int main(int argc, char** argv) {
                 }
             });
         });
+
+        // 检查更新的结果回来了就弹窗。
+        // 不在网络线程里弹 —— MessageBox 是模态的，在非 UI 线程上弹
+        // 没有正确的父窗口和消息泵，容易出怪问题。
+        if (g_updateReady.load()) {
+            g_updateReady.store(false);
+            UpdateResult r;
+            {
+                std::lock_guard<std::mutex> lk(g_updateMutex);
+                r = g_updateResult;
+            }
+            const wchar_t kNLw = static_cast<wchar_t>(10);
+            std::wstring tip;
+            const std::wstring cur(kAppVersion, kAppVersion + std::strlen(kAppVersion));
+            if (r.state == UpdateState::Failed) {
+                tip += L"检查更新失败，请稍后重试。";
+            } else if (r.state == UpdateState::UpToDate) {
+                tip += L"当前已是最新版本（v"; tip += cur; tip += L"）。";
+            } else {
+                tip += L"发现新版本 ";
+                tip += std::wstring(r.tag.begin(), r.tag.end());
+                tip += L"（当前 v"; tip += cur; tip += L"）。";
+                tip += kNLw; tip += kNLw; tip += L"是否前往下载？";
+                logLine("发现新版本 " + r.tag + "（当前 " + std::string(kAppVersion) + "）");
+                const int r2 = MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
+                                           MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                if (r2 == IDYES && !r.url.empty()) {
+                    ShellExecuteA(nullptr, "open", r.url.c_str(),
+                                  nullptr, nullptr, SW_SHOWNORMAL);
+                }
+                tip.clear();
+            }
+            if (!tip.empty()) {
+                MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
+                            MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                logLine(r.state == UpdateState::Failed
+                            ? std::string("检查更新失败（网络不可用或接口异常）")
+                            : ("检查更新：已是最新版本 " + std::string(kAppVersion)));
+            }
+        }
 
         if (sess.running.load()) sess.pump();
 
