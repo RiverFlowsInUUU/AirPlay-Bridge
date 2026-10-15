@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.11] - 2026-10-15
+
+### Fixed
+
+- 调节窗口的「取消」和「应用」两个按钮宽度计算有误，彼此重叠。
+  现在等宽排列，中间留出正常间距。
+
 ## [1.2.10] - 2026-10-15
 
 ### Changed

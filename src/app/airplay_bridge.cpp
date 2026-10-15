@@ -597,6 +597,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 int main(int argc, char** argv) {
 
+
     // WIN32 子系统默认没有控制台。命令行模式下要把输出送到终端，
     // 得先 AttachConsole 接上父进程的控制台，再重绑 stdout/stderr。
     // （直接 printf 是没有地方去的 —— 所以这里是必须的。）

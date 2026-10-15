@@ -255,6 +255,15 @@ void paint(HWND hwnd, DialogState& st) {
     EndPaint(hwnd, &ps);
 }
 
+void makeFonts(DialogState& st) {
+    if (st.fValue) DeleteObject(st.fValue);
+    if (st.fGrade) DeleteObject(st.fGrade);
+    if (st.fSmall) DeleteObject(st.fSmall);
+    st.fValue = makeFont(st.dpi, 40, true);
+    st.fGrade = makeFont(st.dpi, 14, false);
+    st.fSmall = makeFont(st.dpi, 12, false);
+}
+
 void layout(DialogState& st) {
     st.pad    = s(st.dpi, 28);
     st.w      = s(st.dpi, 460);
@@ -264,10 +273,13 @@ void layout(DialogState& st) {
     st.thumbR = s(st.dpi, 9);
 
     const int bw = s(st.dpi, 100), bh = s(st.dpi, 36);
+    const int gap = s(st.dpi, 12);
     const int by = st.h - s(st.dpi, 12) - bh;
-    st.btnApply  = RECT{st.w - st.pad - bw, by, st.w - st.pad, by + bh};
-    st.btnCancel = RECT{st.w - st.pad - bw - s(st.dpi, 12) - bw, by,
-                        st.w - st.pad - s(st.dpi, 12) - bw + bw, by + bh};
+    // 从右往左排：应用贴右边距，取消在它左边留一个间距。
+    const int applyRight = st.w - st.pad;
+    st.btnApply  = RECT{applyRight - bw, by, applyRight, by + bh};
+    st.btnCancel = RECT{applyRight - bw - gap - bw, by,
+                        applyRight - bw - gap, by + bh};
 }
 
 bool inRect(const RECT& r, int x, int y) {
@@ -300,9 +312,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             st->dark = darkmode::isDark();
             layout(*st);
 
-            st->fValue = makeFont(st->dpi, 40, true);
-            st->fGrade = makeFont(st->dpi, 14, false);
-            st->fSmall = makeFont(st->dpi, 12, false);
+            makeFonts(*st);
 
             RECT wrc{0, 0, st->w, st->h};
             AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU,
@@ -328,6 +338,20 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 EndPaint(hwnd, &ps);
             }
             return 0;
+
+        case WM_DPICHANGED: {
+            // 拖到另一块缩放不同的显示器，或系统改了缩放：全部按新 DPI 重算
+            if (!st) return 0;
+            st->dpi = static_cast<int>(LOWORD(wp));
+            makeFonts(*st);
+            layout(*st);
+            const RECT* sug = reinterpret_cast<const RECT*>(lp);
+            SetWindowPos(hwnd, nullptr, sug->left, sug->top,
+                         sug->right - sug->left, sug->bottom - sug->top,
+                         SWP_NOZORDER);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
 
         case WM_SETTINGCHANGE:
             if (st && lp != 0 &&
