@@ -345,8 +345,25 @@ struct Session {
     // skipResolve = true 时由调用方跳过设备扫描（resolveDevice 约 2.5 秒），
     // 复用已知的 host / deviceId / deviceName 直接建会话。
     // 唤醒走的就是这条路：等扫描完开头几秒的声音已经丢了。
+    // 清掉待机状态：标志位 + 放掉那路「听声音」的采集。
+    //
+    // 只要开始建会话就该调它 —— 不管是静音唤醒回来的，还是用户手动点的连接。
+    // 留着一个 true 的 standbyActive 会把「异常断线自动重连」永久挡死：
+    // 主循环那条重连分支的判据里就带着 !standbyActive。
+    void clearStandbyState() {
+        standbyActive.store(false);
+        standbyWake.store(false);
+        if (standbyEar) standbyEar->stop();
+        if (standbyThread.joinable()) standbyThread.join();
+        standbyThread = std::thread();
+        standbyEar.reset();
+    }
+
     bool start(std::string& err, bool skipResolve = false) {
         (void)skipResolve;   // 扫描发生在调用方（tryConnect），这里只记录意图
+        // 开始建会话就意味着离开待机 —— 不清的话 standbyActive 会一直挂着，
+        // 之后真掉线时自动重连那条路就是死的。
+        clearStandbyState();
         // 先清干净：重复调用或上次失败残留时，producer 可能是个
         // joinable 的空线程，留着会在成员析构时 std::terminate。
         if (producer.joinable()) producer.join();
@@ -611,12 +628,7 @@ struct Session {
     void leaveStandby() {
         if (!standbyActive.load()) return;
         logLine("检测到声音，退出待机并重连");
-        if (standbyEar) standbyEar->stop();
-        if (standbyThread.joinable()) standbyThread.join();
-        standbyThread = std::thread();
-        standbyEar.reset();
-        standbyActive.store(false);
-        standbyWake.store(false);
+        clearStandbyState();
     }
 };
 
