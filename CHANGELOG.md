@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.10] - 2026-10-15
+
+### Changed
+
+- 延迟、音量、音质的调节窗口重做：跟随系统深浅色，当前档位评价用主色标出，
+  滑块配色与托盘图标一致。
+
 ## [1.2.9] - 2026-10-15
 
 ### Changed
