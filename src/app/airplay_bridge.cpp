@@ -40,6 +40,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <random>
 #include <cstdlib>
 #include <cstring>
 #include <future>
@@ -266,6 +267,25 @@ const AirPlayDevice* pickDeviceConsole(const std::vector<AirPlayDevice>& devs) {
 // ============================================================
 // 流会话：把采集 + 推流封装起来，托盘和命令行都用它
 // ============================================================
+// 本机在接收端眼里的设备标识（形如 02:AB:CD:EF:01:23）。
+//
+// 必须每台机器唯一。此前写死成一个固定 MAC，于是装了本程序的每台电脑
+// 在接收端看来都是同一台设备 —— 实测两台同时连会互相顶掉。
+//
+// 首字节取 02（本地管理地址），不会和真实网卡冲突；随机部分也不暴露本机 MAC。
+static std::string g_deviceId;
+
+static std::string makeDeviceId() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> byte(0, 255);
+    const char* fmt = "02:%02X:%02X:%02X:%02X:%02X";
+    char buf[18];
+    std::snprintf(buf, sizeof(buf), fmt,
+                  byte(gen), byte(gen), byte(gen), byte(gen), byte(gen));
+    return buf;
+}
+
 struct Session {
     BridgeConfig* cfg = nullptr;
     std::string   host;
@@ -416,7 +436,7 @@ struct Session {
         sender = std::make_unique<RaopSender>(*loop, std::move(ev), std::move(log));
         sender->attachRing(ring.get());
         sender->setInputFormat(engineInputRate);
-        sender->setIdentity({"AirPlay Bridge", "AA:BB:CC:DD:EE:FF", "MacBookPro18,3"});
+        sender->setIdentity({"AirPlay Bridge", g_deviceId, "MacBookPro18,3"});
         sender->setAuth(RaopDeviceInfo::Auth::HapTransient, true, "", "", "");
         sender->setVolume(volume);
         if (cfg) sender->setLatencyMs(cfg->latencyMs);   // 延迟必须 start() 前设
@@ -595,6 +615,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     return rc;
 }
 
+
 int main(int argc, char** argv) {
 
 
@@ -650,6 +671,13 @@ int main(int argc, char** argv) {
     std::string cfgPath = defaultConfigPath();
     BridgeConfig cfg;
     loadConfig(cfgPath, cfg);
+
+    // 设备标识：第一次运行生成一个，之后一直复用
+    if (cfg.deviceId.empty()) {
+        cfg.deviceId = makeDeviceId();
+        saveConfig(cfgPath, cfg);
+    }
+    g_deviceId = cfg.deviceId;
     if (volume < 0) volume = cfg.volume;
 
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。

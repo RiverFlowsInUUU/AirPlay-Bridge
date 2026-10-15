@@ -12,6 +12,10 @@
 namespace fxchain {
 
 struct BridgeConfig {
+    // 本机自己的设备标识（形如 02:AB:CD:EF:01:23）。首次运行生成后固定。
+    // 每台机器必须不同 —— 写死的话接收端会把所有装了本程序的电脑
+    // 当成同一台设备，两台同时连会互相顶掉。
+    std::string deviceId;          // 本机自身标识，每台唯一，首次运行生成
     std::string lastDeviceId;      // 上次连接的 deviceid（MAC），优先于 IP
     std::string lastDeviceName;    // 显示名
     std::string lastHost;          // 上次的 IP（deviceid 找不到时的回退）

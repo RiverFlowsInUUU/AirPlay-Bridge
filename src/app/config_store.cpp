@@ -128,6 +128,7 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     }
     if (out.qualityLevel < 0)   out.qualityLevel = 0;
     if (out.qualityLevel > 100) out.qualityLevel = 100;
+    out.deviceId       = jsonGetString(j, "deviceId");
     out.preCaptureDevice = jsonGetString(j, "preCaptureDevice");
     out.autoReconnect  = jsonGetBool(j, "autoReconnect", out.autoReconnect);
     out.hideAppleTV    = jsonGetBool(j, "hideAppleTV", out.hideAppleTV);
@@ -159,6 +160,12 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
     f << "  \"lastDeviceId\": \""   << escapeJson(cfg.lastDeviceId)   << "\",\n";
     f << "  \"lastDeviceName\": \"" << escapeJson(cfg.lastDeviceName) << "\",\n";
     f << "  \"lastHost\": \""       << escapeJson(cfg.lastHost)       << "\",\n";
+    // 用 QC 拼引号、char(10) 换行。不用反斜杠转义 —— 它在工具链里会被吃掉。
+    {
+        const char QC = '"';
+        f << "  " << QC << "deviceId" << QC << ": " << QC
+          << escapeJson(cfg.deviceId) << QC << "," << char(10);
+    }
     f << "  \"volume\": "           << cfg.volume                       << ",\n";
     f << "  \"latencyMs\": "        << cfg.latencyMs                    << ",\n";
     f << "  \"qualityLevel\": "     << cfg.qualityLevel                 << ",\n";
