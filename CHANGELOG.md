@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.37] - 2026-10-15
+
+### Added
+
+- 启动时会检查网络放行是否有效，失效则直接提示并可就地修复。
+  更换文件位置或重命名后不会再用到旧的放行设置。
+
 ## [1.2.36] - 2026-10-15
 
 ### Fixed

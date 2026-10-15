@@ -569,6 +569,47 @@ bool firewallRuleExists() {
     return found;
 }
 
+// 启动时检查放行规则是否指向**当前这个 exe**，不匹配就提醒用户去修。
+//
+// 为什么必须放在启动时做：
+// 规则绑定的是 exe 路径。用户下载了新版本、换目录、改文件名之后，
+// 旧规则还在（名字没变），但指向的是那个已经删掉的老文件 ——
+// 新 exe 实际上没有被放行。等到用户连不上、自己去点菜单才发现，
+// 中间他已经困惑半天了。启动时一句话就能省掉这个过程。
+//
+// 只在**确实有问题**时才打扰用户：规则指向当前 exe 就完全静默。
+// 也不在这里直接修 —— 加规则要管理员权限，会弹 UAC，
+// 让用户在还没搞清楚状况的时候先吃一个 UAC 弹窗是不礼貌的。
+// 前置声明：「修复连接问题」的提权入口定义在下面，而启动检查要用它。
+bool elevateAndRunFixFirewall();
+
+void checkFirewallRuleAtStartup() {
+    if (firewallRuleExists()) return;   // 正常：什么都不做，静默启动
+
+    logLine("启动检查: 本程序尚未被防火墙放行，可能影响连接");
+
+    // 提权这件事交给菜单里那一项去做，这里只提醒 + 给入口。
+    std::wstring tip;
+    const wchar_t kNLw = static_cast<wchar_t>(10);
+    tip += L"AirPlay Bridge 还没有被防火墙放行。";
+    tip += kNLw; tip += kNLw;
+    tip += L"这会让声音连不上或频繁中断。";
+    tip += kNLw;
+    tip += L"点「是」立即修复（需要管理员权限）。";
+    tip += kNLw; tip += kNLw;
+    tip += L"也可以稍后从托盘菜单点「修复连接问题」。";
+
+    // MB_SETFOREGROUND：托盘程序没有前台窗口，不加的话弹窗可能被压在别的
+    // 窗口后面，用户只看到进程一闪而过。
+    const int r = MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
+                              MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND);
+    if (r != IDYES) return;
+
+    logLine("用户在启动提示里选择了立即修复，请求提权添加防火墙入站规则");
+    elevateAndRunFixFirewall();
+}
+
+
 // --fix-firewall 的入口（被提权拉起的那一份跑它）。
 //
 // 约束：这一份**不起托盘图标、不跑主循环** —— 做完就退。
@@ -1662,6 +1703,16 @@ int main(int argc, char** argv) {
     if (anotherInstanceIsRunning()) {
         CoUninitialize();
         return 0;
+    }
+
+    // 放行规则检查：必须放在单实例检测**之后** ——
+    // 要被单实例挡掉的那一份进程只会一闪而过，不该弹这个窗口。
+    //
+    // 也放在读配置之前：它是纯粹的"能不能联网"问题，与用户设置无关。
+    // 但托盘模式以外（--console 等）同样需要，所以只排除 --fix-firewall
+    //（那条路本来就在加规则）。
+    if (wantTray) {
+        checkFirewallRuleAtStartup();
     }
 
     // 运行时数据在 %LOCALAPPDATA%/AirPlayBridge/
