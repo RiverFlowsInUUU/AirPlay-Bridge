@@ -387,6 +387,16 @@ struct Session {
         // 开始建会话就意味着离开待机 —— 不清的话 standbyActive 会一直挂着，
         // 之后真掉线时自动重连那条路就是死的。
         clearStandbyState();
+
+        // wantReconnect 也必须一起清掉。
+        //
+        // 它是「掉线需要重连」的标志，但 start() 并不经过 teardown()，
+        // 所以上一次失败留下的 true 会原样带进这个新会话。
+        // 后果：退避循环每 5 秒看到「running && wantReconnect」，
+        // 就把这个刚建好的健康会话整个拆掉再重连 —— 永远连不上，
+        // 而且表现是「4 秒后会话 stopped、没有任何超时警告」（因为是我们自己拆的）。
+        // 重启接收端也没用：毒在我们自己的标志位里。
+        wantReconnect.store(false);
         // 先清干净：重复调用或上次失败残留时，producer 可能是个
         // joinable 的空线程，留着会在成员析构时 std::terminate。
         if (producer.joinable()) producer.join();
