@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.26] - 2026-10-15
+
+### Fixed
+
+- 重连时不再每次都重新扫描局域网设备，改为先直连上次用过的设备。
+  连接不顺畅时，托盘菜单不再反复卡顿。
+
 ## [1.2.25] - 2026-10-15
 
 ### Added

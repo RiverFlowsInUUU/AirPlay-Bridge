@@ -1137,6 +1137,29 @@ int main(int argc, char** argv) {
     // 让重复重连不再每 5 秒同步重扫 2.5 秒 —— 见 resolveDevice。
     long long lastScanMs = 0;
 
+    // 用「记住的设备」直接开一条会话（不扫网段）。
+    //
+    // 抽出这条路径是为了让两处复用同一份逻辑（这里只写一遍）：
+    //   1) skipResolve —— 待机唤醒，等那 2.5 秒扫描开头的声音就丢了；
+    //   2) 常规重连 —— 先直连试一次，失败才回落到扫描（见 tryConnect）。
+    //
+    // sess.host 为空时用 cfg.lastHost 补上（连带 deviceId / deviceName），
+    // 这样即便进程刚起来 sess 还是空的也能直连。
+    //
+    // 返回 true 表示会话已建起来（start() 成功返回，握手结果由 pump 决定）；
+    // false 表示没有可用目标或 start() 直接失败 —— 此时不弹气泡，
+    // 由调用方决定后续（重连循环里反复弹气泡是骚扰）。
+    auto startWithRememberedDevice = [&]() -> bool {
+        if (sess.host.empty()) {
+            if (cfg.lastHost.empty()) return false;   // 没记住任何设备
+            sess.host = cfg.lastHost;
+            sess.deviceId = cfg.lastDeviceId;
+            sess.deviceName = cfg.lastDeviceName;
+        }
+        std::string err;
+        return sess.start(err, true);
+    };
+
     // 尝试连接（托盘模式：优先历史设备；没有历史则自动选 HomePod）
     //
     // skipResolve = true 时不扫描网段，直接用 sess 里已经记住的
@@ -1144,16 +1167,24 @@ int main(int argc, char** argv) {
     // 扫描要 2.5 秒，等它扫完开头的声音已经错过了。
     //
     // forceScan = true 时无视设备缓存强制重扫（用户点"重新扫描"用）。
+    //
+    // 常规重连（skipResolve = false）也先试一次直连：
+    // resolveDevice 会同步扫网段 2.5 秒，每次重连都扫一遍，托盘菜单就僵住。
+    // 记住的设备通常还活着，直连基本都能成 —— 扫描留作回落。
     auto tryConnect = [&](bool skipResolve = false, bool forceScan = false) {
         if (sess.running.load()) return;
-        if (skipResolve) {
-            if (sess.host.empty()) return;   // 没有可用目标，交给常规重连
-            std::string err;
-            if (!sess.start(err, true)) {
-                tray.setTooltip("AirPlay Bridge - 启动失败");
-                tray.notify("AirPlay Bridge", "启动失败: " + err);
-            }
-        } else if (resolveDevice(sess, cfg, discovered, lastScanMs, forceScan)) {
+
+        // 直连路径：skipResolve 走它；forceScan（重新扫描）不走 ——
+        // 用户点"重新扫描"就是要真扫，不能被记住的设备挡住。
+        const bool tryDirect = skipResolve || (!forceScan && !cfg.lastHost.empty());
+        if (tryDirect) {
+            if (startWithRememberedDevice()) return;   // 直连成功
+            // 直连失败：静默回落。这里绝不能弹「启动失败」——
+            // 重连循环每几秒来一次，会反复弹气泡。
+            if (skipResolve) return;   // 待机唤醒没有回落路径，交给常规重连
+        }
+
+        if (resolveDevice(sess, cfg, discovered, lastScanMs, forceScan)) {
             std::string err;
             if (!sess.start(err)) {
                 tray.setTooltip("AirPlay Bridge - 启动失败");
