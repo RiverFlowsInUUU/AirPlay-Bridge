@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.24] - 2026-10-15
+
+### Changed
+
+- 主循环处理网络事件的最长等待由 50ms 降到 10ms。连接不顺畅时，
+  托盘菜单的响应会更快。
+
 ## [1.2.23] - 2026-10-15
 
 ### Fixed

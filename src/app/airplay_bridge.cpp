@@ -566,10 +566,16 @@ struct Session {
         return true;
     }
 
-    // 主循环的一步；返回 false 表示需要重连
+    // 主循环的一步
     void pump() {
         if (!sender) return;
-        loop->pump(*sender);
+        // 等待上限压到 10ms（默认 50ms）。
+        //
+        // 主循环一轮 = pump + 20ms sleep，而托盘每轮只处理一条消息。
+        // 流媒体正常时 sender 的 deadline 约 8ms，pump 很快返回，改不改都一样；
+        // 但连接不顺畅时 sender 空转、没有近 deadline，就会撑满 50ms，
+        // 一轮变成 70ms —— 点托盘会觉得钝。
+        loop->pump(*sender, std::chrono::milliseconds(10));
     }
 
     // 非阻塞版本，给「菜单打开期间的心跳」用。
