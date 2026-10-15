@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.39] - 2026-10-15
+
+### Fixed
+
+- 启动检查不再把正在使用的网络放行设置误判为遗留配置；重复的设置会被
+  合并为一条，不再越积越多。
+
 ## [1.2.38] - 2026-10-15
 
 ### Added

@@ -431,6 +431,11 @@ bool anotherInstanceIsRunning() {
 // （同名规则只留一条，就是刚加的那条）。
 const char* const kFirewallRuleName = "AirPlay Bridge inbound UDP";
 
+// 前置声明：deleteFirewallRuleByName() 要用这两个，
+// 而它们的定义在下面（findStaleFirewallRules 依赖上面的常量与 exePath）。
+std::vector<std::wstring> findStaleFirewallRules();
+bool deleteFirewallRuleByNameEx(const std::wstring& name);
+
 // netsh 的**完整路径** —— 不能只写 "netsh"。
 //
 // 实测：本程序从托盘启动时继承的是 Explorer 的环境，PATH 里当然有
@@ -495,19 +500,30 @@ std::string netshAddRuleArgs(bool useFullNetshPath) {
     return cmd;
 }
 
-// 删掉同名旧规则。返回 false 表示 netsh 执行失败（多数是没管理员权限）。
+// 删掉**所有前缀匹配**的旧规则（不只是精确同名的那条）。
+// 返回 false 表示 netsh 执行失败（多数是没管理员权限）。
+//
+// 为什么必须连带序号的一起删：netsh 遇到重名会自动加序号，于是同一台
+// 机器上会攒出 "... UDP"、"... UDP 1"、"... UDP 2"……。只按精确名字删
+// 的话，带序号的一条都删不掉 —— 这正是序号堆积的根源。
+// 这里是「加之前先清干净」的语义：清完之后系统里只会剩下面新加的那一条。
 //
 // 用 netsh 而不是 INetFwPolicy2：写规则走 COM 需要管理员权限时
 // 一样会失败，而 netsh 的命令行跟上面日志里给用户看的那条完全一致，
 // 出问题时日志和用户手册能对得上。
+//
+// 删的是"我们前缀匹配"的那些 —— 别的 AirPlay 规则（"AirPlay Bridge UDP
+// Range" 等）名字对不上前缀，一条都不会被碰到。用 findStaleFirewallRules()
+// 而不是自己拼 netsh 通配：它走 INetFwPolicy2 枚举 + 前缀比较，判据与
+// 启动检查完全同一套，不会出现"检查时算一条、删的时候删另一批"的错位。
 bool deleteFirewallRuleByName() {
-    const char QC = '"';
-    std::string cmd = QC + netshExePath() + QC;
-    cmd += " advfirewall firewall delete rule name=";
-    cmd += QC; cmd += kFirewallRuleName; cmd += QC;
-    const int rc = runCommandLine(cmd);
-    // netsh 在"规则不存在"时也返回 0，所以这里只看负值（进程起不来）。
-    return rc >= 0;
+    const std::vector<std::wstring> ours = findStaleFirewallRules();
+    if (ours.empty()) return true;   // 本来就没有，等价于删成功
+    bool ok = true;
+    for (const std::wstring& name : ours) {
+        if (!deleteFirewallRuleByNameEx(name)) ok = false;
+    }
+    return ok;
 }
 
 // 已经加过规则了吗？（菜单项「只在需要时才出现」的判据）
@@ -584,18 +600,32 @@ bool firewallRuleExists() {
     return found;
 }
 
-// 找**陈旧**的放行规则：名字是我们这个前缀，但绑定的**不是当前这个 exe**。
+// 找**多余的**放行规则：本程序加过的那些，按「指向哪个 exe」分组，
+// 每个 exe 路径只保留一条。
 //
 // 怎么攒出来的：netsh 遇到重名会自动加序号（"... UDP 1"、"... UDP 2"……），
-// 而规则真正生效的是 program=（exe 完整路径）。用户下载新版本、换目录、
-// 改文件名之后，旧规则还在系统里，指向的却是那个已经不存在的文件 ——
-// 只是把设置搞乱，没有半点用处。
+// 而规则真正生效的是 program=（exe 完整路径）。于是同一台机器上会出现：
+//
+//   AirPlay Bridge inbound UDP      <- 指向当前 exe（正在起作用）
+//   AirPlay Bridge inbound UDP 1    <- 也指向当前 exe（纯冗余）
+//   AirPlay Bridge inbound UDP 2    <- 也指向当前 exe（纯冗余）
+//   AirPlay Bridge inbound UDP 5    <- 指向已经不存在的旧 exe（陈旧）
 //
 // ⚠️ 只认**精确前缀** "AirPlay Bridge inbound UDP"。
 // 本机还可能有别的 AirPlay 规则（"AirPlay Bridge UDP Range"、
 // "AirPlay Bridge TCP Range"、"AirPlay Sender EXE"……），
 // 那些**不是本程序加的**，一条都不能碰 —— 前缀多加一个字符就能把它们
 // 排除干净，所以这里坚持用前缀 + 长度比较，而不是 find()。
+//
+// 判据（按规则指向的 exe 路径分组，每组只留一条）：
+//   - 分组 A：ApplicationName == 当前 exePath() —— 正在起作用，**保留一条**，
+//             其余同组的（带序号的冗余）收进待删列表。
+//             ⚠️ 老板明确要求：正在起作用的规则绝不能删。
+//   - 分组 B：ApplicationName != 当前 exePath() —— 旧版本 / 已删除 /
+//             已换目录 / 已改名，那条规则已经不起作用，**全部收进待删列表**。
+//
+// 分组 A 里保留哪一条：优先留下名字恰好等于 kFirewallRuleName（不带序号）
+// 的那条；没有的话（例如第一条被改名了）就留下枚举到的第一条。
 //
 // 与 firewallRuleExists() 用同一套接口（INetFwPolicy2 / INetFwRules /
 // INetFwRule），同一个枚举写法。
@@ -604,6 +634,9 @@ std::vector<std::wstring> findStaleFirewallRules() {
 
     const std::wstring prefix(
         kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+    // 不带序号的那个名字：分组 A 里优先保留它。
+    const std::wstring exact(kFirewallRuleName,
+                             kFirewallRuleName + std::strlen(kFirewallRuleName));
     // 当前 exe 的宽字符形式：规则里存的是宽字符路径，比较要同类型。
     // exePath() 返回的是 A 版 API 拿到的系统本地编码字符串，
     // 用 CP_ACP 转回宽字符才能和注册表里的值逐字符对上。
@@ -618,6 +651,11 @@ std::vector<std::wstring> findStaleFirewallRules() {
             MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, curExe.data(), need);
         }
     }
+
+    // 两趟：先枚举收集，再在内存里分组做决定。
+    // 不能边枚举边删 —— 分组 A 要「留下哪一条」得先看全同组的所有名字。
+    std::vector<std::wstring> ours;      // 名字（前缀匹配的全部）
+    std::vector<bool>        isCurrent;  // 与 ours 一一对应：是否指向当前 exe
 
     INetFwPolicy2* policy = nullptr;
     INetFwRules* rules = nullptr;
@@ -644,9 +682,9 @@ std::vector<std::wstring> findStaleFirewallRules() {
                         BSTR name = nullptr;
                         if (SUCCEEDED(rule->get_Name(&name)) && name) {
                             const std::wstring wide(name);
-                            // 前缀匹配，且必须比前缀更长 —— kFirewallRuleName
-                            // 本身是"我们要留下的那条"，它不叫陈旧。
-                            if (wide.size() > prefix.size() &&
+                            // 前缀匹配（含不带序号的那条本身）。
+                            // 别的 AirPlay 规则前缀对不上，天然被排除。
+                            if (wide.size() >= prefix.size() &&
                                 wide.compare(0, prefix.size(), prefix) == 0) {
                                 BSTR appPath = nullptr;
                                 bool sameAsCurrent = false;
@@ -656,9 +694,8 @@ std::vector<std::wstring> findStaleFirewallRules() {
                                         (_wcsicmp(appPath, curExe.c_str()) == 0);
                                 }
                                 if (appPath) SysFreeString(appPath);
-                                // 指向当前 exe 的（哪怕名字带序号）留着 ——
-                                // 它是有用的。只收"指向别的文件"的那些。
-                                if (!sameAsCurrent) stale.push_back(wide);
+                                ours.push_back(wide);
+                                isCurrent.push_back(sameAsCurrent);
                             }
                         }
                         if (name) SysFreeString(name);
@@ -675,6 +712,25 @@ std::vector<std::wstring> findStaleFirewallRules() {
     if (rules)  rules->Release();
     if (policy) policy->Release();
     if (needUninit) CoUninitialize();
+
+    // 每一组（指向当前 exe / 指向别处）各挑一条留下。
+    // keep[i] = true 表示第 i 条要保留，其余收进待删列表。
+    std::vector<bool> keep(ours.size(), false);
+
+    // 分组 B：指向别的 exe 的一条都不留。
+    // 分组 A：只留一条 —— 优先"名字恰好是 kFirewallRuleName"的那条，
+    // 否则留枚举到的第一条（组内顺序无所谓，反正只留一条）。
+    size_t keepCurrentIdx = static_cast<size_t>(-1);
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (!isCurrent[i]) continue;
+        if (keepCurrentIdx == static_cast<size_t>(-1)) keepCurrentIdx = i;
+        if (ours[i] == exact) { keepCurrentIdx = i; break; }
+    }
+    if (keepCurrentIdx != static_cast<size_t>(-1)) keep[keepCurrentIdx] = true;
+
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (!keep[i]) stale.push_back(ours[i]);
+    }
     return stale;
 }
 
@@ -717,7 +773,10 @@ bool deleteFirewallRuleByNameEx(const std::wstring& name) {
     return rc >= 0;
 }
 
-// 删掉所有陈旧规则，返回删掉的条数。
+// 删掉所有多余规则（重复的 / 指向旧文件的），返回删掉的条数。
+//
+// 只删 findStaleFirewallRules() 收进来的那些 —— 其中**不含**指向当前 exe
+// 且被判定"要保留"的那一条。正在起作用的规则绝不在这里被删掉。
 //
 // ⚠️ 日志里只写条数，**不写规则名也不写路径** —— 用户目录的完整路径
 // 属于隐私，日志可能被贴到 issue 里。
@@ -728,9 +787,9 @@ int cleanStaleFirewallRules() {
         if (deleteFirewallRuleByNameEx(name)) ++removed;
     }
     if (removed > 0) {
-        logLine("已清理 " + std::to_string(removed) + " 条陈旧防火墙规则");
+        logLine("已清理 " + std::to_string(removed) + " 条多余防火墙规则");
     } else if (!stale.empty()) {
-        logLine("清理陈旧防火墙规则失败（可能没有管理员权限），共 " +
+        logLine("清理多余防火墙规则失败（可能没有管理员权限），共 " +
                 std::to_string(stale.size()) + " 条");
     }
     return removed;
@@ -778,11 +837,11 @@ void checkFirewallRuleAtStartup() {
 
     if (staleCount > 0) {
         logLine("启动检查: 检测到 " + std::to_string(staleCount) +
-                " 条陈旧防火墙规则（指向已不存在或已更换位置的文件）");
+                " 条多余的防火墙规则（同一条放行被重复添加，或指向旧文件）");
         // 已经有主提示时隔一行再追加，读起来是两段而不是一串。
         if (!tip.empty()) { tip += kNLw; tip += kNLw; }
         tip += L"检测到 " + std::to_wstring(staleCount) +
-               L" 条旧的网络放行设置（指向已不存在或已更换位置的文件）。";
+               L" 条多余的网络放行设置（重复添加，或指向已不存在或已更换位置的文件）。";
         tip += kNLw; tip += kNLw;
         tip += L"它们不影响使用，但会让系统里的设置变乱。";
         wantCleanOnYes = true;
