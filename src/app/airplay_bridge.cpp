@@ -214,6 +214,9 @@ struct UpdateResult {
 UpdateResult           g_updateResult;
 std::mutex             g_updateMutex;
 std::atomic<bool>      g_updateReady{false};
+// 防连点：检查更新进行中就不再起第二个线程。
+// 必须放在文件作用域 —— 跑它的 lambda 是无捕获的（见 MENU_CHECK_UPDATE）。
+std::atomic<bool>      g_updateRunning{false};
 
 // 从 GitHub 的 JSON 里抠出某个字符串字段（够用就行，不引 JSON 库）。
 std::string jsonField(const std::string& body, const std::string& key) {
@@ -305,6 +308,11 @@ std::string exePath();   // 前置声明
 
 // 托盘模式没有控制台，把关键事件写到 exe 同目录的日志文件
 void logLine(const std::string& msg) {
+    // 日志会被多个线程写（主循环、看门狗、网络 pump、更新检查）。
+    // fopen/fprintf/fclose 是逐次调用，不加锁两个线程会交错写同一行，
+    // 排查时看到的日志就是断的。锁的范围就包住这一次写入。
+    static std::mutex logMutex;
+    std::lock_guard<std::mutex> lk(logMutex);
     static std::string path = []() {
         // 日志放用户目录，不在 exe 旁边留文件（exe 保持零外挂）
         char buf[MAX_PATH] = {};
@@ -346,9 +354,22 @@ void logLine(const std::string& msg) {
 }
 
 std::string exePath() {
-    char buf[MAX_PATH] = {};
-    DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
-    return std::string(buf, n);
+    // 这里拿到的路径要写进防火墙规则、还要跟规则里存的路径做等值比较。
+    // 不要试图用 GetModuleFileNameA(nullptr, nullptr, 0) 先探长度 ——
+    // 实测这个 API 传空指针直接返回 0 / ERROR_INSUFFICIENT_BUFFER，
+    // 它不支持两段式调用。照着写会得到永远为空的路径，
+    // 而空路径拿去和防火墙规则里的路径比较永远不相等 ——
+    // 表现为「明明已放行，程序却说没放行」。
+    //
+    // 用足够大的缓冲：216 是 Windows 上不含 \\?\ 前缀的最大路径长度，
+    // 留到 1024 足够覆盖长路径场景；真被截断也不会报错，
+    // 只是那条防火墙规则会对不上（下次启动会提示重建）。
+    std::string buf(1024, static_cast<char>(0));
+    const DWORD got = GetModuleFileNameA(nullptr, buf.data(),
+                                         static_cast<DWORD>(buf.size()));
+    if (got == 0 || got >= buf.size()) return std::string();
+    buf.resize(got);   // resize 到实际长度，末尾不残留空字符
+    return buf;
 }
 
 // 弹窗正文统一走这里：源码是 UTF-8，直接喂给 MessageBoxA 的话，
@@ -817,6 +838,7 @@ void checkFirewallRuleAtStartup() {
     const bool ruleOk = firewallRuleExists();
     const int staleCount =
         static_cast<int>(findStaleFirewallRules().size());
+
 
     // 两件都没问题：完全静默。绝大多数启动都走这条路 ——
     // 不能每次开机都弹个框烦人。
@@ -2362,8 +2384,6 @@ int main(int argc, char** argv) {
     // 没有这个标志的话，用户点完断开 5 秒后它又自己连上了。
     bool userDisconnected = false;
     // 后台扫描（避免阻塞托盘消息循环）
-    std::future<std::vector<AirPlayDevice>> scanFuture;
-    std::vector<AirPlayDevice> scanResult;
 
     while (!g_stop.load()) {
         // 每轮开头：先记心跳，再把阶段重置成"空闲"。
@@ -2836,11 +2856,18 @@ int main(int argc, char** argv) {
                     case MENU_CHECK_UPDATE: {
                         // 网络请求放独立线程 —— 托盘程序卡一下就会被当成死掉。
                         // 结果通过 g_updateResult 交给主循环去弹窗（见下面轮询）。
-                        static std::atomic<bool> running{false};
-                        if (running.load()) break;   // 防连点
-                        running.store(true);
+                        if (g_updateRunning.load()) break;   // 防连点
+                        g_updateRunning.store(true);
                         logLine("开始检查更新，当前版本 " + std::string(kAppVersion));
-                        std::thread([&]() {
+                        // 不要捕获 [&] —— 这个线程是 detach 的，用户点「退出」后
+                        // 它可能还在跑，那时 main 的局部作用域已经析构，
+                        // 捕获到的引用全是悬垂。
+                        //
+                        // 这里用不着捕获任何东西：线程体只用全局量
+                        // （g_updateMutex / g_updateResult / g_updateReady）
+                        // 和它自己的局部变量。所以留空捕获列表最安全 ——
+                        // 以后有人想往里面加东西，编译器会直接报错拦住。
+                        std::thread([]() {
                             std::string tag, url;
                             const bool ok = fetchLatestRelease(tag, url);
                             UpdateResult r;
@@ -2853,7 +2880,7 @@ int main(int argc, char** argv) {
                                 g_updateResult = std::move(r);
                             }
                             g_updateReady.store(true);
-                            running.store(false);
+                            g_updateRunning.store(false);
                         }).detach();
                         break;
                     }
@@ -2913,28 +2940,19 @@ int main(int argc, char** argv) {
 
         if (sess.running.load()) sess.pump();
 
-        // 断线重连的检查。
-        // 注意：设备扫描会阻塞约 0.7 秒（端口扫描），绝不能放在主线程——
-        // 那样每 5 秒托盘菜单就卡一下。所以放到后台 future 里跑。
         auto now = std::chrono::steady_clock::now();
-        bool scanDone = false;
-        if (scanFuture.valid() &&
-            scanFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-            scanResult = scanFuture.get();
-            scanDone = true;
-        }
 
-        if (scanDone) {
-            // 扫描回来了：只有真的连上了才重置退避。
-            //
-            // 判据必须是 connected，不能是 running —— start() 一返回
-            // running 就是 true，哪怕握手随后立刻失败。用 running 的话
-            // 退避每次都被重置回 5 秒，永远长不起来，变成每 10 秒敲一次
-            // 接收端。而接收端在连续被失败配对骚扰后会进入拒绝状态：
-            // 于是它一直拒绝、我们一直敲，永远连不上。
-            if (sess.connected.load()) {
-                retryBackoffSec = 5;
-            }
+        // 连上了就把退避复位回最短档。
+        //
+        // 判据必须是 connected，不能是 running —— start() 一返回
+        // running 就是 true，哪怕握手随后立刻失败。用 running 的话退避
+        // 永远长不起来，变成一直敲接收端；而它在连续被失败配对骚扰后会
+        // 进入拒绝状态，于是它一直拒绝、我们一直敲，永远连不上。
+        //
+        // 之前这段被绑在「后台扫描是否回来」上，是错的：直连成功那条路
+        // 根本不启动扫描，退避就永远不会复位。
+        if (sess.connected.load()) {
+            retryBackoffSec = 5;
         }
 
         // ---- 静音自动待机 ----
@@ -2976,14 +2994,13 @@ int main(int argc, char** argv) {
                 // 启动时没连上（设备还没通电），或中途掉线。
                 // userDisconnected 挡住的只是"用户自己点的断开" ——
                 // 那种情况重连是骚扰，不是帮忙。
-                // 扫描放到后台，避免冻结 UI；连续失败则退避。
-                if (!scanFuture.valid()) {
-                    scanFuture = std::async(std::launch::async, [&cfg]() {
-                        std::vector<AirPlayDevice> out;
-                        out = filterDevices(discoverAirPlayDevices(2500), cfg);
-                        return out;
-                    });
-                }
+                // 这里原本还起了一个后台扫描（std::async 扫网段），
+                // 但它的结果从来没被读过 —— 真正用的是下面 tryConnect()
+                // -> resolveDevice() 内部那份 discovered。等于每轮重连都白扫
+                // 一次网段（约 2.5 秒、一次网段广播）。删掉。
+                //
+                // 如果以后真需要预热扫描，应该让 resolveDevice 用这份结果，
+                // 而不是各扫各的。
                 // 上一轮失败时没人收尾（掉线那条路不经过 teardown），
                 // 采集线程还挂着。先收尾再连 —— 顺带把音频路由也恢复回去。
                 sess.teardown();

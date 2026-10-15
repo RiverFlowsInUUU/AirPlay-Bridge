@@ -3,6 +3,16 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.40] - 2026-10-15
+
+### Fixed
+
+- 修复放行检查可能误判、以及重连间隔不再逐次拉长的问题。
+
+### Changed
+
+- 去掉一轮多余的设备扫描，重连时不再做无用功。
+
 ## [1.2.39] - 2026-10-15
 
 ### Fixed
