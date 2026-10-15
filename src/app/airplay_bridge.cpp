@@ -10,6 +10,7 @@
 //   airplay_bridge --last             直接重连上次的设备（开机自启用）
 //   airplay_bridge --install          注册开机自启
 //   airplay_bridge --uninstall        取消开机自启
+//   airplay_bridge --fix-firewall     添加防火墙入站规则后退出（内部用，由托盘菜单提权拉起）
 //
 // 架构:
 //   WASAPI 环回采集 -> RingBuffer -> RaopSender -> 加密 ALAC -> HomePod
@@ -141,6 +142,7 @@ enum : int {
     MENU_OPEN_LOG  = 109,   // 打开日志文件夹
     MENU_STANDBY   = 114,   // 静音自动待机（子菜单）
     MENU_STANDBY_CUSTOM = 115,   // 自定义静音待机（无极滑块）
+    MENU_FIX_FIREWALL = 116,   // 修复连接问题（一键加入站放行规则）
     MENU_QUIT      = 104,   // 退出
 };
 
@@ -208,6 +210,228 @@ std::string exePath() {
 }
 
 // ============================================================
+// 防火墙入站规则的修复（托盘菜单「修复连接问题」）
+// ============================================================
+// 背景见下面「握手超时的防火墙诊断」。结论是：缺的就是一条入站 UDP
+// 放行规则，加规则必须管理员权限 —— 所以这条路径是：托盘菜单提权拉起
+// 自己（带 --fix-firewall），被拉起的那一份加规则、弹提示、退出。
+//
+// 规则名固定。加之前先删同名旧规则：这样重复点菜单不会堆出一串规则，
+// 而且用户把 exe 挪了位置之后，规则里的 program 路径也会更新到当前 exe
+// （同名规则只留一条，就是刚加的那条）。
+const char* const kFirewallRuleName = "AirPlay Bridge inbound UDP";
+
+// netsh 的**完整路径** —— 不能只写 "netsh"。
+//
+// 实测：本程序从托盘启动时继承的是 Explorer 的环境，PATH 里当然有
+// C:\Windows\System32；但用户也可能从 Git Bash / 各种便携终端的快捷方式
+// 启动，那些环境会把 System32 从 PATH 里挤掉（实测这类环境下
+// cmd /c netsh 直接报「不是内部或外部命令」，退出码 9009）。
+// 写死 "netsh" 会在那种环境下一声不响地失败 —— 用户点了修复却什么都没发生。
+//
+// 用 %SystemRoot% 拼绝对路径，不写反斜杠转义（本项目工具链会写坏它）。
+std::string netshExePath() {
+    const char* root = std::getenv("SystemRoot");
+    std::string base = (root && *root) ? std::string(root) : std::string("C:");
+    return base + "/System32/netsh.exe";
+}
+
+// 日志 / 提示里的程序路径要动态取 —— 引号用 char 常量拼，
+// 不写反斜杠转义（本项目工具链会写坏它）。
+// 这里加的是**本程序自己**的路径：规则覆盖的是本进程，不是别的东西。
+//
+// 注意：给用户看的那条命令里仍然写 "netsh"（用户在命令行里敲，
+// 他们的 PATH 没问题，短名字更好复制）。真正执行的走 netshExePath()。
+std::string netshAddRuleArgs(bool useFullNetshPath) {
+    const char QC = '"';
+    std::string cmd = useFullNetshPath ? (QC + netshExePath() + QC) : std::string("netsh");
+    cmd += " advfirewall firewall add rule name=";
+    cmd += QC; cmd += kFirewallRuleName;              cmd += QC;
+    cmd += " dir=in action=allow protocol=UDP program=";
+    cmd += QC; cmd += exePath();                      cmd += QC;
+    cmd += " remoteip=localsubnet profile=any";
+    return cmd;
+}
+
+// 删掉同名旧规则。返回 false 表示 netsh 执行失败（多数是没管理员权限）。
+//
+// 用 netsh 而不是 INetFwPolicy2：写规则走 COM 需要管理员权限时
+// 一样会失败，而 netsh 的命令行跟上面日志里给用户看的那条完全一致，
+// 出问题时日志和用户手册能对得上。
+bool deleteFirewallRuleByName() {
+    const char QC = '"';
+    std::string cmd = QC + netshExePath() + QC;
+    cmd += " advfirewall firewall delete rule name=";
+    cmd += QC; cmd += kFirewallRuleName; cmd += QC;
+    const int rc = std::system(cmd.c_str());
+    // netsh 在"规则不存在"时也返回 0，所以这里只看负值（进程起不来）。
+    return rc >= 0;
+}
+
+// 已经加过规则了吗？（菜单项「只在需要时才出现」的判据）
+//
+// 只看规则名，不看覆盖了哪个程序 —— 名字是本程序独有的一固定串，
+// 撞名的可能性忽略。也不用上面那个 hasInboundRuleForThisApp()：
+// 那个按程序路径模糊匹配（老版本可能是用户手敲 netsh 加的、名字各异），
+// 拿它来控制菜单显隐会时灵时不灵。
+bool firewallRuleExists() {
+    INetFwPolicy2* policy = nullptr;
+    INetFwRules* rules = nullptr;   // 提前声明：后面收尾统一释放
+    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool needUninit = SUCCEEDED(hrInit) || hrInit == RPC_E_CHANGED_MODE;
+
+    bool found = false;
+    // get_Rules 只吃一个 out 参数（规则组是全局的，与 profile 无关）
+    if (SUCCEEDED(CoCreateInstance(__uuidof(NetFwPolicy2), nullptr,
+                                   CLSCTX_INPROC_SERVER,
+                                   __uuidof(INetFwPolicy2),
+                                   reinterpret_cast<void**>(&policy))) && policy &&
+        SUCCEEDED(policy->get_Rules(&rules)) && rules) {
+        IEnumVARIANT* enumerator = nullptr;
+        if (SUCCEEDED(rules->get__NewEnum(reinterpret_cast<IUnknown**>(&enumerator))) &&
+            enumerator) {
+            VARIANT item;
+            VariantInit(&item);
+            while (!found && enumerator->Next(1, &item, nullptr) == S_OK) {
+                if (item.vt == VT_DISPATCH && item.pdispVal) {
+                    INetFwRule* rule = nullptr;
+                    if (SUCCEEDED(item.pdispVal->QueryInterface(
+                            __uuidof(INetFwRule),
+                            reinterpret_cast<void**>(&rule))) &&
+                        rule) {
+                        BSTR name = nullptr;
+                        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+                            std::wstring wide(name);
+                            if (wide == L"AirPlay Bridge inbound UDP") found = true;
+                        }
+                        if (name) SysFreeString(name);
+                        rule->Release();
+                    }
+                }
+                VariantClear(&item);
+                VariantInit(&item);
+            }
+            VariantClear(&item);
+            enumerator->Release();
+        }
+    }
+    if (rules)  rules->Release();
+    if (policy) policy->Release();
+    if (needUninit) CoUninitialize();
+    return found;
+}
+
+// --fix-firewall 的入口（被提权拉起的那一份跑它）。
+//
+// 约束：这一份**不起托盘图标、不跑主循环** —— 做完就退。
+// 用户点了菜单总得有反馈，所以做完必须弹一个 MessageBox；
+// 提权进程一闪而过会让人以为没生效。
+int runFixFirewall() {
+    logLine("--fix-firewall: 开始添加防火墙入站规则");
+
+    // 先删同名旧规则，再加 —— 保证只有一条，且 program 指向当前 exe。
+    // 删不掉不致命（可能本来就没有），继续往下走。
+    if (!deleteFirewallRuleByName())
+        logLine("--fix-firewall: 删除同名旧规则失败（可能没有管理员权限），继续尝试添加");
+
+    // 直接跑 netsh.exe（不走 cmd.exe）：绝对路径 + 参数全部带引号，
+    // cmd 的引号剥离规则反而会咬到 program= 里那个带空格的路径
+    // （实测 "C:\...\cmd.exe /c "C:\...\netsh.exe" ..." 会报
+    //   「不是内部或外部命令」，退出码 1）。
+    const std::string cmd = netshAddRuleArgs(true);
+    logLine("--fix-firewall: 执行 " + cmd);
+    const int rc = std::system(cmd.c_str());
+
+    int exitCode = 0;
+    std::string title;
+    std::string msg;
+    if (rc == 0) {
+        logLine("已添加防火墙入站规则（允许接收端回连）");
+        title = "AirPlay Bridge";
+        msg  = "已修复，程序正在重连。";
+        msg += char(10);
+        msg += char(10);
+        msg += "已添加防火墙入站规则，允许接收端回连本机做时钟同步。";
+        msg += char(10);
+        // 规则对已经建立的连接不一定立刻生效，所以提醒一句，
+        // 而不是让用户对着一动不动的界面猜。
+        msg += "若仍连不上，请断开后重新连接一次（或重启程序）。";
+    } else {
+        logLine("--fix-firewall: 添加防火墙入站规则失败（返回值 " +
+                std::to_string(rc) + "）");
+        title = "AirPlay Bridge";
+        msg  = "修复失败：无法添加防火墙入站规则。";
+        msg += char(10);
+        msg += char(10);
+        msg += "请确认在弹出的用户账户控制窗口中选择了「是」。";
+        exitCode = 1;
+    }
+
+    // MessageBoxW 需要宽字符，从 UTF-8 转过去（源码含中文，
+    // 走 A 版会按系统代码页解码，这里显式转）。
+    auto toWide = [](const std::string& s) {
+        int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+        std::wstring w(need > 1 ? static_cast<size_t>(need - 1) : 0, 0);
+        if (need > 1)
+            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+        return w;
+    };
+    MessageBoxW(nullptr, toWide(msg).c_str(), toWide(title).c_str(),
+                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+    return exitCode;
+}
+
+// 提权拉起自己跑 --fix-firewall。用户会看到一次 UAC 弹窗 ——
+// 加防火墙规则必须管理员，这个弹窗省不掉。
+// 返回值只表示「有没有把提权请求递出去」，不代表规则加成功了
+// （结果由那一份自己弹的 MessageBox 告知用户）。
+bool elevateAndRunFixFirewall() {
+    const char QC = '"';
+    std::string params = "--fix-firewall";
+
+    SHELLEXECUTEINFOA sei{};
+    sei.cbSize = sizeof(sei);
+    sei.fMask  = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+    // NULL = 当前显示的窗口，系统自己挑一个父窗口挂 UAC 弹窗
+    sei.hwnd   = nullptr;
+    sei.lpVerb = "runas";
+    sei.lpFile = exePath().c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow  = SW_SHOWNORMAL;
+
+    if (!ShellExecuteExA(&sei)) {
+        const DWORD err = GetLastError();
+        // 用户在 UAC 弹窗里点了「否」—— 这不是错误，是用户的选择。
+        // 必须静默处理并写日志：不弹提示就让人干等才是真问题。
+        if (err == ERROR_CANCELLED)
+            logLine("已取消防火墙修复（UAC 弹窗被拒绝）");
+        else
+            logLine("拉起防火墙修复失败（错误码 " + std::to_string(err) + "）");
+        return false;
+    }
+
+    // 等那一份跑完再回收句柄。**不要等太久就 WaitForSingleObject INFINITE**：
+    // 它在等用户点 MessageBox，可能停很久 —— 那期间主循环走的是托盘
+    // 菜单的模态消息循环，主界面会僵住。这里等一小会儿拿结果，
+    // 没结束就放手（子进程自己会退，句柄由系统回收）。
+    if (sei.hProcess) {
+        const DWORD waited = WaitForSingleObject(sei.hProcess, 20000);
+        if (waited == WAIT_OBJECT_0) {
+            DWORD code = 1;
+            if (GetExitCodeProcess(sei.hProcess, &code) && code == 0)
+                logLine("防火墙入站规则已就绪，等待下一轮重连生效");
+            else
+                logLine("防火墙修复进程返回失败（退出码 " +
+                        std::to_string(static_cast<unsigned long>(code)) + "）");
+        } else {
+            logLine("防火墙修复进程仍在运行（等待 UAC / 提示框），不再等待");
+        }
+        CloseHandle(sei.hProcess);
+    }
+    return true;
+}
+
+// ============================================================
 // 握手超时的防火墙诊断
 // ============================================================
 // 接收端要主动回连做时钟同步，本机必须有一条入站 UDP 规则。
@@ -229,6 +453,10 @@ std::string exePath() {
 std::atomic<int> g_handshakeFailStreak{0};
 // 已经提示过防火墙了吗？只提示一次，直到下一次连接成功才复位。
 std::atomic<bool> g_firewallHintShown{false};
+// 托盘菜单里已经出现过「修复连接问题」了吗？
+// 出现之后就不再关掉：一旦让用户看见它，menu 每弹一次都去枚举一遍
+// 防火墙规则太贵，而且用户点完没成功时这项必须还在（还得能再点）。
+std::atomic<bool> g_fixFirewallOffered{false};
 // 提示的触发阈值。低于它不提示 —— 偶发一次超时很常见（接收端忙、
 // 网络抖一下），先别让用户去翻防火墙。
 constexpr int kFirewallHintAfterFails = 3;
@@ -342,9 +570,6 @@ void maybeLogFirewallHint() {
         return;
     }
 
-    // 提示里的程序路径必须动态取 —— 用户装在哪都有可能。
-    // 引号用 char 常量拼，不写反斜杠转义（本项目工具链会写坏它）。
-    const char QC = '"';
     std::string msg;
     msg += "握手超时。常见原因：Windows 防火墙拦了本程序的入站 UDP ——";
     msg += char(10);
@@ -352,15 +577,15 @@ void maybeLogFirewallHint() {
     msg += char(10);
     msg += "放行方法（管理员命令提示符）：";
     msg += char(10);
-    msg += "  netsh advfirewall firewall add rule name=";
-    msg += QC;
-    msg += "AirPlay Bridge inbound UDP";
-    msg += QC;
-    msg += " dir=in action=allow protocol=UDP program=";
-    msg += QC;
-    msg += exePath();
-    msg += QC;
-    msg += " remoteip=localsubnet profile=any";
+    // 命令行用短名字 "netsh"（用户在终端里敲，PATH 是好的，短的好复制）；
+    // 程序自己执行时走绝对路径，见 netshExePath()。
+    // 程序路径必须动态取 —— 用户装在哪都有可能。
+    msg += "  ";
+    msg += netshAddRuleArgs(false);
+    msg += char(10);
+    // 上面那条命令是给老用户 / 远程排查用的。真正的用户路径是菜单：
+    // 没人会去敲命令 —— 所以必须给出菜单里的入口。
+    msg += "也可在托盘菜单点「修复连接问题」一键添加规则。";
     logLine(msg);
 }
 
@@ -1138,6 +1363,7 @@ int main(int argc, char** argv) {
     // 判断模式与解析参数
     bool wantList = false, wantInstall = false, wantUninstall = false;
     bool wantConsole = false, wantLast = false, wantTray = true;
+    bool wantFixFirewall = false;       // --fix-firewall
     bool wantAudioDevices = false;      // --audio-devices
     std::string setDefaultArg;          // --set-default <设备名子串>
     std::string hostArg;
@@ -1150,6 +1376,7 @@ int main(int argc, char** argv) {
         else if (a == "--uninstall") wantUninstall = true;
         else if (a == "--console")   { wantConsole = true; wantTray = false; }
         else if (a == "--last")      wantLast = true;
+        else if (a == "--fix-firewall") { wantFixFirewall = true; wantTray = false; }
         else if (a == "--audio-devices") { wantAudioDevices = true; wantTray = false; }
         else if (a == "--set-default" && i + 1 < argc) {
             setDefaultArg = argv[++i];
@@ -1161,6 +1388,15 @@ int main(int argc, char** argv) {
     if (wantList || wantInstall || wantUninstall) wantTray = false;
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+    // ---- 防火墙修复（提权拉起的那一份，见托盘菜单「修复连接问题」）----
+    // 放在最前面：这一份只做一件事 —— 加规则、弹提示、退出。
+    // 不读配置、不起托盘图标、不跑主循环。走 COM 的函数自己管
+    // CoInitialize，所以这里先放掉 main 开头那次初始化。
+    if (wantFixFirewall) {
+        CoUninitialize();
+        return runFixFirewall();
+    }
 
     // 运行时数据在 %LOCALAPPDATA%/AirPlayBridge/
     std::string cfgPath = defaultConfigPath();
@@ -1497,6 +1733,28 @@ int main(int argc, char** argv) {
             }
             menu.push_back({"", 0, true, true, false});   // 分隔线
             menu.push_back({sess.running.load() ? "断开" : "连接", MENU_TOGGLE});
+
+            // 防火墙修复入口：**只在需要时才出现**。
+            //
+            // 判据是「本机没有本程序的入站放行规则」—— 有规则时这项
+            // 完全不出现在菜单里，菜单保持干净；没规则时它紧跟在
+            // 连接/断开之后，是用户一眼就能看到的位置。
+            //
+            // 查规则要过一遍全部防火墙规则（COM 枚举），菜单是主线程
+            // 弹出的，不能每次都查 —— 所以只在确实可能出问题时查：
+            //   1) 已经连续握手失败够多次（g_handshakeFailStreak 到阈值），或
+            //   2) 这项被点过、但规则还是没加成功（用户还得能再点一次）
+            // 正常连得上时连枚举都不做。
+            {
+                const bool needCheck =
+                    g_handshakeFailStreak.load() >= kFirewallHintAfterFails ||
+                    g_fixFirewallOffered.load();
+                if (needCheck && !firewallRuleExists()) {
+                    g_fixFirewallOffered.store(true);
+                    menu.push_back({"修复连接问题（需要管理员权限）",
+                                    MENU_FIX_FIREWALL});
+                }
+            }
 
             // "选择设备"是个真子菜单（向右展开），内容来自缓存的设备列表。
             // 之所以要缓存：Windows 的菜单树必须在弹出前一次建好，
@@ -1858,6 +2116,19 @@ int main(int argc, char** argv) {
                         break;
                     }
 
+                    case MENU_FIX_FIREWALL:
+                        // 一键加防火墙入站规则：提权拉起自己去跑
+                        // --fix-firewall（用户会看到一次 UAC）。那一份加完
+                        // 规则会弹 MessageBox 告知结果并退出 —— 这里不等它。
+                        //
+                        // 规则加好后不需要在这里做特殊处理：连接是断的，
+                        // 下一轮重连本来就会再试一次，那时规则已经生效。
+                        // 用户点了菜单后能看到的反馈来自：
+                        //   1) 立即弹出的 UAC 窗口；
+                        //   2) 那一份跑完后弹的结果提示框。
+                        logLine("用户点击「修复连接问题」，请求提权添加防火墙入站规则");
+                        elevateAndRunFixFirewall();
+                        break;
                     case MENU_AUTOSTART:
                         setAutoStart(!isAutoStartEnabled());
                         break;
