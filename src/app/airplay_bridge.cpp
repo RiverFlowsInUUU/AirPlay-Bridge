@@ -99,6 +99,20 @@ constexpr int kQualityLevelCount = sizeof(kQualityLevels) / sizeof(kQualityLevel
 constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index
 constexpr int kDeviceMenuBase  = 1400;   // 设备列表菜单 id = base + index
 constexpr int kLatencyMenuBase = 1100;   // 档位菜单 id = base + index
+constexpr int kStandbyMenuBase = 1500;   // 静音待机档位菜单 id = base + index
+
+// 静音自动待机的档位（秒）。0 是特例：不等秒数，只要出现一个静音缓冲
+// 就待机（见 Session::silentNow）—— 适合"放了就灭屏"的场景。
+struct StandbyLevel { int secs; const char* label; };
+const StandbyLevel kStandbyLevels[] = {
+    {  0, "0 秒" },
+    {  1, "1 秒（推荐）" },
+    {  3, "3 秒" },
+    {  5, "5 秒" },
+    {  8, "8 秒" },
+    { 10, "10 秒" },
+};
+constexpr int kStandbyLevelCount = sizeof(kStandbyLevels) / sizeof(kStandbyLevels[0]);
 
 // 托盘菜单 ID
 enum : int {
@@ -115,7 +129,7 @@ enum : int {
     MENU_QUALITY   = 110,   // 音质（子菜单）
     MENU_QUALITY_CUSTOM = 111,   // 自定义音质（滑块）
     MENU_OPEN_LOG  = 109,   // 打开日志文件夹
-    MENU_STANDBY   = 114,   // 静音自动待机开关
+    MENU_STANDBY   = 114,   // 静音自动待机（子菜单）
     MENU_QUIT      = 104,   // 退出
 };
 
@@ -332,6 +346,12 @@ struct Session {
     // 初值 0 是"从没响过"，主循环会立刻判成静音 —— 所以连接成功时
     // 必须重置为当前时间（见 ev.launched）。
     std::atomic<long long> lastLoudMs{0};
+    // 最近一次采集回调看到的音量是不是"静音缓冲"。
+    // 只给 0 秒档位用：那一档的语义是"不等秒数，出现一个静音缓冲就待机"，
+    // 光靠 lastLoudMs 算差值做不到 —— now - lastLoudMs 恒 >= 0，
+    // 直接把 0 代进秒数判据会刚连上就立刻待机。
+    // 初值必须是 false：刚连上还没收到任何回调时，不能算作"已经静音"。
+    std::atomic<bool> silentNow{false};
     // 待机期间的轻量采集：只用来唤醒，不推数据。
     std::unique_ptr<WasapiCapture> standbyEar;
     std::thread                    standbyThread;
@@ -434,6 +454,10 @@ struct Session {
                 lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now().time_since_epoch())
                                      .count());
+                // silentNow 也要一起清掉：0 秒档位直接看它。
+                // 不清的话，上一轮会话最后一个静音缓冲留下的 true 会让
+                // 刚连上的这一秒就待机 —— 正是要避免的"连上即待机"。
+                silentNow.store(false);
             }
             if (onConnected) onConnected(ok);
             if (onStatus) onStatus(ok ? "已连接" : ("连接失败: " + e));
@@ -508,6 +532,10 @@ struct Session {
                     lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
                                          .count());
+                    silentNow.store(false);
+                } else {
+                    // 这一块缓冲是静音的。0 秒档位靠这个标志立刻待机。
+                    silentNow.store(true);
                 }
                 if (!needResample) {
                     // 设备本来就是 44.1k，直接送
@@ -803,6 +831,20 @@ int main(int argc, char** argv) {
         saveConfig(cfgPath, cfg);
     }
     g_deviceId = cfg.deviceId;
+
+    // 老配置里的待机秒数可能不在档位上（比如 20），那样菜单里一个勾都不会显示。
+    // 就近吸附到最近的档位。
+    if (cfg.standbyEnabled) {
+        int best = kStandbyLevels[0].secs;
+        int bestD = cfg.standbySecs > best ? cfg.standbySecs - best : best - cfg.standbySecs;
+        for (int i = 1; i < kStandbyLevelCount; ++i) {
+            const int d = cfg.standbySecs > kStandbyLevels[i].secs
+                              ? cfg.standbySecs - kStandbyLevels[i].secs
+                              : kStandbyLevels[i].secs - cfg.standbySecs;
+            if (d < bestD) { bestD = d; best = kStandbyLevels[i].secs; }
+        }
+        cfg.standbySecs = best;
+    }
     if (volume < 0) volume = cfg.volume;
 
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
@@ -1161,9 +1203,26 @@ int main(int argc, char** argv) {
                 menu.push_back(std::move(it));
             }
             menu.push_back({"", 0, true, true, false});
-            // 待机开关。标签里带上秒数，用户一眼知道当前阈值是多少。
-            menu.push_back({"静音 " + std::to_string(cfg.standbySecs) + " 秒后待机",
-                            MENU_STANDBY, true, false, cfg.standbyEnabled});
+            // 静音自动待机 —— 和延迟 / 音量 / 音质一样做成带 › 箭头的子菜单。
+            // 标签里带上当前值，用户不用展开就知道现在是多少。
+            {
+                TrayMenuItem it;
+                it.id = MENU_STANDBY;   // 父项本身不可点，但保留 id 便于识别
+                it.label = cfg.standbyEnabled
+                               ? ("静音待机  " + std::to_string(cfg.standbySecs) + " 秒")
+                               : std::string("静音待机  关闭");
+                for (int i = 0; i < kStandbyLevelCount; ++i) {
+                    it.children.push_back({kStandbyLevels[i].label,
+                                           kStandbyMenuBase + i,
+                                           true, false,
+                                           cfg.standbyEnabled &&
+                                               cfg.standbySecs == kStandbyLevels[i].secs});
+                }
+                it.children.push_back({"", 0, true, true, false});
+                it.children.push_back({"关闭（不自动待机）", MENU_STANDBY + 1000,
+                                       true, false, !cfg.standbyEnabled});
+                menu.push_back(std::move(it));
+            }
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
             menu.push_back({"", 0, true, true, false});
@@ -1274,6 +1333,29 @@ int main(int argc, char** argv) {
                     return;
                 }
 
+                // 静音待机档位
+                if (id >= kStandbyMenuBase && id < kStandbyMenuBase + kStandbyLevelCount) {
+                    cfg.standbyEnabled = true;
+                    cfg.standbySecs = kStandbyLevels[id - kStandbyMenuBase].secs;
+                    saveConfig(cfgPath, cfg);
+                    logLine("静音待机改为 " + std::to_string(cfg.standbySecs) + " 秒");
+                    // 阈值是主循环每次检查现读的，改了立刻生效，不用重连
+                    return;
+                }
+                if (id == MENU_STANDBY + 1000) {   // "关闭（不自动待机）"
+                    cfg.standbyEnabled = false;
+                    saveConfig(cfgPath, cfg);
+                    logLine("静音待机已关闭");
+                    // 关掉时如果正处在待机，要立刻醒回来 ——
+                    // 否则会卡在"用户以为没开待机，实际连接是断的"。
+                    if (sess.standbyActive.load()) {
+                        sess.leaveStandby();
+                        tryConnect(true);
+                    }
+                    return;
+                }
+                if (id == MENU_STANDBY) return;   // 父项，展开用，点它本身不做事
+
                 switch (id) {
                     case MENU_TOGGLE:
                         if (sess.running.load()) {
@@ -1357,19 +1439,6 @@ int main(int argc, char** argv) {
                         break;
                     }
 
-                    case MENU_STANDBY:
-                        cfg.standbyEnabled = !cfg.standbyEnabled;
-                        saveConfig(cfgPath, cfg);
-                        logLine(std::string("静音待机 ") +
-                                (cfg.standbyEnabled ? "已开启" : "已关闭"));
-                        // 关掉开关时如果正处在待机，要立刻醒回来 ——
-                        // 否则会卡在"用户以为没开待机，实际连接是断的"。
-                        if (!cfg.standbyEnabled && sess.standbyActive.load()) {
-                            sess.leaveStandby();
-                            tryConnect(true);
-                        }
-                        break;
-
                     case MENU_AUTOSTART:
                         setAutoStart(!isAutoStartEnabled());
                         break;
@@ -1421,11 +1490,19 @@ int main(int argc, char** argv) {
                 sess.leaveStandby();
                 tryConnect(true);   // skipResolve：不等那 2.5 秒扫描
                 lastCheck = now;
-            } else if (cfg.standbyEnabled && sess.running.load() &&
-                       sess.connected.load() &&
-                       nowMs - sess.lastLoudMs.load() >=
-                           static_cast<long long>(cfg.standbySecs) * 1000) {
-                sess.enterStandby();
+            } else {
+                // 0 秒是特例：秒数判据对 0 没意义（now - lastLoudMs 恒 >= 0，
+                // 代进去就是"刚连上立刻待机"），改成看 silentNow ——
+                // 只要采集侧报告过一块静音缓冲就待机。
+                // 刚连上、还没收到任何回调时 silentNow 是 false，
+                // 所以不会秒待机（见 ev.launched 里的重置）。
+                const bool wantStandby =
+                    cfg.standbyEnabled && sess.running.load() && sess.connected.load() &&
+                    (cfg.standbySecs <= 0
+                         ? sess.silentNow.load()
+                         : nowMs - sess.lastLoudMs.load() >=
+                               static_cast<long long>(cfg.standbySecs) * 1000);
+                if (wantStandby) sess.enterStandby();
             }
         }
 

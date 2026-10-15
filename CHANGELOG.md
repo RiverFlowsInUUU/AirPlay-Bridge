@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.20] - 2026-10-15
+
+### Changed
+
+- 「静音自动待机」改为二级菜单：可选 0 / 1 / 3 / 5 / 8 / 10 秒，或关闭。
+  默认 1 秒，改动立即生效。
+
 ## [1.2.19] - 2026-10-15
 
 ### Fixed

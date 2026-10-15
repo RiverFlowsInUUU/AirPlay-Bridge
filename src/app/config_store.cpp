@@ -134,8 +134,9 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.hideAppleTV    = jsonGetBool(j, "hideAppleTV", out.hideAppleTV);
     out.standbyEnabled = jsonGetBool(j, "standbyEnabled", out.standbyEnabled);
     out.standbySecs    = static_cast<int>(jsonGetInt(j, "standbySecs", out.standbySecs));
-    // 至少留 1 秒，否则 0 会让主循环每次检查都判成静音 —— 连接刚建立就待机。
-    if (out.standbySecs < 1) out.standbySecs = 1;
+    // 0 是合法档位（出现一个静音缓冲就待机，由 Session::silentNow 实现），
+    // 所以下限是 0 而不是 1；负数才是脏数据。
+    if (out.standbySecs < 0) out.standbySecs = 0;
 
     // ignoredDeviceIds: 简单的字符串数组解析
     size_t arr = j.find("\"ignoredDeviceIds\"");

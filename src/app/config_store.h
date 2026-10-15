@@ -38,7 +38,7 @@ struct BridgeConfig {
     // 静音自动待机：连续无声音若干秒就断开与接收端的连接，
     // 让 HomePod 屏幕熄灭；一旦再听到声音立刻重连。
     bool        standbyEnabled = true;
-    int         standbySecs = 20;      // 静音判定时长（秒）
+    int         standbySecs = 1;       // 静音判定时长（秒）；0 = 出现静音缓冲即待机
     std::vector<std::string> ignoredDeviceIds;   // 用户手动忽略的设备
 };
 
