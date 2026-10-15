@@ -11,6 +11,7 @@
 //   airplay_bridge --install          注册开机自启
 //   airplay_bridge --uninstall        取消开机自启
 //   airplay_bridge --fix-firewall     添加防火墙入站规则后退出（内部用，由托盘菜单提权拉起）
+//   airplay_bridge --clean-firewall-rules  清理指向旧文件的同名放行规则后退出（内部用）
 //
 // 架构:
 //   WASAPI 环回采集 -> RingBuffer -> RaopSender -> 加密 ALAC -> HomePod
@@ -350,6 +351,20 @@ std::string exePath() {
     return std::string(buf, n);
 }
 
+// 弹窗正文统一走这里：源码是 UTF-8，直接喂给 MessageBoxA 的话，
+// 系统会按当前代码页（中文机器上是 936/GBK）解码，中文会变成乱码。
+// 显式转成 UTF-16 再走 MessageBoxW。
+//
+// （--fix-firewall 那一份里也有一份同样的转换，只是它是 lambda；
+//   这里是给启动检查用的，不碰它，避免动到 v1.2.29-37 的那块逻辑。）
+std::wstring screenText(const std::string& s) {
+    const int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(need > 1 ? static_cast<size_t>(need - 1) : 0, 0);
+    if (need > 1)
+        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+    return w;
+}
+
 // ============================================================
 // 单实例检测（命名互斥体）
 // ============================================================
@@ -569,6 +584,158 @@ bool firewallRuleExists() {
     return found;
 }
 
+// 找**陈旧**的放行规则：名字是我们这个前缀，但绑定的**不是当前这个 exe**。
+//
+// 怎么攒出来的：netsh 遇到重名会自动加序号（"... UDP 1"、"... UDP 2"……），
+// 而规则真正生效的是 program=（exe 完整路径）。用户下载新版本、换目录、
+// 改文件名之后，旧规则还在系统里，指向的却是那个已经不存在的文件 ——
+// 只是把设置搞乱，没有半点用处。
+//
+// ⚠️ 只认**精确前缀** "AirPlay Bridge inbound UDP"。
+// 本机还可能有别的 AirPlay 规则（"AirPlay Bridge UDP Range"、
+// "AirPlay Bridge TCP Range"、"AirPlay Sender EXE"……），
+// 那些**不是本程序加的**，一条都不能碰 —— 前缀多加一个字符就能把它们
+// 排除干净，所以这里坚持用前缀 + 长度比较，而不是 find()。
+//
+// 与 firewallRuleExists() 用同一套接口（INetFwPolicy2 / INetFwRules /
+// INetFwRule），同一个枚举写法。
+std::vector<std::wstring> findStaleFirewallRules() {
+    std::vector<std::wstring> stale;
+
+    const std::wstring prefix(
+        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+    // 当前 exe 的宽字符形式：规则里存的是宽字符路径，比较要同类型。
+    // exePath() 返回的是 A 版 API 拿到的系统本地编码字符串，
+    // 用 CP_ACP 转回宽字符才能和注册表里的值逐字符对上。
+    // （firewallRuleExists() 用的是逐字节扩宽，对纯 ASCII 路径等价，
+    //   这里用 CP_ACP 更稳，也顺带把带非 ASCII 路径的情况盖住。）
+    std::wstring curExe;
+    {
+        const std::string p = exePath();
+        const int need = MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, nullptr, 0);
+        if (need > 1) {
+            curExe.resize(static_cast<size_t>(need - 1));
+            MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, curExe.data(), need);
+        }
+    }
+
+    INetFwPolicy2* policy = nullptr;
+    INetFwRules* rules = nullptr;
+    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool needUninit = SUCCEEDED(hrInit) || hrInit == RPC_E_CHANGED_MODE;
+
+    if (SUCCEEDED(CoCreateInstance(__uuidof(NetFwPolicy2), nullptr,
+                                   CLSCTX_INPROC_SERVER,
+                                   __uuidof(INetFwPolicy2),
+                                   reinterpret_cast<void**>(&policy))) && policy &&
+        SUCCEEDED(policy->get_Rules(&rules)) && rules) {
+        IEnumVARIANT* enumerator = nullptr;
+        if (SUCCEEDED(rules->get__NewEnum(reinterpret_cast<IUnknown**>(&enumerator))) &&
+            enumerator) {
+            VARIANT item;
+            VariantInit(&item);
+            while (enumerator->Next(1, &item, nullptr) == S_OK) {
+                if (item.vt == VT_DISPATCH && item.pdispVal) {
+                    INetFwRule* rule = nullptr;
+                    if (SUCCEEDED(item.pdispVal->QueryInterface(
+                            __uuidof(INetFwRule),
+                            reinterpret_cast<void**>(&rule))) &&
+                        rule) {
+                        BSTR name = nullptr;
+                        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+                            const std::wstring wide(name);
+                            // 前缀匹配，且必须比前缀更长 —— kFirewallRuleName
+                            // 本身是"我们要留下的那条"，它不叫陈旧。
+                            if (wide.size() > prefix.size() &&
+                                wide.compare(0, prefix.size(), prefix) == 0) {
+                                BSTR appPath = nullptr;
+                                bool sameAsCurrent = false;
+                                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
+                                    appPath) {
+                                    sameAsCurrent =
+                                        (_wcsicmp(appPath, curExe.c_str()) == 0);
+                                }
+                                if (appPath) SysFreeString(appPath);
+                                // 指向当前 exe 的（哪怕名字带序号）留着 ——
+                                // 它是有用的。只收"指向别的文件"的那些。
+                                if (!sameAsCurrent) stale.push_back(wide);
+                            }
+                        }
+                        if (name) SysFreeString(name);
+                        rule->Release();
+                    }
+                }
+                VariantClear(&item);
+                VariantInit(&item);
+            }
+            VariantClear(&item);
+            enumerator->Release();
+        }
+    }
+    if (rules)  rules->Release();
+    if (policy) policy->Release();
+    if (needUninit) CoUninitialize();
+    return stale;
+}
+
+// 删掉一条指定名字的放行规则（**只能删我们自己的名字** ——
+// 传进来的名字必须先确认过前缀，调用方负责）。
+//
+// 用 netsh 而不是 INetFwPolicy2::Remove：命令行跟日志/用户手册里
+// 给用户看的那条完全一致，出问题时两边对得上。
+bool deleteFirewallRuleByNameEx(const std::wstring& name) {
+    if (name.empty()) return false;
+    const char QC = '"';
+    // 规则名里带空格，必须整体加引号；netsh 走的是 CreateProcess 直接
+    // 传参（不经 cmd），不会被引号规则咬到。
+    //
+    // 名字从 BSTR 转成窄字符：走 WideCharToMultiByte 而不是迭代器构造。
+    // 迭代器构造会把每个 wchar_t 按低字节截断（编译期 C4244），
+    // 名字里一旦有超出 ASCII 的字符就会拼出一条不存在的规则名 ——
+    // 删不掉，还一声不响。
+    //
+    // 用 CP_UTF8 而不是 CP_ACP：runCommandLine 里是
+    // std::wstring cmd(cmd.begin(), cmd.end()) 这种逐字节扩宽，
+    // 只有 UTF-8 字节经过它才能原样还原成宽字符。ACP 编出来的字节
+    // 走这条路会被当成 Latin-1 一类的码点，netsh 收到的名字就变了。
+    std::string narrow;
+    {
+        const int need = WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1,
+                                             nullptr, 0, nullptr, nullptr);
+        if (need > 1) {
+            narrow.resize(static_cast<size_t>(need - 1));
+            WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1, narrow.data(),
+                                need, nullptr, nullptr);
+        }
+    }
+    if (narrow.empty()) return false;
+    std::string cmd = QC + netshExePath() + QC;
+    cmd += " advfirewall firewall delete rule name=";
+    cmd += QC; cmd += narrow; cmd += QC;
+    const int rc = runCommandLine(cmd);
+    // netsh 在"规则不存在"时也返回 0，这里只看负值（进程起不来）。
+    return rc >= 0;
+}
+
+// 删掉所有陈旧规则，返回删掉的条数。
+//
+// ⚠️ 日志里只写条数，**不写规则名也不写路径** —— 用户目录的完整路径
+// 属于隐私，日志可能被贴到 issue 里。
+int cleanStaleFirewallRules() {
+    const std::vector<std::wstring> stale = findStaleFirewallRules();
+    int removed = 0;
+    for (const std::wstring& name : stale) {
+        if (deleteFirewallRuleByNameEx(name)) ++removed;
+    }
+    if (removed > 0) {
+        logLine("已清理 " + std::to_string(removed) + " 条陈旧防火墙规则");
+    } else if (!stale.empty()) {
+        logLine("清理陈旧防火墙规则失败（可能没有管理员权限），共 " +
+                std::to_string(stale.size()) + " 条");
+    }
+    return removed;
+}
+
 // 启动时检查放行规则是否指向**当前这个 exe**，不匹配就提醒用户去修。
 //
 // 为什么必须放在启动时做：
@@ -580,33 +747,78 @@ bool firewallRuleExists() {
 // 只在**确实有问题**时才打扰用户：规则指向当前 exe 就完全静默。
 // 也不在这里直接修 —— 加规则要管理员权限，会弹 UAC，
 // 让用户在还没搞清楚状况的时候先吃一个 UAC 弹窗是不礼貌的。
-// 前置声明：「修复连接问题」的提权入口定义在下面，而启动检查要用它。
+// 前置声明：两个提权入口定义在下面，而启动检查要用它们。
 bool elevateAndRunFixFirewall();
+bool elevateAndRunCleanFirewallRules();
 
 void checkFirewallRuleAtStartup() {
-    if (firewallRuleExists()) return;   // 正常：什么都不做，静默启动
+    // 一次启动最多弹**一个**窗口 —— 两个提示框叠着弹只会让用户烦。
+    // 所以两件事（"还没放行" / "有陈旧规则"）在这里先各自算出结论，
+    // 再合成一次 MessageBox。
+    const bool ruleOk = firewallRuleExists();
+    const int staleCount =
+        static_cast<int>(findStaleFirewallRules().size());
 
-    logLine("启动检查: 本程序尚未被防火墙放行，可能影响连接");
+    // 两件都没问题：完全静默。绝大多数启动都走这条路 ——
+    // 不能每次开机都弹个框烦人。
+    if (ruleOk && staleCount == 0) return;
 
-    // 提权这件事交给菜单里那一项去做，这里只提醒 + 给入口。
-    std::wstring tip;
     const wchar_t kNLw = static_cast<wchar_t>(10);
-    tip += L"AirPlay Bridge 还没有被防火墙放行。";
-    tip += kNLw; tip += kNLw;
-    tip += L"这会让声音连不上或频繁中断。";
-    tip += kNLw;
-    tip += L"点「是」立即修复（需要管理员权限）。";
-    tip += kNLw; tip += kNLw;
-    tip += L"也可以稍后从托盘菜单点「修复连接问题」。";
+    std::wstring tip;
+    bool wantFixOnYes = false;     // 点「是」= 修复放行（要提权）
+    bool wantCleanOnYes = false;   // 点「是」= 清理陈旧规则
+
+    if (!ruleOk) {
+        logLine("启动检查: 本程序尚未被防火墙放行，可能影响连接");
+        tip += L"AirPlay Bridge 还没有被防火墙放行。";
+        tip += kNLw; tip += kNLw;
+        tip += L"这会让声音连不上或频繁中断。";
+        wantFixOnYes = true;
+    }
+
+    if (staleCount > 0) {
+        logLine("启动检查: 检测到 " + std::to_string(staleCount) +
+                " 条陈旧防火墙规则（指向已不存在或已更换位置的文件）");
+        // 已经有主提示时隔一行再追加，读起来是两段而不是一串。
+        if (!tip.empty()) { tip += kNLw; tip += kNLw; }
+        tip += L"检测到 " + std::to_wstring(staleCount) +
+               L" 条旧的网络放行设置（指向已不存在或已更换位置的文件）。";
+        tip += kNLw; tip += kNLw;
+        tip += L"它们不影响使用，但会让系统里的设置变乱。";
+        wantCleanOnYes = true;
+    }
+
+    // 点「是」做什么，由上面哪几件事成立决定。
+    // 三件事都成立（没放行 + 有陈旧规则）时：提权拉起的那一份跑完
+    // --fix-firewall 之后顺带把陈旧规则也清掉，所以这里只提一个请求 ——
+    // 用户只看到一次 UAC，再点一下就好。
+    if (wantFixOnYes) {
+        tip += kNLw;
+        tip += L"点「是」立即修复（需要管理员权限）。";
+        tip += kNLw; tip += kNLw;
+        tip += L"也可以稍后从托盘菜单点「修复连接问题」。";
+    } else {
+        tip += kNLw;
+        tip += L"点「是」清理，点「否」跳过。";
+    }
 
     // MB_SETFOREGROUND：托盘程序没有前台窗口，不加的话弹窗可能被压在别的
     // 窗口后面，用户只看到进程一闪而过。
     const int r = MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
                               MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND);
-    if (r != IDYES) return;
+    if (r != IDYES) {
+        if (staleCount > 0) logLine("用户选择跳过陈旧防火墙规则清理");
+        return;
+    }
 
-    logLine("用户在启动提示里选择了立即修复，请求提权添加防火墙入站规则");
-    elevateAndRunFixFirewall();
+    if (wantFixOnYes) {
+        logLine("用户在启动提示里选择了立即修复，请求提权添加防火墙入站规则");
+        // 提权那一份会在加完规则后顺带清理陈旧规则（见 runFixFirewall）。
+        elevateAndRunFixFirewall();
+    } else if (wantCleanOnYes) {
+        logLine("用户在启动提示里选择了清理陈旧防火墙规则，请求提权");
+        elevateAndRunCleanFirewallRules();
+    }
 }
 
 
@@ -630,6 +842,11 @@ int runFixFirewall() {
     const std::string cmd = netshAddRuleArgs(true);
     logLine("--fix-firewall: 执行 " + cmd);
     const int rc = runCommandLine(cmd);
+
+    // 顺手把陈旧规则清掉：这一份已经是管理员了，而启动检查里
+    // 「还没放行 + 有陈旧规则」那一路就是靠这里一次性收拾干净的
+    // —— 用户不会被要求点两次 UAC。
+    cleanStaleFirewallRules();
 
     int exitCode = 0;
     std::string title;
@@ -668,6 +885,41 @@ int runFixFirewall() {
     MessageBoxW(nullptr, toWide(msg).c_str(), toWide(title).c_str(),
                 MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
     return exitCode;
+}
+
+// --clean-firewall-rules 的入口（被提权拉起的那一份跑它）。
+//
+// 只做一件事：删掉指向旧文件的同名放行规则，然后弹提示、退出。
+// 同样不起托盘、不跑主循环 —— 与 --fix-firewall 一个待遇。
+//
+// 为什么不就地用 INetFwPolicy2::Remove()：不是接口不好用，是 netsh
+// 的命令行跟日志里给用户看的那条能对上，排查时少一层猜测。
+// 而且这一条路径本来就在"有问题"时才走，多起一个 netsh 进程无所谓。
+int runCleanFirewallRules() {
+    logLine("--clean-firewall-rules: 开始清理陈旧防火墙规则");
+
+    const int n = cleanStaleFirewallRules();
+
+    std::string msg;
+    if (n > 0) {
+        msg  = "已清理 " + std::to_string(n) + " 条旧的网络放行设置。";
+        msg += char(10);
+        msg += char(10);
+        msg += "它们指向的文件已经不存在了，清理不影响正在使用的放行设置。";
+    } else {
+        // 走到这里通常有两种情况：读取规则时被挡（GROUP POLICY 禁了
+        // INetFwPolicy2），或者删的动作没成功。都如实说。
+        msg  = "没有可清理的旧设置，或清理未能完成。";
+        msg += char(10);
+        msg += char(10);
+        msg += "请确认在弹出的用户账户控制窗口中选择了「是」。";
+    }
+
+    MessageBoxW(nullptr, screenText(msg).c_str(), L"AirPlay Bridge",
+                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+    // 提示框不是失败信号 —— 与 --fix-firewall 那里不同，这里没有"失败"的
+    // 概念（没东西可删也是正常结束）。
+    return 0;
 }
 
 // 提权拉起自己跑 --fix-firewall。用户会看到一次 UAC 弹窗 ——
@@ -714,6 +966,53 @@ bool elevateAndRunFixFirewall() {
                         std::to_string(static_cast<unsigned long>(code)) + "）");
         } else {
             logLine("防火墙修复进程仍在运行（等待 UAC / 提示框），不再等待");
+        }
+        CloseHandle(sei.hProcess);
+    }
+    return true;
+}
+
+// 提权拉起自己跑 --clean-firewall-rules（清理陈旧规则）。
+//
+// 与 elevateAndRunFixFirewall 同一套路，只是换参数 —— 这里不复用它
+// 是因为两者的日志文案、返回语义不同，硬套会让"谁在清理、谁在添加"
+// 在日志里分不清。用户同样会看到一次 UAC 弹窗。
+bool elevateAndRunCleanFirewallRules() {
+    std::string params = "--clean-firewall-rules";
+
+    SHELLEXECUTEINFOA sei{};
+    sei.cbSize = sizeof(sei);
+    sei.fMask  = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+    sei.hwnd   = nullptr;
+    sei.lpVerb = "runas";
+    sei.lpFile = exePath().c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow  = SW_SHOWNORMAL;
+
+    if (!ShellExecuteExA(&sei)) {
+        const DWORD err = GetLastError();
+        // 用户在 UAC 弹窗里点了「否」—— 这是用户的选择，不是错误。
+        if (err == ERROR_CANCELLED)
+            logLine("已取消清理陈旧防火墙规则（UAC 弹窗被拒绝）");
+        else
+            logLine("拉起陈旧防火墙规则清理失败（错误码 " +
+                    std::to_string(err) + "）");
+        return false;
+    }
+
+    // 同 --fix-firewall：只等一小会儿。那一份在等用户点提示框，
+    // 无限等会把主界面拖死。
+    if (sei.hProcess) {
+        const DWORD waited = WaitForSingleObject(sei.hProcess, 20000);
+        if (waited == WAIT_OBJECT_0) {
+            DWORD code = 1;
+            if (GetExitCodeProcess(sei.hProcess, &code) && code == 0)
+                logLine("陈旧防火墙规则清理进程已结束");
+            else
+                logLine("陈旧防火墙规则清理进程返回失败（退出码 " +
+                        std::to_string(static_cast<unsigned long>(code)) + "）");
+        } else {
+            logLine("陈旧防火墙规则清理进程仍在运行（等待 UAC / 提示框），不再等待");
         }
         CloseHandle(sei.hProcess);
     }
@@ -1653,6 +1952,7 @@ int main(int argc, char** argv) {
     bool wantList = false, wantInstall = false, wantUninstall = false;
     bool wantConsole = false, wantLast = false, wantTray = true;
     bool wantFixFirewall = false;       // --fix-firewall
+    bool wantCleanFirewall = false;     // --clean-firewall-rules
     bool wantAudioDevices = false;      // --audio-devices
     std::string setDefaultArg;          // --set-default <设备名子串>
     std::string hostArg;
@@ -1666,6 +1966,7 @@ int main(int argc, char** argv) {
         else if (a == "--console")   { wantConsole = true; wantTray = false; }
         else if (a == "--last")      wantLast = true;
         else if (a == "--fix-firewall") { wantFixFirewall = true; wantTray = false; }
+        else if (a == "--clean-firewall-rules") { wantCleanFirewall = true; wantTray = false; }
         else if (a == "--audio-devices") { wantAudioDevices = true; wantTray = false; }
         else if (a == "--set-default" && i + 1 < argc) {
             setDefaultArg = argv[++i];
@@ -1687,9 +1988,18 @@ int main(int argc, char** argv) {
         return runFixFirewall();
     }
 
+    // ---- 清理陈旧放行规则（提权拉起的那一份）----
+    // 与 --fix-firewall 同一待遇：一次性操作，做完即退，
+    // 不起托盘、不读配置、不跑主循环。
+    if (wantCleanFirewall) {
+        CoUninitialize();
+        return runCleanFirewallRules();
+    }
+
     // ---- 单实例检测（命名互斥体，见 anotherInstanceIsRunning）----
     //
-    // 顺序上必须在 --fix-firewall 之后，且只有它被放行：
+    // 顺序上必须在 --fix-firewall / --clean-firewall-rules 之后，
+    // 且只有它们被放行：
     // --fix-firewall 是一次性操作（加完规则就退出，不是"运行本软件"），
     // 而且用户恰恰在"已经有一个实例在跑"时最可能需要它 ——
     // 拿单实例闸去挡它，用户会在程序已经占着的情况下无法修复连接，
@@ -1709,8 +2019,8 @@ int main(int argc, char** argv) {
     // 要被单实例挡掉的那一份进程只会一闪而过，不该弹这个窗口。
     //
     // 也放在读配置之前：它是纯粹的"能不能联网"问题，与用户设置无关。
-    // 但托盘模式以外（--console 等）同样需要，所以只排除 --fix-firewall
-    //（那条路本来就在加规则）。
+    // 但托盘模式以外（--console 等）同样需要，所以只排除那两个内部开关
+    //（--fix-firewall / --clean-firewall-rules，它们本来就在干这件事）。
     if (wantTray) {
         checkFirewallRuleAtStartup();
     }

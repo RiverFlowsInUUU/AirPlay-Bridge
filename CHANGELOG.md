@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.38] - 2026-10-15
+
+### Added
+
+- 启动时检测遗留的旧网络放行设置，并可就地清理，避免系统里堆积无效配置。
+
 ## [1.2.37] - 2026-10-15
 
 ### Added
