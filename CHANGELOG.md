@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.18] - 2026-10-15
+
+### Fixed
+
+- 静音待机进入后约 5 秒又被自动连回来，设备屏幕反复亮灭。
+  现在待机期间不会再被掉线重连逻辑接管。
+
 ## [1.2.17] - 2026-10-15
 
 ### Added

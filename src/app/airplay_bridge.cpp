@@ -1423,7 +1423,11 @@ int main(int argc, char** argv) {
                 sess.wantReconnect.store(false);
                 sess.teardown();
                 tryConnect();
-            } else if (!sess.running.load() && cfg.autoReconnect && !userDisconnected) {
+                // 待机也要排除掉：待机是主动断开，running 会是 false，
+                // 不排除的话 5 秒后的下一次重连检查会立刻把它连回来 ——
+                // 表现就是「一待机就秒醒」，屏幕反复亮。
+            } else if (!sess.running.load() && !sess.standbyActive.load() &&
+                       cfg.autoReconnect && !userDisconnected) {
                 // 启动时没连上（设备还没通电），或中途掉线。
                 // userDisconnected 挡住的只是"用户自己点的断开" ——
                 // 那种情况重连是骚扰，不是帮忙。
