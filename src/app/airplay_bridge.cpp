@@ -57,15 +57,17 @@ namespace {
 
 std::atomic<bool> g_stop{false};
 
-// 延迟档位：从激进到保守。不同网络/设备能承受的最小值不同，
+// 延迟档位。
+//
+// 实测能跑通的区间很窄：100ms 上下就够，600ms 那种档位纯属占地方。
+// 所以档位收在 120-150ms 这一段 —— 需要更大值的话用下面的"自定义"滑块。
 // 用户自己试出"不爆音的最低档"就是最优解。
 struct LatencyLevel { int ms; const char* label; };
 const LatencyLevel kLatencyLevels[] = {
-    { 60,   "极低 60ms（可能爆音）" },
-    { 100,  "低 100ms" },
-    { 150,  "中 150ms（推荐）" },
-    { 300,  "较高 300ms（稳）" },
-    { 600,  "高 600ms（最稳）" },
+    { 120,  "120ms" },
+    { 130,  "130ms" },
+    { 140,  "140ms" },
+    { 150,  "150ms（推荐）" },
 };
 constexpr int kLatencyLevelCount = sizeof(kLatencyLevels) / sizeof(kLatencyLevels[0]);
 

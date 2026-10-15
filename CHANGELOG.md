@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.14] - 2026-10-15
+
+### Changed
+
+- 延迟的预设档位由 60–600ms 收窄到 120–150ms（120 / 130 / 140 / 150）。
+  需要更大值的仍可用「自定义」滑块。
+
 ## [1.2.13] - 2026-10-15
 
 ### Fixed
