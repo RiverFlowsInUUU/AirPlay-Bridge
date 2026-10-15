@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.29] - 2026-10-15
+
+### Added
+
+- 一直显示「连接中」时，日志会说明可能的原因和排查方法。
+  此前只有一句「连接失败」，无法判断问题出在哪。
+
 ## [1.2.28] - 2026-10-15
 
 ### Fixed

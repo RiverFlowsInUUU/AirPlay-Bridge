@@ -36,6 +36,8 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <objbase.h>
+#include <comdef.h>
+#include <netfw.h>
 
 #include <atomic>
 #include <chrono>
@@ -203,6 +205,163 @@ std::string exePath() {
     char buf[MAX_PATH] = {};
     DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
     return std::string(buf, n);
+}
+
+// ============================================================
+// 握手超时的防火墙诊断
+// ============================================================
+// 接收端要主动回连做时钟同步，本机必须有一条入站 UDP 规则。
+// 没有这条规则的话，「无主入站 UDP」会被系统静默丢掉：
+//
+//   RECORD 200 OK 之后，接收端向发送端在 session SETUP 里声明的
+//   timingPort / controlPort 发 UDP（NTP 式时钟同步），收不到回话
+//   就拿不到时间基准 —— 于是它不回应 stream SETUP。我们这边干等到
+//   10 秒超时，界面永远停在「连接中」。
+//
+// 上游源码里就有这条提示（third_party/airplay2-sender-cpp/src/
+// raop_sender.cpp:490 附近的注释）。放行入站规则后同一份 exe
+// 3/3 成功 —— 所以这是环境问题，不是协议问题。
+//
+// 提示只在连续失败够多次之后打一次：重连循环每几秒跑一轮，
+// 每轮都写一遍会把日志刷成废纸。
+
+// 连续握手失败计数（每次 launched(false) 加一，连上一次清零）。
+std::atomic<int> g_handshakeFailStreak{0};
+// 已经提示过防火墙了吗？只提示一次，直到下一次连接成功才复位。
+std::atomic<bool> g_firewallHintShown{false};
+// 提示的触发阈值。低于它不提示 —— 偶发一次超时很常见（接收端忙、
+// 网络抖一下），先别让用户去翻防火墙。
+constexpr int kFirewallHintAfterFails = 3;
+
+// 如果本机已经有一条覆盖本程序的入站放行规则，就说明防火墙大概率
+// 不是原因，提示可以更轻。
+//
+// 用 INetFwPolicy2 查 —— 组策略可能禁掉这个 API，实现取不到时静默
+// 返回 false（保守起点），不影响主流程。
+bool hasInboundRuleForThisApp() {
+    bool found = false;
+    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool needUninit = SUCCEEDED(hrInit) || hrInit == RPC_E_CHANGED_MODE;
+
+    INetFwPolicy2* policy = nullptr;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(NetFwPolicy2), nullptr,
+                                   CLSCTX_INPROC_SERVER,
+                                   __uuidof(INetFwPolicy2),
+                                   reinterpret_cast<void**>(&policy))) && policy) {
+        // 逐 profile 枚举（2 = 专用 / 4 = 公用 / 1 = 域）。
+        // 规则组是全局的，但 profile 枚举好写且够用。
+        for (long profile = 1; profile <= 4; profile <<= 1) {
+            VARIANT_BOOL enabled = VARIANT_FALSE;
+            if (FAILED(policy->get_FirewallEnabled(NET_FW_PROFILE_TYPE2(profile),
+                                                   &enabled)) ||
+                enabled == VARIANT_FALSE)
+                continue;
+
+            // get_Rules 只吃一个 out 参数（profile 无关，规则组是全局的）。
+            INetFwRules* rules = nullptr;
+            if (SUCCEEDED(policy->get_Rules(&rules)) && rules) {
+                IEnumVARIANT* enumerator = nullptr;
+                if (SUCCEEDED(rules->get__NewEnum(reinterpret_cast<IUnknown**>(&enumerator))) &&
+                    enumerator) {
+                    VARIANT item;
+                    VariantInit(&item);
+                    while (!found &&
+                           enumerator->Next(1, &item, nullptr) == S_OK) {
+                        if (item.vt == VT_DISPATCH && item.pdispVal) {
+                            INetFwRule* rule = nullptr;
+                            if (SUCCEEDED(item.pdispVal->QueryInterface(
+                                    __uuidof(INetFwRule),
+                                    reinterpret_cast<void**>(&rule))) &&
+                                rule) {
+                                // 只看入站 + 允许。方向不对（出站规则）、
+                                // 动作不对（阻止规则）都不是我们要找的。
+                                NET_FW_RULE_DIRECTION dir =
+                                    NET_FW_RULE_DIR_IN;
+                                NET_FW_ACTION act =
+                                    NET_FW_ACTION_BLOCK;
+                                VARIANT_BOOL ruleEnabled = VARIANT_FALSE;
+                                BSTR appName = nullptr;
+                                const bool inboundOk =
+                                    SUCCEEDED(rule->get_Direction(&dir)) &&
+                                    dir == NET_FW_RULE_DIR_IN;
+                                const bool allowOk =
+                                    SUCCEEDED(rule->get_Action(&act)) &&
+                                    act == NET_FW_ACTION_ALLOW;
+                                const bool onOk =
+                                    SUCCEEDED(rule->get_Enabled(&ruleEnabled)) &&
+                                    ruleEnabled == VARIANT_TRUE;
+                                const bool hasApp =
+                                    SUCCEEDED(rule->get_ApplicationName(&appName)) &&
+                                    appName && *appName;
+                                if (inboundOk && allowOk && onOk && hasApp) {
+                                    // BSTR 是宽字符，转成窄字符再比。
+                                    // 比较不区分大小写：系统存的是
+                                    // 用户当时选的路径，大小写未必一样。
+                                    std::wstring wide(appName);
+                                    if (wide.find(L"airplay_bridge") !=
+                                            std::wstring::npos ||
+                                        wide.find(L"AirPlay Bridge") !=
+                                            std::wstring::npos)
+                                        found = true;
+                                }
+                                if (appName) SysFreeString(appName);
+                                rule->Release();
+                            }
+                        }
+                        VariantClear(&item);
+                        VariantInit(&item);
+                    }
+                    VariantClear(&item);
+                    enumerator->Release();
+                }
+                rules->Release();
+            }
+        }
+        policy->Release();
+    }
+    if (needUninit) CoUninitialize();
+    return found;
+}
+
+// 打那条「握手超时，去放行入站 UDP」的诊断提示。
+//
+// 由 launched(false) 回调调用。计数不到阈值什么都不做；
+// 到了阈值、且本机还没有放行规则时写一条。规则已存在则跳过 ——
+// 那说明防火墙不是原因，再提示只会误导。
+void maybeLogFirewallHint() {
+    const int streak = g_handshakeFailStreak.fetch_add(1) + 1;
+    if (streak < kFirewallHintAfterFails) return;
+    // 只提示一次。用 exchange 原子置位，避免多线程重入时写两遍。
+    bool expected = false;
+    if (!g_firewallHintShown.compare_exchange_strong(expected, true)) return;
+
+    if (hasInboundRuleForThisApp()) {
+        logLine("握手连续超时 " + std::to_string(streak) +
+                " 次，但本机已有本程序的入站放行规则 —— 若仍连不上，"
+                "请检查接收端与本机是否在同一网段。");
+        return;
+    }
+
+    // 提示里的程序路径必须动态取 —— 用户装在哪都有可能。
+    // 引号用 char 常量拼，不写反斜杠转义（本项目工具链会写坏它）。
+    const char QC = '"';
+    std::string msg;
+    msg += "握手超时。常见原因：Windows 防火墙拦了本程序的入站 UDP ——";
+    msg += char(10);
+    msg += "接收端需要通过 UDP 回连本机做时钟同步，收不到就不会回应 stream SETUP。";
+    msg += char(10);
+    msg += "放行方法（管理员命令提示符）：";
+    msg += char(10);
+    msg += "  netsh advfirewall firewall add rule name=";
+    msg += QC;
+    msg += "AirPlay Bridge inbound UDP";
+    msg += QC;
+    msg += " dir=in action=allow protocol=UDP program=";
+    msg += QC;
+    msg += exePath();
+    msg += QC;
+    msg += " remoteip=localsubnet profile=any";
+    logLine(msg);
 }
 
 // ============================================================
@@ -579,6 +738,16 @@ struct Session {
                 }
             }
             connected.store(ok);
+            // 握手成功就复位防火墙提示的整套状态：
+            // 计数清零、提示解禁 —— 下次真出问题时还能再提示一次。
+            if (ok) {
+                g_handshakeFailStreak.store(0);
+                g_firewallHintShown.store(false);
+            } else {
+                // 连续失败够多次就写一条可执行的诊断（只写一次）。
+                // 见 maybeLogFirewallHint 上方关于入站 UDP 的说明。
+                maybeLogFirewallHint();
+            }
             // 刚连上：把"最近有声"的时间戳重置成现在。
             // 不重置的话 lastLoudMs 还是 0，主循环一看"距今一亿秒没声音"
             // 就立刻把刚建立的会话拆了 —— 表现为连上即待机。
@@ -1126,8 +1295,20 @@ int main(int argc, char** argv) {
         tray.notify("AirPlay Bridge",
                     dev.empty() ? "已连接" : ("已连接: " + dev));
     };
-    sess.onStatus = [&tray](const std::string& s) {
-        tray.setTooltip("AirPlay Bridge - " + s);
+    sess.onStatus = [&tray, &sess](const std::string& s) {
+        std::string tip = "AirPlay Bridge - " + s;
+        // 握手一直连不上时，tooltip 里补一句可读的排查方向 ——
+        // 用户看的是托盘，不是日志；日志里那条 netsh 命令他未必找得到。
+        //
+        // 只在"连接中"状态下补，且同样要连续失败够多次才出现：
+        // 偶发一次超时不该让 tooltip 变长。
+        //
+        // 这里只改 tooltip，不弹气泡 —— 重连循环里弹气泡是骚扰。
+        if (sess.running.load() &&
+            g_handshakeFailStreak.load() >= kFirewallHintAfterFails) {
+            tip += "（若持续失败请检查防火墙入站规则）";
+        }
+        tray.setTooltip(tip);
         logLine(s);
     };
     sess.onConnected = [&tray](bool ok) { tray.setConnected(ok); };

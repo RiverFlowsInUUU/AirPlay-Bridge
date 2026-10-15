@@ -115,6 +115,21 @@ AirPlay 流固定 44100。引擎自带两点线性插值，15kHz 处信噪比仅
 
 参考实现：`src/device/audiodevices.h` 的 `audioOut()`。
 
+### C10 — 排查「握手超时 / 一直连接中」时，先确认本程序有入站 UDP 放行规则
+
+接收端会**主动** UDP 回连本机做时钟同步（发向发送端在 session SETUP 里声明的
+`timingPort` / `controlPort`），这些是无主入站报文。防火墙没有本程序的入站规则时
+它们被静默丢弃，接收端拿不到时钟基准就不回应 stream SETUP —— 日志停在
+`RECORD 200 OK`，10 秒后 `AirPlay handshake TIMEOUT`，界面永远是「连接中」。
+
+**排查顺序：先看防火墙规则，再看协议。** 别一上来就当成协议问题。
+
+- 上游源码里就有这条提示：`third_party/airplay2-sender-cpp/src/raop_sender.cpp:490`
+- 详见 [docs/DECISIONS.md](docs/DECISIONS.md) D12
+- 程序侧的处理：连续失败 3 次后写一条可执行提示（只写一次，成功即复位），
+  提示含动态取出的 `exePath()`；tooltip 同步补提示。实现见
+  `airplay_bridge.cpp` 的 `maybeLogFirewallHint()` / `hasInboundRuleForThisApp()`
+
 ## 禁止事项
 
 都是实际踩过的，别重试。
