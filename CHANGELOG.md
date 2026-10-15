@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.34] - 2026-10-15
+
+### Added
+
+- 启动时检查是否已有一个 AirPlay Bridge 在运行。已有的话会提示并退出，
+  避免两个实例互相打断声音。
+
 ## [1.2.33] - 2026-10-15
 
 ### Added

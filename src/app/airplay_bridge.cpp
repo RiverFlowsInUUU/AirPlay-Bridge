@@ -217,6 +217,60 @@ std::string exePath() {
 }
 
 // ============================================================
+// 单实例检测（命名互斥体）
+// ============================================================
+// 为什么必须有这道闸：AirPlay 接收端只服务一路。同一台机器开两个实例、
+// 或两台机器各开一个去连同一个 HomePod，都会互相把对方踢掉
+// （连上 -> 被踢 -> 自动重连 -> 再踢，无限循环，声音反复中断）。
+// 已实际踩到过：日志特征为「会话还在跑的时候又发起新连接」
+// 加 RAOP connection closed by the device。
+//
+// 名字固定、不带版本号 —— 新旧版本之间也要能互相检测到。
+//
+// 为什么用 Global\ 前缀：不加的话互斥体落在调用者自己的会话命名空间里，
+// 一个跑在 RDP 会话、一个跑在控制台的进程看到的不是同一个对象，检测不到。
+// 加 Global\ 才会落到全局（跨会话）命名空间。
+//
+// 为什么要用互斥体而不是 FindWindow / EnumWindows 找窗口：
+// 托盘程序本来就没有（也不需要）可见窗口，窗口查找根本看不见它；
+// 而且进程名、窗口类名一旦变（发版改名）就会漏判。互斥体是内核对象，
+// 与窗口、与版本都无关。
+//
+// 返回的句柄必须活到进程退出（放静态里）—— 句柄一关，互斥体就被回收，
+// 后面再启动的进程就会以为"没有实例"。进程退出时由系统自动释放。
+HANDLE g_singleInstanceMutex = nullptr;
+
+// 已经有实例在跑时弹提示。文案用 wstring + static_cast<wchar_t>(10) 拼换行。
+bool anotherInstanceIsRunning() {
+    constexpr const wchar_t* kMutexName = L"Global\\AirPlayBridge_SingleInstance";
+    g_singleInstanceMutex = CreateMutexW(nullptr, TRUE, kMutexName);
+    if (!g_singleInstanceMutex) {
+        // 句柄都拿不到（极罕见）：不把用户挡在门外，放行。
+        logLine("单实例检测: CreateMutexW 失败（" +
+                std::to_string(GetLastError()) + "），跳过检测");
+        return false;
+    }
+    // 注意：ERROR_ALREADY_EXISTS 不是"失败"，只是告诉我们别人已经建过了。
+    // 句柄照样要留着（见上），所以这里不做任何清理。
+    if (GetLastError() != ERROR_ALREADY_EXISTS) return false;
+
+    logLine("单实例检测: 已有 AirPlay Bridge 在运行，本进程退出");
+
+    std::wstring title = L"AirPlay Bridge";
+    std::wstring msg;
+    msg += L"已有 AirPlay Bridge 在运行。";
+    msg += static_cast<wchar_t>(10);
+    msg += static_cast<wchar_t>(10);
+    msg += L"同时运行两个会导致声音反复中断，请先关闭另一个再启动本程序。";
+
+    // MB_SETFOREGROUND：托盘程序是后台进程，不加的话弹窗可能被压在
+    // 别的窗口后面，用户只看到进程一闪而过，完全不知道发生了什么。
+    MessageBoxW(nullptr, msg.c_str(), title.c_str(),
+                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+    return true;
+}
+
+// ============================================================
 // 防火墙入站规则的修复（托盘菜单「修复连接问题」）
 // ============================================================
 // 背景见下面「握手超时的防火墙诊断」。结论是：缺的就是一条入站 UDP
@@ -1435,6 +1489,24 @@ int main(int argc, char** argv) {
     if (wantFixFirewall) {
         CoUninitialize();
         return runFixFirewall();
+    }
+
+    // ---- 单实例检测（命名互斥体，见 anotherInstanceIsRunning）----
+    //
+    // 顺序上必须在 --fix-firewall 之后，且只有它被放行：
+    // --fix-firewall 是一次性操作（加完规则就退出，不是"运行本软件"），
+    // 而且用户恰恰在"已经有一个实例在跑"时最可能需要它 ——
+    // 拿单实例闸去挡它，用户会在程序已经占着的情况下无法修复连接，
+    // 只能先杀进程，那就本末倒置了。
+    //
+    // 其余所有路径（托盘模式、--console、--last、直连 IP 等）都会真正
+    // 起引擎、真正去连接收端，所以一律受限制。
+    //
+    // 也放在读配置之前：被挡住的那一份不该产生任何副作用（不生成
+    // deviceId、不写配置、不碰日志以外的状态）。
+    if (anotherInstanceIsRunning()) {
+        CoUninitialize();
+        return 0;
     }
 
     // 运行时数据在 %LOCALAPPDATA%/AirPlayBridge/
