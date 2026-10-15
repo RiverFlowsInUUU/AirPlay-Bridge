@@ -143,8 +143,15 @@ enum : int {
     MENU_STANDBY   = 114,   // 静音自动待机（子菜单）
     MENU_STANDBY_CUSTOM = 115,   // 自定义静音待机（无极滑块）
     MENU_FIX_FIREWALL = 116,   // 修复连接问题（一键加入站放行规则）
+    MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
+
+// 版本号。发版时改这里 —— 托盘菜单和「关于」都读它。
+constexpr const char* kAppVersion = "1.2.33";
+
+// 项目主页。「关于」里点一下跳这里。
+constexpr const char* kProjectUrl = "https://github.com/RiverFlowsInUUU/AirPlay-Bridge";
 
 // 静音判定的峰值阈值（int16 满量程 32767）。
 // 300 约等于 -40dBFS：底噪、鼠标点击声这种级别的残留不算"有声音"，
@@ -1908,6 +1915,9 @@ int main(int argc, char** argv) {
             }
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
+            // 版本号就在标题里，一眼看到 —— 省得用户回复问题时还要去翻文件属性。
+            menu.push_back({"关于 AirPlay Bridge v" + std::string(kAppVersion),
+                            MENU_ABOUT});
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"退出", MENU_QUIT});
 
@@ -2173,6 +2183,11 @@ int main(int argc, char** argv) {
                         // 出错时用户要去看日志，那个路径带空格又是隐藏的，
                         // 手打太痛苦 —— 给个入口。
                         ShellExecuteA(nullptr, "open", appDataDir().c_str(),
+                                      nullptr, nullptr, SW_SHOWNORMAL);
+                        break;
+                    case MENU_ABOUT:
+                        // 打开项目主页 —— 用户找更新、报问题、看说明都在那里。
+                        ShellExecuteA(nullptr, "open", kProjectUrl,
                                       nullptr, nullptr, SW_SHOWNORMAL);
                         break;
                     case MENU_QUIT:
