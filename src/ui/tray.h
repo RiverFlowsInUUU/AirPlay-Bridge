@@ -59,6 +59,17 @@ public:
     // 弹出菜单（通常在收到 RightClick 时调用）。选中项通过 cb 回传。
     void showMenu(const std::vector<TrayMenuItem>& menu, const std::function<void(int)>& cb);
 
+    // 菜单打开期间的心跳。
+    //
+    // Windows 的 TrackPopupMenu 会跑它自己的模态消息循环，主循环在这段
+    // 时间里完全停摆。而音频的 socket IO 是靠主循环里的 pump 推的 ——
+    // 于是菜单一弹出来，声音就断了。
+    //
+    // 这里注册一个回调：菜单开着的时候用定时器继续推，菜单关掉就停。
+    // 定时器消息能进得来，是因为 TrackPopupMenu 的循环会把消息派发给
+    // 菜单的宿主窗口（也就是托盘那个隐藏窗口）。
+    void setMenuPump(std::function<void()> pump);
+
 private:
     struct Impl;
     Impl* d_ = nullptr;

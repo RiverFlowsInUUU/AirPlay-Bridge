@@ -803,6 +803,13 @@ int main(int argc, char** argv) {
     };
     sess.onConnected = [&tray](bool ok) { tray.setConnected(ok); };
 
+    // 菜单打开期间继续推音频 IO。
+    // TrackPopupMenu 自带模态消息循环，主循环在里面完全停摆 ——
+    // 不在这儿接上这口气，点一下托盘声音就会断。
+    tray.setMenuPump([&]() {
+        if (sess.running.load()) sess.pump();
+    });
+
     std::vector<AirPlayDevice> discovered;
 
     // 尝试连接（托盘模式：优先历史设备；没有历史则自动选 HomePod）

@@ -22,6 +22,11 @@ namespace {
 
 constexpr UINT WM_TRAY_CALLBACK = WM_APP + 1;
 
+// 菜单打开期间的音频心跳定时器（见 TrayIcon::setMenuPump）
+constexpr UINT_PTR kMenuPumpTimer = 0x41;
+constexpr UINT     kMenuPumpMs    = 15;
+std::function<void()> g_menuPump;
+
 // Explorer 重启后会广播这条消息（消息号是动态的，必须运行时取）。
 // 收到它要重新 Shell_NotifyIcon(NIM_ADD)，否则托盘图标永久消失。
 UINT g_taskbarCreatedMsg = 0;
@@ -226,6 +231,12 @@ struct TrayIcon::Impl {
             darkmode::flushMenuThemes();
             return 0;
         }
+        // 菜单开着时继续驱动音频 IO，否则接收端会饿死
+        if (msg == WM_TIMER && wp == kMenuPumpTimer) {
+            if (g_menuPump) g_menuPump();
+            return 0;
+        }
+
         if (msg == WM_TRAY_CALLBACK) {
             UINT ev = LOWORD(lp);
             if (g_handler) {
@@ -362,12 +373,17 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
         return;
     }
 
+    // 菜单一弹出来，主循环就进不去了 —— 先用定时器把音频心跳接上
+    if (g_menuPump) SetTimer(d_->hwnd, kMenuPumpTimer, kMenuPumpMs, nullptr);
+
     POINT pt;
     GetCursorPos(&pt);
     SetForegroundWindow(d_->hwnd);
 
     int cmd = static_cast<int>(TrackPopupMenu(
         hmenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, d_->hwnd, nullptr));
+
+    if (g_menuPump) KillTimer(d_->hwnd, kMenuPumpTimer);
 
     PostMessageW(d_->hwnd, WM_NULL, 0, 0);
     DestroyMenu(hmenu);
@@ -377,6 +393,10 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     d_->menuOpen = false;
 
     if (cmd != 0 && cb) cb(cmd);
+}
+
+void TrayIcon::setMenuPump(std::function<void()> pump) {
+    g_menuPump = std::move(pump);
 }
 
 void TrayIcon::pump(const TrayEventHandler& handler) {
