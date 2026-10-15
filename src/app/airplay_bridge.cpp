@@ -1710,8 +1710,14 @@ int main(int argc, char** argv) {
         }
 
         if (scanDone) {
-            // 扫描回来了：如果连上了就重置退避，否则加大退避
-            if (sess.running.load()) {
+            // 扫描回来了：只有真的连上了才重置退避。
+            //
+            // 判据必须是 connected，不能是 running —— start() 一返回
+            // running 就是 true，哪怕握手随后立刻失败。用 running 的话
+            // 退避每次都被重置回 5 秒，永远长不起来，变成每 10 秒敲一次
+            // 接收端。而接收端在连续被失败配对骚扰后会进入拒绝状态：
+            // 于是它一直拒绝、我们一直敲，永远连不上。
+            if (sess.connected.load()) {
                 retryBackoffSec = 5;
             }
         }
