@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.8] - 2026-10-15
+
+### Added
+
+- 托盘菜单跟随系统深浅色主题。深色模式下菜单为深色，浅色模式下保持原样。
+
 ## [1.2.7] - 2026-10-15
 
 ### Fixed

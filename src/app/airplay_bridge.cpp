@@ -23,6 +23,7 @@
 #include "wasapi_capture.h"
 #include "resampler.h"
 #include "tray.h"
+#include "darkmode.h"
 #include "sysvolume.h"
 #include "audiodevices.h"
 #include "latency_dialog.h"
@@ -562,6 +563,9 @@ static void enableDpiAwareness() {
 // 改成从 GetCommandLineW 自己切分。
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     enableDpiAwareness();
+
+    // 托盘菜单跟随系统深浅色主题
+    darkmode::init();
 
     int argc = 0;
     LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &argc);

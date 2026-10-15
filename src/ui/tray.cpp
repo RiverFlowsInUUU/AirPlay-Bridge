@@ -9,6 +9,7 @@
 #define NOMINMAX
 
 #include "tray.h"
+#include "darkmode.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -217,6 +218,14 @@ struct TrayIcon::Impl {
             }
             return 0;
         }
+        // 系统深浅色切换：重新应用到本窗口，并清掉菜单主题缓存 ——
+        // 不清的话下一次弹出的菜单还是旧配色。
+        if (msg == WM_SETTINGCHANGE && lp != 0 &&
+            lstrcmpW(reinterpret_cast<LPCWSTR>(lp), L"ImmersiveColorSet") == 0) {
+            darkmode::applyToWindow(hwnd, darkmode::isDark());
+            darkmode::flushMenuThemes();
+            return 0;
+        }
         if (msg == WM_TRAY_CALLBACK) {
             UINT ev = LOWORD(lp);
             if (g_handler) {
@@ -263,6 +272,9 @@ bool TrayIcon::create(const std::string& tooltip) {
     d_->hwnd = CreateWindowExW(0, CLASS_NAME, L"AirPlay Bridge", 0,
                                0, 0, 0, 0, nullptr, nullptr, hInst, nullptr);
     if (!d_->hwnd) return false;
+
+    // 菜单跟随系统深浅色（Windows 11 深色模式下原生菜单本来是白的）
+    darkmode::applyToWindow(d_->hwnd, darkmode::isDark());
 
     d_->iconConnected = loadTrayIcon(102, true);
     d_->iconIdle      = loadTrayIcon(103, false);
