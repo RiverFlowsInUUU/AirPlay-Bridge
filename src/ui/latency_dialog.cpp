@@ -468,8 +468,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
     DialogState st;
     st.spec = &spec;
-    st.value = (currentValue >= spec.minValue && currentValue <= spec.maxValue)
-                   ? currentValue : spec.minValue;
+    // 超出范围夹到边界，不要退回最小值 ——
+    // 老配置里可能存着更大的值，退回最小会让用户莫名变成最低延迟。
+    st.value = currentValue;
+    if (st.value < spec.minValue) st.value = spec.minValue;
+    if (st.value > spec.maxValue) st.value = spec.maxValue;
 
     const wchar_t* CLASS = L"AirPlaySliderDialog";
     HINSTANCE hInst = GetModuleHandleW(nullptr);
@@ -523,10 +526,10 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
 
 namespace {
 const char* latencyGrade(int ms) {
-    if (ms < 120) return "极低（可能爆音）";
-    if (ms < 200) return "低（推荐）";
-    if (ms < 350) return "中";
-    if (ms < 600) return "较高（稳）";
+    if (ms < 100) return "极低（可能爆音）";
+    if (ms < 130) return "低（推荐）";
+    if (ms < 180) return "中";
+    if (ms < 250) return "较高（稳）";
     return "高（最稳）";
 }
 const char* volumeGrade(int pct) {
@@ -544,7 +547,7 @@ int showLatencyDialog(int currentMs) {
     spec.hint = "拖到不爆音的最低位置就是最优解。越低延迟越小，"
                 "但接收端缓冲不足会爆音或卡顿。";
     spec.minValue = 60;
-    spec.maxValue = 1000;
+    spec.maxValue = 300;    // 实测 300ms 往上没有意义，收窄后滑块精度高得多
     spec.tickFreq = 0;
     spec.unit = "ms";
     spec.grade = latencyGrade;
