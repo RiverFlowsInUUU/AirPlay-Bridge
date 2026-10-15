@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.27] - 2026-10-15
+
+### Fixed
+
+- 修复一次连接失败后程序失去响应的问题：托盘菜单不再反应、
+  状态一直停在「连接中」，只能重启程序。
+
 ## [1.2.26] - 2026-10-15
 
 ### Fixed

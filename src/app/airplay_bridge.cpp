@@ -227,6 +227,7 @@ enum MainPhase : int {
     PHASE_CONNECT,         // 建立连接
     PHASE_MENU_OPEN,       // 菜单打开中
     PHASE_NET_PUMP,        // 驱动网络
+    PHASE_CAPTURE_STOP,    // 等采集线程退出（卡在这 = 采集停不下来）
     PHASE_COUNT,
 };
 
@@ -240,6 +241,7 @@ const char* const kPhaseNames[PHASE_COUNT] = {
     "建立连接",
     "菜单打开中",
     "驱动网络",
+    "等采集线程退出",
 };
 
 inline long long steadyNowMs() {
@@ -505,7 +507,17 @@ struct Session {
         wantReconnect.store(false);
         // 先清干净：重复调用或上次失败残留时，producer 可能是个
         // joinable 的空线程，留着会在成员析构时 std::terminate。
+        //
+        // 但光 join 不够 —— 采集线程只有在 capture->stop() 之后才会退出，
+        // 而 capture->stop() 只有 teardown() 会调。掉线那条路不经过 teardown，
+        // 于是这里的 join 会等一个永远不会退出的线程，主线程就此死透
+        // （表现为托盘菜单没反应 + 状态永远停在"连接中"）。
+        // 所以：先停，再 join。
+        if (capture) capture->stop();
+        if (sender)  sender->stop();
+        setPhase(PHASE_CAPTURE_STOP);
         if (producer.joinable()) producer.join();
+        producer = std::thread();
 
         // 音频采集。默认采集"所有活动的输出设备"并混音 ——
         // 这样即使某个应用（比如浏览器）被单独指到了别的声卡，
@@ -1751,6 +1763,9 @@ int main(int argc, char** argv) {
                         return out;
                     });
                 }
+                // 上一轮失败时没人收尾（掉线那条路不经过 teardown），
+                // 采集线程还挂着。先收尾再连 —— 顺带把音频路由也恢复回去。
+                sess.teardown();
                 tryConnect();
                 // 退避翻倍，上限 60 秒
                 retryBackoffSec = (retryBackoffSec < 60) ? retryBackoffSec * 2 : 60;
