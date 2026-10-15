@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.41] - 2026-10-15
+
+### Fixed
+
+- 统一了两处网络放行检查的口径，避免同一个问题出现两种结论。
+
 ## [1.2.40] - 2026-10-15
 
 ### Fixed

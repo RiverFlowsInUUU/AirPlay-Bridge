@@ -47,6 +47,7 @@
 #include <random>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <future>
 #include <memory>
 #include <string>
@@ -547,22 +548,30 @@ bool deleteFirewallRuleByName() {
     return ok;
 }
 
-// 已经加过规则了吗？（菜单项「只在需要时才出现」的判据）
+// 遍历所有防火墙规则，对每条调用 fn(rule)。
+// fn 返回值：true = 继续遍历，false = 提前停止。
 //
-// 判断「本程序当前这个 exe」是否已经放行。
+// 这里是**唯一**一处 COM 枚举骨架：
+//   CoInitializeEx/CoUninitialize 的配对（含「调用方已经初始化过 COM
+//   （RPC_E_CHANGED_MODE 等）就不重复初始化」的判断）、
+//   NetFwPolicy2 -> get_Rules -> get__NewEnum -> IEnumVARIANT ->
+//   QueryInterface(INetFwRule) 的每一步，以及所有 COM 对象和 BSTR/VARIANT
+//   的释放，全部收敛在这里。调用方只写业务判据。
 //
-// 必须同时比对**规则名**和**规则指向的 exe 路径** —— 只看名字会出错：
-// 规则绑定的是 exe 路径，用户换版本/换目录/改文件名之后旧规则还在，
-// 但它指向的是已经不存在的文件。只看名字就会误判成「已配好」，
-// 于是拒绝执行修复，用户点了菜单还是连不上。
-bool firewallRuleExists() {
-    INetFwPolicy2* policy = nullptr;
-    INetFwRules* rules = nullptr;   // 提前声明：后面收尾统一释放
+// 调用方因此不需要（也不允许）自己碰 policy / rules / enumerator —— 
+// 提前 return、fn 返回 false 停遍历、枚举中途失败，走的都是同一条收尾路径，
+// 不可能漏释放。
+//
+// 注：规则组是全局的、与 profile 无关，所以这里不按 profile 循环。
+void forEachFirewallRule(const std::function<bool(INetFwRule*)>& fn) {
+    // 已初始化过 COM 时不重复初始化（RPC_E_CHANGED_MODE 说明本线程
+    // 已是别的 apartment，此时 CoInitializeEx 返回该值但 COM 是可用的）。
     HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     const bool needUninit = SUCCEEDED(hrInit) || hrInit == RPC_E_CHANGED_MODE;
 
-    bool found = false;
-    // get_Rules 只吃一个 out 参数（规则组是全局的，与 profile 无关）
+    INetFwPolicy2* policy = nullptr;
+    INetFwRules* rules = nullptr;
+    // 提前声明：后面收尾统一释放
     if (SUCCEEDED(CoCreateInstance(__uuidof(NetFwPolicy2), nullptr,
                                    CLSCTX_INPROC_SERVER,
                                    __uuidof(INetFwPolicy2),
@@ -573,43 +582,21 @@ bool firewallRuleExists() {
             enumerator) {
             VARIANT item;
             VariantInit(&item);
-            while (!found && enumerator->Next(1, &item, nullptr) == S_OK) {
+            while (enumerator->Next(1, &item, nullptr) == S_OK) {
+                bool keepGoing = true;
                 if (item.vt == VT_DISPATCH && item.pdispVal) {
                     INetFwRule* rule = nullptr;
                     if (SUCCEEDED(item.pdispVal->QueryInterface(
                             __uuidof(INetFwRule),
                             reinterpret_cast<void**>(&rule))) &&
                         rule) {
-                        BSTR name = nullptr;
-                        if (SUCCEEDED(rule->get_Name(&name)) && name) {
-                            std::wstring wide(name);
-                            // 名字对了还不够 —— 还要看这条规则到底放行的是不是
-                            // 当前这个 exe。
-                            //
-                            // 规则是绑定 exe **路径**的。用户下载了新版本、换了目录
-                            // 或改了文件名之后，旧规则仍然在（名字还叫这个），但它
-                            // 指向的是那个已经不存在的老文件。只看名字的话程序会
-                            // 以为「已经配好了」而拒绝干活 —— 用户看到的就是
-                            // 「点了修复却说已搞过，但还是连不上」。
-                            if (wide == L"AirPlay Bridge inbound UDP") {
-                                BSTR appPath = nullptr;
-                                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
-                                    appPath && *appPath) {
-                                    const std::string want = exePath();
-                                    const std::wstring cur(want.begin(), want.end());
-                                    if (_wcsicmp(appPath, cur.c_str()) == 0) {
-                                        found = true;
-                                    }
-                                }
-                                if (appPath) SysFreeString(appPath);
-                            }
-                        }
-                        if (name) SysFreeString(name);
+                        keepGoing = fn(rule);
                         rule->Release();
                     }
                 }
                 VariantClear(&item);
                 VariantInit(&item);
+                if (!keepGoing) break;
             }
             VariantClear(&item);
             enumerator->Release();
@@ -618,6 +605,46 @@ bool firewallRuleExists() {
     if (rules)  rules->Release();
     if (policy) policy->Release();
     if (needUninit) CoUninitialize();
+}
+
+// 已经加过规则了吗？（菜单项「只在需要时才出现」的判据）
+//
+// 判断「本程序当前这个 exe」是否已经放行。
+//
+// 必须同时比对**规则名**和**规则指向的 exe 路径** —— 只看名字会出错：
+// 规则绑定的是 exe 路径，用户换版本/换目录/改文件名之后旧规则还在，
+// 但它指向的是已经不存在的文件。只看名字就会误判成「已配好」，
+// 于是拒绝执行修复，用户点了菜单还是连不上。
+bool firewallRuleExists() {
+    bool found = false;
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR name = nullptr;
+        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+            std::wstring wide(name);
+            // 名字对了还不够 —— 还要看这条规则到底放行的是不是
+            // 当前这个 exe。
+            //
+            // 规则是绑定 exe **路径**的。用户下载了新版本、换了目录
+            // 或改了文件名之后，旧规则仍然在（名字还叫这个），但它
+            // 指向的是那个已经不存在的老文件。只看名字的话程序会
+            // 以为「已经配好了」而拒绝干活 —— 用户看到的就是
+            // 「点了修复却说已搞过，但还是连不上」。
+            if (wide == L"AirPlay Bridge inbound UDP") {
+                BSTR appPath = nullptr;
+                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
+                    appPath && *appPath) {
+                    const std::string want = exePath();
+                    const std::wstring cur(want.begin(), want.end());
+                    if (_wcsicmp(appPath, cur.c_str()) == 0) {
+                        found = true;
+                    }
+                }
+                if (appPath) SysFreeString(appPath);
+            }
+        }
+        if (name) SysFreeString(name);
+        return !found;   // 找到了就停
+    });
     return found;
 }
 
@@ -678,61 +705,30 @@ std::vector<std::wstring> findStaleFirewallRules() {
     std::vector<std::wstring> ours;      // 名字（前缀匹配的全部）
     std::vector<bool>        isCurrent;  // 与 ours 一一对应：是否指向当前 exe
 
-    INetFwPolicy2* policy = nullptr;
-    INetFwRules* rules = nullptr;
-    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const bool needUninit = SUCCEEDED(hrInit) || hrInit == RPC_E_CHANGED_MODE;
-
-    if (SUCCEEDED(CoCreateInstance(__uuidof(NetFwPolicy2), nullptr,
-                                   CLSCTX_INPROC_SERVER,
-                                   __uuidof(INetFwPolicy2),
-                                   reinterpret_cast<void**>(&policy))) && policy &&
-        SUCCEEDED(policy->get_Rules(&rules)) && rules) {
-        IEnumVARIANT* enumerator = nullptr;
-        if (SUCCEEDED(rules->get__NewEnum(reinterpret_cast<IUnknown**>(&enumerator))) &&
-            enumerator) {
-            VARIANT item;
-            VariantInit(&item);
-            while (enumerator->Next(1, &item, nullptr) == S_OK) {
-                if (item.vt == VT_DISPATCH && item.pdispVal) {
-                    INetFwRule* rule = nullptr;
-                    if (SUCCEEDED(item.pdispVal->QueryInterface(
-                            __uuidof(INetFwRule),
-                            reinterpret_cast<void**>(&rule))) &&
-                        rule) {
-                        BSTR name = nullptr;
-                        if (SUCCEEDED(rule->get_Name(&name)) && name) {
-                            const std::wstring wide(name);
-                            // 前缀匹配（含不带序号的那条本身）。
-                            // 别的 AirPlay 规则前缀对不上，天然被排除。
-                            if (wide.size() >= prefix.size() &&
-                                wide.compare(0, prefix.size(), prefix) == 0) {
-                                BSTR appPath = nullptr;
-                                bool sameAsCurrent = false;
-                                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
-                                    appPath) {
-                                    sameAsCurrent =
-                                        (_wcsicmp(appPath, curExe.c_str()) == 0);
-                                }
-                                if (appPath) SysFreeString(appPath);
-                                ours.push_back(wide);
-                                isCurrent.push_back(sameAsCurrent);
-                            }
-                        }
-                        if (name) SysFreeString(name);
-                        rule->Release();
-                    }
+    // 规则组是全局的、与 profile 无关，一趟枚举收齐。
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR name = nullptr;
+        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+            const std::wstring wide(name);
+            // 前缀匹配（含不带序号的那条本身）。
+            // 别的 AirPlay 规则前缀对不上，天然被排除。
+            if (wide.size() >= prefix.size() &&
+                wide.compare(0, prefix.size(), prefix) == 0) {
+                BSTR appPath = nullptr;
+                bool sameAsCurrent = false;
+                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
+                    appPath) {
+                    sameAsCurrent =
+                        (_wcsicmp(appPath, curExe.c_str()) == 0);
                 }
-                VariantClear(&item);
-                VariantInit(&item);
+                if (appPath) SysFreeString(appPath);
+                ours.push_back(wide);
+                isCurrent.push_back(sameAsCurrent);
             }
-            VariantClear(&item);
-            enumerator->Release();
         }
-    }
-    if (rules)  rules->Release();
-    if (policy) policy->Release();
-    if (needUninit) CoUninitialize();
+        if (name) SysFreeString(name);
+        return true;   // 收齐全部，不提前停
+    });
 
     // 每一组（指向当前 exe / 指向别处）各挑一条留下。
     // keep[i] = true 表示第 i 条要保留，其余收进待删列表。
@@ -1131,93 +1127,13 @@ std::atomic<bool> g_fixFirewallOffered{false};
 constexpr int kFirewallHintAfterFails = 3;
 
 // 如果本机已经有一条覆盖本程序的入站放行规则，就说明防火墙大概率
-// 不是原因，提示可以更轻。
+// 本程序当前这个 exe 是否已经放行（判据与启动检查完全一致）。
 //
-// 用 INetFwPolicy2 查 —— 组策略可能禁掉这个 API，实现取不到时静默
-// 返回 false（保守起点），不影响主流程。
+// 这里**不要**再写一套宽松的"名字里含 airplay 就算"的判据 ——
+// 那会和启动检查得出相反结论（启动说"尚未放行"，超时提示说"已有规则"），
+// 同一个问题两个答案，排查时反而误导。统一走 firewallRuleExists()。
 bool hasInboundRuleForThisApp() {
-    bool found = false;
-    HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const bool needUninit = SUCCEEDED(hrInit) || hrInit == RPC_E_CHANGED_MODE;
-
-    INetFwPolicy2* policy = nullptr;
-    if (SUCCEEDED(CoCreateInstance(__uuidof(NetFwPolicy2), nullptr,
-                                   CLSCTX_INPROC_SERVER,
-                                   __uuidof(INetFwPolicy2),
-                                   reinterpret_cast<void**>(&policy))) && policy) {
-        // 逐 profile 枚举（2 = 专用 / 4 = 公用 / 1 = 域）。
-        // 规则组是全局的，但 profile 枚举好写且够用。
-        for (long profile = 1; profile <= 4; profile <<= 1) {
-            VARIANT_BOOL enabled = VARIANT_FALSE;
-            if (FAILED(policy->get_FirewallEnabled(NET_FW_PROFILE_TYPE2(profile),
-                                                   &enabled)) ||
-                enabled == VARIANT_FALSE)
-                continue;
-
-            // get_Rules 只吃一个 out 参数（profile 无关，规则组是全局的）。
-            INetFwRules* rules = nullptr;
-            if (SUCCEEDED(policy->get_Rules(&rules)) && rules) {
-                IEnumVARIANT* enumerator = nullptr;
-                if (SUCCEEDED(rules->get__NewEnum(reinterpret_cast<IUnknown**>(&enumerator))) &&
-                    enumerator) {
-                    VARIANT item;
-                    VariantInit(&item);
-                    while (!found &&
-                           enumerator->Next(1, &item, nullptr) == S_OK) {
-                        if (item.vt == VT_DISPATCH && item.pdispVal) {
-                            INetFwRule* rule = nullptr;
-                            if (SUCCEEDED(item.pdispVal->QueryInterface(
-                                    __uuidof(INetFwRule),
-                                    reinterpret_cast<void**>(&rule))) &&
-                                rule) {
-                                // 只看入站 + 允许。方向不对（出站规则）、
-                                // 动作不对（阻止规则）都不是我们要找的。
-                                NET_FW_RULE_DIRECTION dir =
-                                    NET_FW_RULE_DIR_IN;
-                                NET_FW_ACTION act =
-                                    NET_FW_ACTION_BLOCK;
-                                VARIANT_BOOL ruleEnabled = VARIANT_FALSE;
-                                BSTR appName = nullptr;
-                                const bool inboundOk =
-                                    SUCCEEDED(rule->get_Direction(&dir)) &&
-                                    dir == NET_FW_RULE_DIR_IN;
-                                const bool allowOk =
-                                    SUCCEEDED(rule->get_Action(&act)) &&
-                                    act == NET_FW_ACTION_ALLOW;
-                                const bool onOk =
-                                    SUCCEEDED(rule->get_Enabled(&ruleEnabled)) &&
-                                    ruleEnabled == VARIANT_TRUE;
-                                const bool hasApp =
-                                    SUCCEEDED(rule->get_ApplicationName(&appName)) &&
-                                    appName && *appName;
-                                if (inboundOk && allowOk && onOk && hasApp) {
-                                    // BSTR 是宽字符，转成窄字符再比。
-                                    // 比较不区分大小写：系统存的是
-                                    // 用户当时选的路径，大小写未必一样。
-                                    std::wstring wide(appName);
-                                    if (wide.find(L"airplay_bridge") !=
-                                            std::wstring::npos ||
-                                        wide.find(L"AirPlay Bridge") !=
-                                            std::wstring::npos)
-                                        found = true;
-                                }
-                                if (appName) SysFreeString(appName);
-                                rule->Release();
-                            }
-                        }
-                        VariantClear(&item);
-                        VariantInit(&item);
-                    }
-                    VariantClear(&item);
-                    enumerator->Release();
-                }
-                rules->Release();
-            }
-        }
-        policy->Release();
-    }
-    if (needUninit) CoUninitialize();
-    return found;
+    return firewallRuleExists();
 }
 
 // 打那条「握手超时，去放行入站 UDP」的诊断提示。
