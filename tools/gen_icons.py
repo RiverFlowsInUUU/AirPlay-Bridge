@@ -10,8 +10,12 @@
     idle.ico        灰度版，用于"未连接"
     app.ico         程序图标（任务栏 / 资源管理器），用彩色版
 
-托盘图标走 Windows 的 SM_CXSMICON 尺寸（通常 16px），
-所以小尺寸的可读性最重要 —— 缩完做一次锐化，避免糊成一团。
+托盘图标走 Windows 的 SM_CXSMICON 尺寸（通常 16/20/24px），
+所以小尺寸的可读性最重要。
+
+小尺寸单独用一份「简化版」源图：源图上的网布纹理在 52 倍缩小时会被
+平均成一团脏色，先模糊掉纹理再提饱和对比，缩出来的橘色才干净利落。
+大尺寸继续用原图 —— 那里纹理是细节，不是噪点。
 """
 import os
 import sys
@@ -32,16 +36,38 @@ def to_gray(img):
     return g
 
 
+def flatten_for_small(src):
+    """小尺寸专用的简化版：抹掉高频纹理，把颜色提纯。
+
+    源图的网布纹理周期约 10px，缩到 16px 等于 52 倍降采样 ——
+    纹理会和底色平均成一片发闷的橘。先按图幅比例模糊掉，
+    再提饱和与对比，颜色才回到原本的鲜亮。
+    """
+    radius = max(2.0, max(src.size) / 60.0)
+    out = src.filter(ImageFilter.GaussianBlur(radius))
+    out = ImageEnhance.Color(out.convert("RGB")).enhance(1.35).convert("RGBA")
+    out = ImageEnhance.Contrast(out.convert("RGB")).enhance(1.15).convert("RGBA")
+    out.putalpha(src.getchannel("A"))   # 轮廓边缘用原图，保持锐利
+    return out
+
+
+# 托盘实际用到的尺寸（SM_CXSMICON，通常 16，高分屏 20 / 24）
+SMALL_MAX = 24
+
+
 def shrink_icon(src, size):
-    """缩小到目标尺寸。小图锐化一下，不然托盘里看不清。"""
+    """缩小到目标尺寸。用哪份源图由调用方决定。"""
     out = src.resize((size, size), Image.LANCZOS)
     if size <= 32:
+        # 小图抗锯齿后偏软，轻微锐化找回边缘
         out = out.filter(ImageFilter.UnsharpMask(radius=0.6, percent=80, threshold=2))
     return out
 
 
 def save_ico(img, path):
-    frames = [shrink_icon(img, s) for s in SIZES]
+    """img 是原图，小尺寸自动换用简化版。"""
+    flat = flatten_for_small(img)
+    frames = [shrink_icon(flat if s <= SMALL_MAX else img, s) for s in SIZES]
     frames[-1].save(path, format="ICO", sizes=[(s, s) for s in SIZES])
     print("  " + path)
 
