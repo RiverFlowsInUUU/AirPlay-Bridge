@@ -526,11 +526,9 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
 
 namespace {
 const char* latencyGrade(int ms) {
-    if (ms < 100) return "极低（可能爆音）";
-    if (ms < 130) return "低（推荐）";
-    if (ms < 180) return "中";
-    if (ms < 250) return "较高（稳）";
-    return "高（最稳）";
+    if (ms < 126) return "最低延迟";
+    if (ms < 141) return "推荐";
+    return "更稳（延迟略高）";
 }
 const char* volumeGrade(int pct) {
     if (pct == 0)  return "静音";
@@ -546,8 +544,8 @@ int showLatencyDialog(int currentMs) {
     spec.title = "AirPlay Bridge — 延迟调节";
     spec.hint = "拖到不爆音的最低位置就是最优解。越低延迟越小，"
                 "但接收端缓冲不足会爆音或卡顿。";
-    spec.minValue = 60;
-    spec.maxValue = 300;    // 实测 300ms 往上没有意义，收窄后滑块精度高得多
+    spec.minValue = 120;
+    spec.maxValue = 150;    // 与预设档位同一区间；滑块只做区间内的细调
     spec.tickFreq = 0;
     spec.unit = "ms";
     spec.grade = latencyGrade;
