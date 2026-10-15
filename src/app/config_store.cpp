@@ -132,6 +132,10 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.preCaptureDevice = jsonGetString(j, "preCaptureDevice");
     out.autoReconnect  = jsonGetBool(j, "autoReconnect", out.autoReconnect);
     out.hideAppleTV    = jsonGetBool(j, "hideAppleTV", out.hideAppleTV);
+    out.standbyEnabled = jsonGetBool(j, "standbyEnabled", out.standbyEnabled);
+    out.standbySecs    = static_cast<int>(jsonGetInt(j, "standbySecs", out.standbySecs));
+    // 至少留 1 秒，否则 0 会让主循环每次检查都判成静音 —— 连接刚建立就待机。
+    if (out.standbySecs < 1) out.standbySecs = 1;
 
     // ignoredDeviceIds: 简单的字符串数组解析
     size_t arr = j.find("\"ignoredDeviceIds\"");
@@ -172,6 +176,14 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
     f << "  \"preCaptureDevice\": \"" << escapeJson(cfg.preCaptureDevice) << "\",\n";
     f << "  \"autoReconnect\": "    << (cfg.autoReconnect ? "true" : "false") << ",\n";
     f << "  \"hideAppleTV\": "      << (cfg.hideAppleTV ? "true" : "false")   << ",\n";
+    // 两个待机开关同样用 QC 拼引号、char(10) 换行（见上面的说明）。
+    {
+        const char QC = '"';
+        f << "  " << QC << "standbyEnabled" << QC << ": "
+          << (cfg.standbyEnabled ? "true" : "false") << "," << char(10);
+        f << "  " << QC << "standbySecs" << QC << ": "
+          << cfg.standbySecs << "," << char(10);
+    }
     f << "  \"ignoredDeviceIds\": [";
     for (size_t i = 0; i < cfg.ignoredDeviceIds.size(); ++i) {
         if (i) f << ", ";

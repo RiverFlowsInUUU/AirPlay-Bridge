@@ -115,8 +115,14 @@ enum : int {
     MENU_QUALITY   = 110,   // 音质（子菜单）
     MENU_QUALITY_CUSTOM = 111,   // 自定义音质（滑块）
     MENU_OPEN_LOG  = 109,   // 打开日志文件夹
+    MENU_STANDBY   = 114,   // 静音自动待机开关
     MENU_QUIT      = 104,   // 退出
 };
+
+// 静音判定的峰值阈值（int16 满量程 32767）。
+// 300 约等于 -40dBFS：底噪、鼠标点击声这种级别的残留不算"有声音"，
+// 定得太低会让待机永远进不去（环回采集总有微小非零样本）。
+constexpr int kSilencePeak = 300;
 
 BOOL WINAPI onCtrl(DWORD sig) {
     if (sig == CTRL_C_EVENT || sig == CTRL_BREAK_EVENT || sig == CTRL_CLOSE_EVENT) {
@@ -315,13 +321,32 @@ struct Session {
     std::atomic<bool> wantReconnect{false};
     std::atomic<bool> running{false};
 
+    // ---- 静音自动待机 ----
+    // 静音满配置的秒数就把整个会话拆掉（接收端屏幕随之熄灭）。
+    // 拆掉后不能什么都不做 —— 那样就再也听不到声音、永远不会醒。
+    // 所以另开一个轻量采集 standbyEar 只测峰值，听到声音就唤醒。
+    // 待机期间不做任何周期性重连试探：那会让屏幕反复亮起，正是要避免的。
+    std::atomic<bool> standbyActive{false};   // 已进入待机
+    std::atomic<bool> standbyWake{false};     // 待机中听到声音了
+    // 最近一次"有声音"的 steady_clock 毫秒时间戳。
+    // 初值 0 是"从没响过"，主循环会立刻判成静音 —— 所以连接成功时
+    // 必须重置为当前时间（见 ev.launched）。
+    std::atomic<long long> lastLoudMs{0};
+    // 待机期间的轻量采集：只用来唤醒，不推数据。
+    std::unique_ptr<WasapiCapture> standbyEar;
+    std::thread                    standbyThread;
+
     // 事件回调（由外部设置）
     std::function<void(bool)>  onConnected;      // true = 已连接
     // 首次连上时调一次（之后置空）—— 用来弹一次性的欢迎提示
     std::function<void(const std::string&)> onFirstConnect;
     std::function<void(const std::string&)> onStatus;
 
-    bool start(std::string& err) {
+    // skipResolve = true 时由调用方跳过设备扫描（resolveDevice 约 2.5 秒），
+    // 复用已知的 host / deviceId / deviceName 直接建会话。
+    // 唤醒走的就是这条路：等扫描完开头几秒的声音已经丢了。
+    bool start(std::string& err, bool skipResolve = false) {
+        (void)skipResolve;   // 扫描发生在调用方（tryConnect），这里只记录意图
         // 先清干净：重复调用或上次失败残留时，producer 可能是个
         // joinable 的空线程，留着会在成员析构时 std::terminate。
         if (producer.joinable()) producer.join();
@@ -385,6 +410,14 @@ struct Session {
                 }
             }
             connected.store(ok);
+            // 刚连上：把"最近有声"的时间戳重置成现在。
+            // 不重置的话 lastLoudMs 还是 0，主循环一看"距今一亿秒没声音"
+            // 就立刻把刚建立的会话拆了 —— 表现为连上即待机。
+            if (ok) {
+                lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+            }
             if (onConnected) onConnected(ok);
             if (onStatus) onStatus(ok ? "已连接" : ("连接失败: " + e));
             // 首次连上时弹一次气泡。
@@ -445,6 +478,20 @@ struct Session {
 
         producer = std::thread([this, needResample]() {
             capture->run([this, needResample](const int16_t* d, size_t n) {
+                // 先测峰值，再决定要不要推数据。
+                // 推之前测是必须的 —— 送进 ring 的是立体声交错样本，
+                // 帧数 = 元素数 / 2，两个通道都要看，不然单边声道会漏。
+                int peak = 0;
+                const size_t samples = n * 2;
+                for (size_t i = 0; i < samples; ++i) {
+                    const int v = d[i] < 0 ? -static_cast<int>(d[i]) : d[i];
+                    if (v > peak) peak = v;
+                }
+                if (peak >= kSilencePeak) {
+                    lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::steady_clock::now().time_since_epoch())
+                                         .count());
+                }
                 if (!needResample) {
                     // 设备本来就是 44.1k，直接送
                     ring->tryPush(std::span<const int16_t>(d, n * 2));
@@ -506,6 +553,70 @@ struct Session {
         loop.reset();
         ring.reset();
         capture.reset();
+    }
+
+    // 进入待机：静音够久了，把整个会话拆掉让接收端屏幕熄灭。
+    //
+    // 三点必须注意：
+    //   1. 不设 userDisconnected —— 那是给"用户手动断开"用的，
+    //      设了就再也自动回不来了，而待机必须能自己醒。
+    //   2. 不设 wantReconnect —— 那是给掉线重连用的，设了退避循环
+    //      会插进来抢，表现为待机期间周期性重连，屏幕反复亮。
+    //      而这里由主循环的 standbyActive 分支单独负责唤醒。
+    //   3. teardown() 内部会把 wantReconnect 清掉，正是我们要的。
+    void enterStandby() {
+        if (standbyActive.load()) return;
+        logLine("静音超时，进入待机（断开接收端，屏幕应熄灭）");
+        teardown();
+        standbyActive.store(true);
+        standbyWake.store(false);
+        running.store(false);
+
+        // 另外开一路轻量采集当"耳朵"。
+        // 只测峰值，不推数据 —— 拆会话是为了让屏幕熄灭，
+        // 但必须保留"听得到声音"的能力，否则永远醒不来。
+        std::string err;
+        standbyEar = std::make_unique<WasapiCapture>(WasapiCaptureConfig{});
+        if (!standbyEar->open(&err)) {
+            // 打不开就没有耳朵，只能靠下次主循环的自动重连兜底 ——
+            // 那会周期性试探，屏幕会闪。至少让用户知道。
+            logLine("待机采集打开失败: " + err + "（唤醒将退化为周期性重连）");
+            standbyEar.reset();
+            standbyActive.store(false);   // 退回普通重连路径
+            wantReconnect.store(true);
+            return;
+        }
+        standbyThread = std::thread([this]() {
+            standbyEar->run([this](const int16_t* d, size_t n) {
+                int peak = 0;
+                const size_t samples = n * 2;
+                for (size_t i = 0; i < samples; ++i) {
+                    const int v = d[i] < 0 ? -static_cast<int>(d[i]) : d[i];
+                    if (v > peak) peak = v;
+                }
+                if (peak >= kSilencePeak) {
+                    standbyWake.store(true);
+                    lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::steady_clock::now().time_since_epoch())
+                                         .count());
+                }
+            });
+        });
+    }
+
+    // 退出待机：听到声音了，立刻把会话建回来。
+    //
+    // 复用已记住的 host / deviceId / deviceName，不重新扫描设备 ——
+    // resolveDevice 要扫约 2.5 秒，等它扫完开头几秒的声音就丢了。
+    void leaveStandby() {
+        if (!standbyActive.load()) return;
+        logLine("检测到声音，退出待机并重连");
+        if (standbyEar) standbyEar->stop();
+        if (standbyThread.joinable()) standbyThread.join();
+        standbyThread = std::thread();
+        standbyEar.reset();
+        standbyActive.store(false);
+        standbyWake.store(false);
     }
 };
 
@@ -815,9 +926,20 @@ int main(int argc, char** argv) {
     std::vector<AirPlayDevice> discovered;
 
     // 尝试连接（托盘模式：优先历史设备；没有历史则自动选 HomePod）
-    auto tryConnect = [&]() {
+    //
+    // skipResolve = true 时不扫描网段，直接用 sess 里已经记住的
+    // host / deviceId / deviceName 建会话。待机唤醒走这条路 ——
+    // 扫描要 2.5 秒，等它扫完开头的声音已经错过了。
+    auto tryConnect = [&](bool skipResolve = false) {
         if (sess.running.load()) return;
-        if (resolveDevice(sess, cfg, discovered)) {
+        if (skipResolve) {
+            if (sess.host.empty()) return;   // 没有可用目标，交给常规重连
+            std::string err;
+            if (!sess.start(err, true)) {
+                tray.setTooltip("AirPlay Bridge - 启动失败");
+                tray.notify("AirPlay Bridge", "启动失败: " + err);
+            }
+        } else if (resolveDevice(sess, cfg, discovered)) {
             std::string err;
             if (!sess.start(err)) {
                 tray.setTooltip("AirPlay Bridge - 启动失败");
@@ -1027,6 +1149,9 @@ int main(int argc, char** argv) {
                 menu.push_back(std::move(it));
             }
             menu.push_back({"", 0, true, true, false});
+            // 待机开关。标签里带上秒数，用户一眼知道当前阈值是多少。
+            menu.push_back({"静音 " + std::to_string(cfg.standbySecs) + " 秒后待机",
+                            MENU_STANDBY, true, false, cfg.standbyEnabled});
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
             menu.push_back({"", 0, true, true, false});
@@ -1220,6 +1345,19 @@ int main(int argc, char** argv) {
                         break;
                     }
 
+                    case MENU_STANDBY:
+                        cfg.standbyEnabled = !cfg.standbyEnabled;
+                        saveConfig(cfgPath, cfg);
+                        logLine(std::string("静音待机 ") +
+                                (cfg.standbyEnabled ? "已开启" : "已关闭"));
+                        // 关掉开关时如果正处在待机，要立刻醒回来 ——
+                        // 否则会卡在"用户以为没开待机，实际连接是断的"。
+                        if (!cfg.standbyEnabled && sess.standbyActive.load()) {
+                            sess.leaveStandby();
+                            tryConnect(true);
+                        }
+                        break;
+
                     case MENU_AUTOSTART:
                         setAutoStart(!isAutoStartEnabled());
                         break;
@@ -1256,6 +1394,26 @@ int main(int argc, char** argv) {
             // 扫描回来了：如果连上了就重置退避，否则加大退避
             if (sess.running.load()) {
                 retryBackoffSec = 5;
+            }
+        }
+
+        // ---- 静音自动待机 ----
+        // 必须在下面的重连逻辑之前处理：
+        // 待机是主动断开，不是掉线，不能被重连退避循环接管。
+        {
+            const long long nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        now.time_since_epoch()).count();
+            if (sess.standbyActive.load() && sess.standbyWake.load()) {
+                // 听到声音了：立刻醒回来。此时 running 是 false，
+                // 能过 tryConnect 的 guard。
+                sess.leaveStandby();
+                tryConnect(true);   // skipResolve：不等那 2.5 秒扫描
+                lastCheck = now;
+            } else if (cfg.standbyEnabled && sess.running.load() &&
+                       sess.connected.load() &&
+                       nowMs - sess.lastLoudMs.load() >=
+                           static_cast<long long>(cfg.standbySecs) * 1000) {
+                sess.enterStandby();
             }
         }
 
