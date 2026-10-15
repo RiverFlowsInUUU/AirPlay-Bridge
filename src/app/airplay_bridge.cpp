@@ -562,6 +562,18 @@ struct Session {
         loop->pump(*sender);
     }
 
+    // 非阻塞版本，给「菜单打开期间的心跳」用。
+    //
+    // 默认的 pump() 最多会阻塞 50ms（等 socket 或下一个 deadline）。
+    // 菜单的模态循环里按 15ms 的节奏调它，等于把这个循环永久占满 ——
+    // 菜单再也处理不了点击，TrackPopupMenu 不返回，主线程就卡死了。
+    // 流媒体正常时 deadline 很近、pump 秒回，所以平时看不出来；
+    // 一旦连接失败（sender 空转没有近 deadline），每次就阻塞满 50ms。
+    void pumpNonBlocking() {
+        if (!sender) return;
+        loop->pump(*sender, std::chrono::milliseconds(0));
+    }
+
     void stop() {
         running.store(false);
         // 切回原来的默认设备
@@ -958,7 +970,8 @@ int main(int argc, char** argv) {
     // TrackPopupMenu 自带模态消息循环，主循环在里面完全停摆 ——
     // 不在这儿接上这口气，点一下托盘声音就会断。
     tray.setMenuPump([&]() {
-        if (sess.running.load()) sess.pump();
+        // 必须用非阻塞版本 —— 见 Session::pumpNonBlocking 的注释
+        if (sess.running.load()) sess.pumpNonBlocking();
     });
 
     std::vector<AirPlayDevice> discovered;

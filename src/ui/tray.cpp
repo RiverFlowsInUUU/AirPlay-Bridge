@@ -24,7 +24,7 @@ constexpr UINT WM_TRAY_CALLBACK = WM_APP + 1;
 
 // 菜单打开期间的音频心跳定时器（见 TrayIcon::setMenuPump）
 constexpr UINT_PTR kMenuPumpTimer = 0x41;
-constexpr UINT     kMenuPumpMs    = 15;
+constexpr UINT     kMenuPumpMs    = 10;
 std::function<void()> g_menuPump;
 
 // Explorer 重启后会广播这条消息（消息号是动态的，必须运行时取）。
