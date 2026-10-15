@@ -205,6 +205,112 @@ std::string exePath() {
     return std::string(buf, n);
 }
 
+// ============================================================
+// 主线程看门狗
+// ============================================================
+// 问题现场在别人的机器上，抓不到。所以让程序自己报告"卡在哪"。
+//
+// 做法：主循环每轮把当前时间戳和"正在做的事"写进两个原子变量，
+// 看门狗线程每 500ms 检查一次 —— 超过 2 秒没更新就认为主线程卡住了，
+// 把最后阶段和已卡住秒数写进日志。
+//
+// 卡住期间按固定节奏持续记录（每 1 秒一条），所以日志里能直接看出
+// 总共卡了多久；恢复正常时再补一条收尾。
+std::atomic<long long> g_mainTick{0};   // 主循环每轮更新（steady_clock 毫秒）
+
+// 主循环"当前正在做的事"。这是可能耗时的操作清单 —— 每个值都对应
+// 一处已知会阻塞主线程的调用（扫描网段、开采集设备、握手、弹菜单……）。
+enum MainPhase : int {
+    PHASE_IDLE = 0,        // 空闲（每轮循环开头重置成这个）
+    PHASE_SCAN,            // 扫描设备
+    PHASE_CAPTURE_OPEN,    // 打开音频采集
+    PHASE_CONNECT,         // 建立连接
+    PHASE_MENU_OPEN,       // 菜单打开中
+    PHASE_NET_PUMP,        // 驱动网络
+    PHASE_COUNT,
+};
+
+std::atomic<int> g_phase{PHASE_IDLE};
+
+// 枚举 -> 中文。用数组映射，不要用反斜杠转义拼接。
+const char* const kPhaseNames[PHASE_COUNT] = {
+    "空闲",
+    "扫描设备",
+    "打开音频采集",
+    "建立连接",
+    "菜单打开中",
+    "驱动网络",
+};
+
+inline long long steadyNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// 打点：当前正在做什么。主循环每轮开头重置为"空闲"。
+inline void setPhase(MainPhase p) {
+    g_phase.store(static_cast<int>(p));
+}
+
+// 毫秒 -> 一位小数的秒文本（3400 -> "3.4"）。看门狗日志用。
+std::string msToSecsText(long long ms) {
+    const long long whole = ms / 1000;
+    const long long tenth = (ms % 1000) / 100;
+    return std::to_string(whole) + "." + std::to_string(tenth);
+}
+
+// 看门狗线程的主体。
+//
+// 持续记录的逻辑：
+//   - 首次发现超时（>2 秒没心跳）立刻记一条，之后每 1 秒再记一条，
+//     每条都带上"已经卡了多少秒"，所以最后一条就是卡住的总时长。
+//   - 主线程恢复时补一条收尾，写明总共卡了多久。
+//   - 没卡住时什么都不写 —— 空闲时不刷屏。
+void watchdogLoop() {
+    // 800ms 就报。定 2000 会漏掉最常见的卡顿 —— 同步扫网段大约 1~2.5 秒，
+    // 刚好卡在 2 秒阈值下面，等于白装。用户点托盘时的「卡一下」就是它。
+    constexpr long long kStallMs  = 800;
+    constexpr long long kReportMs = 1000;   // 卡住期间每 1 秒记一条
+
+    bool stalled = false;
+    long long lastReported = 0;
+    long long stalledSince = 0;
+
+    while (!g_stop.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        if (g_stop.load()) break;
+
+        const long long now = steadyNowMs();
+        const long long tick = g_mainTick.load();
+        // 主线程还没跑起来（启动阶段）时不做判断
+        if (tick == 0) continue;
+
+        const long long lag = now - tick;
+        if (lag > kStallMs) {
+            if (!stalled) {
+                stalled = true;
+                stalledSince = tick;
+                lastReported = 0;
+            }
+            // 首次立刻记；之后每 1 秒一条，不刷屏
+            if (now - lastReported >= kReportMs || lastReported == 0) {
+                lastReported = now;
+                const int p = g_phase.load();
+                const char* name = (p >= 0 && p < PHASE_COUNT) ? kPhaseNames[p] : "未知";
+                logLine("主线程无响应 " + msToSecsText(now - stalledSince) +
+                        " 秒，最后阶段: " + name);
+            }
+        } else if (stalled) {
+            // 恢复正常：收尾一条，写明总共卡了多久
+            stalled = false;
+            const int p = g_phase.load();
+            const char* name = (p >= 0 && p < PHASE_COUNT) ? kPhaseNames[p] : "未知";
+            logLine("主线程恢复（共卡住 " + msToSecsText(now - stalledSince) +
+                    " 秒，最后阶段: " + name + "）");
+        }
+    }
+}
+
 bool setAutoStart(bool enable) {
     HKEY key = nullptr;
     const char* runKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -405,6 +511,7 @@ struct Session {
         // 这样即使某个应用（比如浏览器）被单独指到了别的声卡，
         // 它的声音也能抓到，用户不用去音量合成器里改输出。
         capture = std::make_unique<WasapiCapture>(WasapiCaptureConfig{});
+        setPhase(PHASE_CAPTURE_OPEN);   // 打点：开采集设备可能耗时
         if (!capture->open(&err)) {
             capture.reset();   // 失败路径不留半成品
             return false;
@@ -556,6 +663,7 @@ struct Session {
             });
         });
 
+        setPhase(PHASE_CONNECT);   // 打点：握手全在这一步里跑
         sender->start(host, 7000, "AirPlay Bridge");
 
         // 注意：sender->start() 是异步的 —— 它发完握手请求就返回，
@@ -575,6 +683,7 @@ struct Session {
         // 流媒体正常时 sender 的 deadline 约 8ms，pump 很快返回，改不改都一样；
         // 但连接不顺畅时 sender 空转、没有近 deadline，就会撑满 50ms，
         // 一轮变成 70ms —— 点托盘会觉得钝。
+        setPhase(PHASE_NET_PUMP);
         loop->pump(*sender, std::chrono::milliseconds(10));
     }
 
@@ -587,6 +696,7 @@ struct Session {
     // 一旦连接失败（sender 空转没有近 deadline），每次就阻塞满 50ms。
     void pumpNonBlocking() {
         if (!sender) return;
+        setPhase(PHASE_NET_PUMP);
         loop->pump(*sender, std::chrono::milliseconds(0));
     }
 
@@ -683,10 +793,38 @@ struct Session {
     }
 };
 
+// 设备缓存的最长复用年龄。
+//
+// discoverAirPlayDevices(2500) 是同步的 —— 它在主线程上把网段扫满 2.5 秒。
+// 每次重连都重扫一遍，托盘就僵 2.5 秒，正是"连接过程中菜单卡死"的来源。
+// 局域网的设备列表不会几秒钟就变，30 秒内直接复用完全够用。
+constexpr long long kDeviceCacheMaxAgeMs = 30000;
+
 // 扫描 + 选中一个设备（托盘模式：自动选 HomePod；多个则用弹出菜单）
+//
+// lastScanMs = 上次真扫的时间戳（steady_clock 毫秒，0 = 从没扫过）。
+// forceScan = true 时无视缓存强制重扫（用户点"重新扫描"走这条路）。
+//
+// 缓存判定分三步：
+//   1. 缓存里一个设备都没有 -> 必须真扫。
+//      不能把"空结果"当有效缓存反复用：那会让扫描失败（设备还没通电、
+//      网卡没起来）永远卡在空列表里，之后再也不会重扫。
+//   2. forceScan -> 真扫（用户明确要求刷新）。
+//   3. 缓存非空、且年龄 < 30 秒 -> 直接复用，返回 true，不碰网络。
+//   否则（过期）-> 真扫。
 bool resolveDevice(Session& sess, const BridgeConfig& cfg,
-                   std::vector<AirPlayDevice>& discovered) {
-    discovered = filterDevices(discoverAirPlayDevices(2500), cfg);
+                   std::vector<AirPlayDevice>& discovered,
+                   long long& lastScanMs, bool forceScan = false) {
+    const long long nowMs = steadyNowMs();
+    const bool cacheFresh = !discovered.empty() && lastScanMs > 0 &&
+                            (nowMs - lastScanMs) < kDeviceCacheMaxAgeMs;
+    if (cacheFresh && !forceScan) {
+        // 复用缓存：跳过那 2.5 秒的同步扫描
+    } else {
+        setPhase(PHASE_SCAN);   // 打点：这里是唯一会同步扫网段的地方
+        discovered = filterDevices(discoverAirPlayDevices(2500), cfg);
+        lastScanMs = steadyNowMs();
+    }
     if (discovered.empty()) return false;
 
     // 优先上次的设备
@@ -986,18 +1124,27 @@ int main(int argc, char** argv) {
     // TrackPopupMenu 自带模态消息循环，主循环在里面完全停摆 ——
     // 不在这儿接上这口气，点一下托盘声音就会断。
     tray.setMenuPump([&]() {
+        // 这个回调本身就跑在主线程上，所以顺手刷新主线程心跳 ——
+        // 菜单开着等用户点是正常的，不该被看门狗当成卡死；
+        // 反过来，菜单真卡住时这里就不跳了，看门狗照抓不误。
+        g_mainTick.store(steadyNowMs());
         // 必须用非阻塞版本 —— 见 Session::pumpNonBlocking 的注释
         if (sess.running.load()) sess.pumpNonBlocking();
     });
 
     std::vector<AirPlayDevice> discovered;
+    // discovered 的最后一次真扫时间（steady_clock 毫秒；0 = 从没扫过）。
+    // 让重复重连不再每 5 秒同步重扫 2.5 秒 —— 见 resolveDevice。
+    long long lastScanMs = 0;
 
     // 尝试连接（托盘模式：优先历史设备；没有历史则自动选 HomePod）
     //
     // skipResolve = true 时不扫描网段，直接用 sess 里已经记住的
     // host / deviceId / deviceName 建会话。待机唤醒走这条路 ——
     // 扫描要 2.5 秒，等它扫完开头的声音已经错过了。
-    auto tryConnect = [&](bool skipResolve = false) {
+    //
+    // forceScan = true 时无视设备缓存强制重扫（用户点"重新扫描"用）。
+    auto tryConnect = [&](bool skipResolve = false, bool forceScan = false) {
         if (sess.running.load()) return;
         if (skipResolve) {
             if (sess.host.empty()) return;   // 没有可用目标，交给常规重连
@@ -1006,7 +1153,7 @@ int main(int argc, char** argv) {
                 tray.setTooltip("AirPlay Bridge - 启动失败");
                 tray.notify("AirPlay Bridge", "启动失败: " + err);
             }
-        } else if (resolveDevice(sess, cfg, discovered)) {
+        } else if (resolveDevice(sess, cfg, discovered, lastScanMs, forceScan)) {
             std::string err;
             if (!sess.start(err)) {
                 tray.setTooltip("AirPlay Bridge - 启动失败");
@@ -1048,6 +1195,12 @@ int main(int argc, char** argv) {
         }
     }
 
+    // 看门狗线程：只托盘模式拉起来。
+    // 它盯着 g_mainTick —— 主线程每轮循环都会刷新它，哪天刷不动了
+    // （卡在扫描 / 开采集 / 握手里），日志里就会留下"卡了多久、卡在哪"。
+    g_mainTick.store(steadyNowMs());
+    std::thread watchdog(watchdogLoop);
+
     // 首次扫描
     if (wantLast || !cfg.lastHost.empty()) {
         tryConnect();
@@ -1067,6 +1220,11 @@ int main(int argc, char** argv) {
     std::vector<AirPlayDevice> scanResult;
 
     while (!g_stop.load()) {
+        // 每轮开头：先记心跳，再把阶段重置成"空闲"。
+        // 顺序不能反 —— 先记时间戳，看门狗才不会把"上一轮的阶段"算成这一轮。
+        g_mainTick.store(steadyNowMs());
+        setPhase(PHASE_IDLE);
+
         tray.pump([&](TrayEvent e) {
             // 左键和右键都弹菜单。
             // 只认右键的话，习惯左键的人会以为程序坏了 ——
@@ -1248,6 +1406,9 @@ int main(int argc, char** argv) {
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"退出", MENU_QUIT});
 
+            // 打点：TrackPopupMenu 跑的是模态消息循环，主循环在里面停摆。
+            // 这一步卡住的话用户看到的就是"点托盘没反应"。
+            setPhase(PHASE_MENU_OPEN);
             tray.showMenu(menu, [&](int id) {
                 // 设备列表里点了一项：直接连它。
                 // 这些 id 在子菜单里（kDeviceMenuBase + 序号）。
@@ -1411,7 +1572,11 @@ int main(int argc, char** argv) {
                         // 先给个反馈再扫。扫描要一两秒，期间主循环是卡住的，
                         // 没有这句话用户会以为点击没生效。
                         tray.notify("AirPlay Bridge", "正在扫描局域网设备…");
+                        // 用户点重新扫描就是要刷新 —— 必须真扫，不能被缓存挡住。
+                        setPhase(PHASE_SCAN);
                         discovered = filterDevices(discoverAirPlayDevices(2000), cfg);
+                        // 刷新缓存年龄：这是最新的一份设备列表
+                        lastScanMs = steadyNowMs();
                         {
                             // 型号、协议版本这类诊断信息写日志，不进菜单
                             std::string detail;
@@ -1563,6 +1728,10 @@ int main(int argc, char** argv) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
+
+    // 停看门狗：先置 g_stop（上面循环条件已置），再 join。
+    // 看门狗内部每 500ms 检查一次 g_stop，最坏等 500ms 就退出来。
+    if (watchdog.joinable()) watchdog.join();
 
     sess.teardown();
     tray.destroy();
