@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.32] - 2026-10-15
+
+### Fixed
+
+- 修复「修复连接问题」在某些系统上执行失败的问题。
+
 ## [1.2.31] - 2026-10-15
 
 ### Fixed

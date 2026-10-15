@@ -232,8 +232,40 @@ const char* const kFirewallRuleName = "AirPlay Bridge inbound UDP";
 // 用 %SystemRoot% 拼绝对路径，不写反斜杠转义（本项目工具链会写坏它）。
 std::string netshExePath() {
     const char* root = std::getenv("SystemRoot");
-    std::string base = (root && *root) ? std::string(root) : std::string("C:");
+    // 兜底值用两个字符拼：反斜杠不能写成字面转义 ——
+    // 写成 "C:" 时，反斜杠会把结尾的引号转义掉，字符串变成 C: + 一个引号，
+    // 于是路径成了 C:"/System32/netsh.exe（cmd 报「不是内部或外部命令」）。
+    std::string base = (root && *root) ? std::string(root)
+                      : std::string("C") + std::string(1, static_cast<char>(92));
     return base + "/System32/netsh.exe";
+}
+
+// 跑一条命令行，返回退出码。
+//
+// 不用 std::system()：它会把命令交给 cmd /c，而 cmd 对「以引号开头的命令」
+// 有一套自己的引号剥离规则，会把 "C:/.../netsh.exe" advfirewall ... 里的
+// program="带 空格 的路径" 咬坏 —— 实测报「不是内部或外部命令」。
+// 直接把命令行交给 CreateProcessW，不做任何 shell 解析，最稳。
+int runCommandLine(const std::string& cmd) {
+    if (cmd.empty()) return -1;
+    // CreateProcessW 需要一个可写的缓冲区
+    std::wstring w(cmd.begin(), cmd.end());
+    std::vector<wchar_t> buf(w.begin(), w.end());
+    buf.push_back(0);
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    const BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr,
+                                   FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
+                                   &si, &pi);
+    if (!ok) return -1;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return static_cast<int>(code);
 }
 
 // 日志 / 提示里的程序路径要动态取 —— 引号用 char 常量拼，
@@ -263,7 +295,7 @@ bool deleteFirewallRuleByName() {
     std::string cmd = QC + netshExePath() + QC;
     cmd += " advfirewall firewall delete rule name=";
     cmd += QC; cmd += kFirewallRuleName; cmd += QC;
-    const int rc = std::system(cmd.c_str());
+    const int rc = runCommandLine(cmd);
     // netsh 在"规则不存在"时也返回 0，所以这里只看负值（进程起不来）。
     return rc >= 0;
 }
@@ -340,7 +372,7 @@ int runFixFirewall() {
     //   「不是内部或外部命令」，退出码 1）。
     const std::string cmd = netshAddRuleArgs(true);
     logLine("--fix-firewall: 执行 " + cmd);
-    const int rc = std::system(cmd.c_str());
+    const int rc = runCommandLine(cmd);
 
     int exitCode = 0;
     std::string title;
