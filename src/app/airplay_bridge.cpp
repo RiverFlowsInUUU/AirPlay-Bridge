@@ -101,18 +101,26 @@ constexpr int kDeviceMenuBase  = 1400;   // 设备列表菜单 id = base + index
 constexpr int kLatencyMenuBase = 1100;   // 档位菜单 id = base + index
 constexpr int kStandbyMenuBase = 1500;   // 静音待机档位菜单 id = base + index
 
-// 静音自动待机的档位（秒）。0 是特例：不等秒数，只要出现一个静音缓冲
-// 就待机（见 Session::silentNow）—— 适合"放了就灭屏"的场景。
-struct StandbyLevel { int secs; const char* label; };
+// 静音自动待机的固定档位（内部单位是十分之一秒）。
+// 更短的档位（0/1/3 秒）实测体验很差 —— 一停就断，换歌和安静段落都会误触，
+// 所以整档砍掉，只保留 5/6/8/10 秒这四档；中间值走「自定义（滑块）」。
+struct StandbyLevel { int tenths; const char* label; };
 const StandbyLevel kStandbyLevels[] = {
-    {  0, "0 秒" },
-    {  1, "1 秒（推荐）" },
-    {  3, "3 秒" },
-    {  5, "5 秒" },
-    {  8, "8 秒" },
-    { 10, "10 秒" },
+    {  50, "5 秒" },
+    {  60, "6 秒" },
+    {  80, "8 秒" },
+    { 100, "10 秒" },
 };
 constexpr int kStandbyLevelCount = sizeof(kStandbyLevels) / sizeof(kStandbyLevels[0]);
+
+// 十分之一秒 -> 显示文本（50 -> "5 秒"，75 -> "7.5 秒"）。
+// 整秒不带小数点，避免菜单里出现"5.0 秒"这种多余的尾巴。
+std::string tenthsToSecsText(int tenths) {
+    const int whole = tenths / 10;
+    const int frac  = tenths % 10;
+    if (frac == 0) return std::to_string(whole) + " 秒";
+    return std::to_string(whole) + "." + std::to_string(frac) + " 秒";
+}
 
 // 托盘菜单 ID
 enum : int {
@@ -130,6 +138,7 @@ enum : int {
     MENU_QUALITY_CUSTOM = 111,   // 自定义音质（滑块）
     MENU_OPEN_LOG  = 109,   // 打开日志文件夹
     MENU_STANDBY   = 114,   // 静音自动待机（子菜单）
+    MENU_STANDBY_CUSTOM = 115,   // 自定义静音待机（无极滑块）
     MENU_QUIT      = 104,   // 退出
 };
 
@@ -346,12 +355,6 @@ struct Session {
     // 初值 0 是"从没响过"，主循环会立刻判成静音 —— 所以连接成功时
     // 必须重置为当前时间（见 ev.launched）。
     std::atomic<long long> lastLoudMs{0};
-    // 最近一次采集回调看到的音量是不是"静音缓冲"。
-    // 只给 0 秒档位用：那一档的语义是"不等秒数，出现一个静音缓冲就待机"，
-    // 光靠 lastLoudMs 算差值做不到 —— now - lastLoudMs 恒 >= 0，
-    // 直接把 0 代进秒数判据会刚连上就立刻待机。
-    // 初值必须是 false：刚连上还没收到任何回调时，不能算作"已经静音"。
-    std::atomic<bool> silentNow{false};
     // 待机期间的轻量采集：只用来唤醒，不推数据。
     std::unique_ptr<WasapiCapture> standbyEar;
     std::thread                    standbyThread;
@@ -454,10 +457,6 @@ struct Session {
                 lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::steady_clock::now().time_since_epoch())
                                      .count());
-                // silentNow 也要一起清掉：0 秒档位直接看它。
-                // 不清的话，上一轮会话最后一个静音缓冲留下的 true 会让
-                // 刚连上的这一秒就待机 —— 正是要避免的"连上即待机"。
-                silentNow.store(false);
             }
             if (onConnected) onConnected(ok);
             if (onStatus) onStatus(ok ? "已连接" : ("连接失败: " + e));
@@ -532,10 +531,6 @@ struct Session {
                     lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
                                          .count());
-                    silentNow.store(false);
-                } else {
-                    // 这一块缓冲是静音的。0 秒档位靠这个标志立刻待机。
-                    silentNow.store(true);
                 }
                 if (!needResample) {
                     // 设备本来就是 44.1k，直接送
@@ -832,19 +827,8 @@ int main(int argc, char** argv) {
     }
     g_deviceId = cfg.deviceId;
 
-    // 老配置里的待机秒数可能不在档位上（比如 20），那样菜单里一个勾都不会显示。
-    // 就近吸附到最近的档位。
-    if (cfg.standbyEnabled) {
-        int best = kStandbyLevels[0].secs;
-        int bestD = cfg.standbySecs > best ? cfg.standbySecs - best : best - cfg.standbySecs;
-        for (int i = 1; i < kStandbyLevelCount; ++i) {
-            const int d = cfg.standbySecs > kStandbyLevels[i].secs
-                              ? cfg.standbySecs - kStandbyLevels[i].secs
-                              : kStandbyLevels[i].secs - cfg.standbySecs;
-            if (d < bestD) { bestD = d; best = kStandbyLevels[i].secs; }
-        }
-        cfg.standbySecs = best;
-    }
+    // 值不在档位上时不再吸附到最近档位 —— 滑块调出来的 7.5 秒会被吸成 8 秒。
+    // 菜单里这种情况由「自定义（滑块）」那一项承接勾选（见菜单构建处）。
     if (volume < 0) volume = cfg.volume;
 
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
@@ -1209,15 +1193,22 @@ int main(int argc, char** argv) {
                 TrayMenuItem it;
                 it.id = MENU_STANDBY;   // 父项本身不可点，但保留 id 便于识别
                 it.label = cfg.standbyEnabled
-                               ? ("静音待机  " + std::to_string(cfg.standbySecs) + " 秒")
+                               ? ("静音待机  " + tenthsToSecsText(cfg.standbyTenths))
                                : std::string("静音待机  关闭");
+                bool standbyCustom = true;
                 for (int i = 0; i < kStandbyLevelCount; ++i) {
+                    const bool on = cfg.standbyEnabled &&
+                                    cfg.standbyTenths == kStandbyLevels[i].tenths;
+                    if (on) standbyCustom = false;
                     it.children.push_back({kStandbyLevels[i].label,
                                            kStandbyMenuBase + i,
-                                           true, false,
-                                           cfg.standbyEnabled &&
-                                               cfg.standbySecs == kStandbyLevels[i].secs});
+                                           true, false, on});
                 }
+                it.children.push_back({"", 0, true, true, false});
+                // 值不等于任何档位时勾打在「自定义（滑块）」上 —— 光比档位
+                // 会让滑块调出来的 7.5 秒一个勾都没有。
+                it.children.push_back({"自定义（滑块）...", MENU_STANDBY_CUSTOM,
+                                       true, false, standbyCustom});
                 it.children.push_back({"", 0, true, true, false});
                 it.children.push_back({"关闭（不自动待机）", MENU_STANDBY + 1000,
                                        true, false, !cfg.standbyEnabled});
@@ -1333,13 +1324,23 @@ int main(int argc, char** argv) {
                     return;
                 }
 
-                // 静音待机档位
+                // 静音待机固定档位
                 if (id >= kStandbyMenuBase && id < kStandbyMenuBase + kStandbyLevelCount) {
                     cfg.standbyEnabled = true;
-                    cfg.standbySecs = kStandbyLevels[id - kStandbyMenuBase].secs;
+                    cfg.standbyTenths = kStandbyLevels[id - kStandbyMenuBase].tenths;
                     saveConfig(cfgPath, cfg);
-                    logLine("静音待机改为 " + std::to_string(cfg.standbySecs) + " 秒");
+                    logLine("静音待机改为 " + tenthsToSecsText(cfg.standbyTenths));
                     // 阈值是主循环每次检查现读的，改了立刻生效，不用重连
+                    return;
+                }
+                if (id == MENU_STANDBY_CUSTOM) {   // "自定义（滑块）..."
+                    const int picked = showStandbyDialog(cfg.standbyTenths);
+                    if (picked > 0) {
+                        cfg.standbyTenths = picked;
+                        cfg.standbyEnabled = true;
+                        saveConfig(cfgPath, cfg);
+                        logLine("静音待机改为 " + tenthsToSecsText(picked));
+                    }
                     return;
                 }
                 if (id == MENU_STANDBY + 1000) {   // "关闭（不自动待机）"
@@ -1491,17 +1492,14 @@ int main(int argc, char** argv) {
                 tryConnect(true);   // skipResolve：不等那 2.5 秒扫描
                 lastCheck = now;
             } else {
-                // 0 秒是特例：秒数判据对 0 没意义（now - lastLoudMs 恒 >= 0，
-                // 代进去就是"刚连上立刻待机"），改成看 silentNow ——
-                // 只要采集侧报告过一块静音缓冲就待机。
-                // 刚连上、还没收到任何回调时 silentNow 是 false，
-                // 所以不会秒待机（见 ev.launched 里的重置）。
+                // 静音够久了就待机。lastLoudMs 是"最近一次听到声音"的时间戳，
+                // 连接成功时会被重置成当前时间（见 ev.launched），
+                // 所以刚连上不会秒待机。
+                // 十分之一秒 -> 毫秒是 ×100。
                 const bool wantStandby =
                     cfg.standbyEnabled && sess.running.load() && sess.connected.load() &&
-                    (cfg.standbySecs <= 0
-                         ? sess.silentNow.load()
-                         : nowMs - sess.lastLoudMs.load() >=
-                               static_cast<long long>(cfg.standbySecs) * 1000);
+                    nowMs - sess.lastLoudMs.load() >=
+                        static_cast<long long>(cfg.standbyTenths) * 100;
                 if (wantStandby) sess.enterStandby();
             }
         }

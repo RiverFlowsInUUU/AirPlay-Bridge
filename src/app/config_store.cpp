@@ -133,10 +133,17 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.autoReconnect  = jsonGetBool(j, "autoReconnect", out.autoReconnect);
     out.hideAppleTV    = jsonGetBool(j, "hideAppleTV", out.hideAppleTV);
     out.standbyEnabled = jsonGetBool(j, "standbyEnabled", out.standbyEnabled);
-    out.standbySecs    = static_cast<int>(jsonGetInt(j, "standbySecs", out.standbySecs));
-    // 0 是合法档位（出现一个静音缓冲就待机，由 Session::silentNow 实现），
-    // 所以下限是 0 而不是 1；负数才是脏数据。
-    if (out.standbySecs < 0) out.standbySecs = 0;
+    // 新的十分之一秒字段优先；没有就按老的整秒字段迁移。
+    if (j.find("\"standbyTenths\"") != std::string::npos) {
+        out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbyTenths", out.standbyTenths));
+    } else if (j.find("\"standbySecs\"") != std::string::npos) {
+        // 老配置是整秒（还有已经被砍掉的 0/1/3 秒档位）。乘 10 换算成十分之一秒，
+        // 再钳到 50-100：老值 0/1/3 会抬到下限 5.0 秒，20 秒这类会压到上限 10.0 秒。
+        out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbySecs", 5)) * 10;
+    }
+    // 50-100 之外的都是脏数据或老配置的越界值，钳回区间。
+    if (out.standbyTenths < 50)  out.standbyTenths = 50;
+    if (out.standbyTenths > 100) out.standbyTenths = 100;
 
     // ignoredDeviceIds: 简单的字符串数组解析
     size_t arr = j.find("\"ignoredDeviceIds\"");
@@ -182,8 +189,8 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
         const char QC = '"';
         f << "  " << QC << "standbyEnabled" << QC << ": "
           << (cfg.standbyEnabled ? "true" : "false") << "," << char(10);
-        f << "  " << QC << "standbySecs" << QC << ": "
-          << cfg.standbySecs << "," << char(10);
+        f << "  " << QC << "standbyTenths" << QC << ": "
+          << cfg.standbyTenths << "," << char(10);
     }
     f << "  \"ignoredDeviceIds\": [";
     for (size_t i = 0; i < cfg.ignoredDeviceIds.size(); ++i) {

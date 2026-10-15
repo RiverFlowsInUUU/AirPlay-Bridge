@@ -156,8 +156,44 @@ int valueFromX(const DialogState& st, int x) {
     return st.spec->minValue + range * t / 1000;
 }
 
+// 把内部值按 spec 的 displayDivisor / displayDecimals 格式化成显示文本。
+//
+// 手写整数除法而不是 snprintf("%.*f")：%.*f 的实参会走 double，
+// 在 /utf-8 下还得再考虑格式化行为差异；整数除 + 取余没有这些麻烦。
+std::wstring formatValue(int value, int divisor, int decimals) {
+    if (divisor <= 0) divisor = 1;
+    if (decimals < 0) decimals = 0;
+
+    // 内部值是整数，负数先取绝对值算，最后补符号 ——
+    // 取余对负数会给出负的余数，直接拼会变成 "7.-5"。
+    const bool neg = value < 0;
+    const long long absV = neg ? -static_cast<long long>(value) : value;
+    const long long d = divisor;
+
+    std::string out;
+    if (neg) out += '-';
+    out += std::to_string(absV / d);          // 整数部分
+    if (decimals > 0) {
+        out += '.';
+        long long frac = absV % d;            // 小数部分（以 divisor 为分母）
+        // 逐位取：按目标小数位把分母缩到 10^decimals，
+        // 多出来的低位四舍五入进本位。
+        long long scale = 1;
+        for (int i = 0; i < decimals; ++i) scale *= 10;
+        // frac / d 是 [0,1)，乘 scale 变成目标小数位的定点数
+        long long scaled = (frac * scale * 2 + d) / (d * 2);   // 四舍五入
+        for (int i = decimals - 1; i >= 0; --i) {
+            long long p = 1;
+            for (int k = 0; k < i; ++k) p *= 10;
+            out += static_cast<char>('0' + static_cast<int>((scaled / p) % 10));
+        }
+    }
+    return utf8ToWide(out);
+}
+
 std::wstring valueText(const DialogState& st) {
-    std::wstring v = std::to_wstring(st.value);
+    std::wstring v = formatValue(st.value, st.spec->displayDivisor,
+                                 st.spec->displayDecimals);
     const std::string unit = st.spec->unit;
     if (!unit.empty()) v += L" " + utf8ToWide(unit);
     return v;
@@ -221,13 +257,15 @@ void paint(HWND hwnd, DialogState& st) {
     DeleteObject(pen);
     DeleteObject(wb);
 
-    // 两端刻度值
+    // 两端刻度值（同样按显示单位换算：待机那项就是 5.0 / 10.0）
     RECT rmin{pad, s(dpi, 166), st.w / 2, s(dpi, 186)};
-    drawTextIn(mem, std::to_wstring(st.spec->minValue), rmin, st.fSmall,
-               th.muted, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    drawTextIn(mem, formatValue(st.spec->minValue, st.spec->displayDivisor,
+                                st.spec->displayDecimals),
+               rmin, st.fSmall, th.muted, DT_LEFT | DT_TOP | DT_SINGLELINE);
     RECT rmax{st.w / 2, s(dpi, 166), st.w - pad, s(dpi, 186)};
-    drawTextIn(mem, std::to_wstring(st.spec->maxValue), rmax, st.fSmall,
-               th.muted, DT_RIGHT | DT_TOP | DT_SINGLELINE);
+    drawTextIn(mem, formatValue(st.spec->maxValue, st.spec->displayDivisor,
+                                st.spec->displayDecimals),
+               rmax, st.fSmall, th.muted, DT_RIGHT | DT_TOP | DT_SINGLELINE);
 
     // 说明
     RECT rh{pad, s(dpi, 198), st.w - pad, s(dpi, 238)};
@@ -287,6 +325,12 @@ bool inRect(const RECT& r, int x, int y) {
 }
 
 void applyValue(DialogState& st, int v) {
+    const int step = st.spec->step > 0 ? st.spec->step : 1;
+    // 吸附到步长网格（相对最小值，避免 minValue 不是步长整数倍时整体偏移）
+    if (step > 1) {
+        const int rel = v - st.spec->minValue;
+        v = st.spec->minValue + ((rel + step / 2) / step) * step;
+    }
     if (v < st.spec->minValue) v = st.spec->minValue;
     if (v > st.spec->maxValue) v = st.spec->maxValue;
     st.value = v;
@@ -426,7 +470,8 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (!st) return 0;
             {
                 const int range = st->spec->maxValue - st->spec->minValue;
-                const int step = range > 100 ? range / 100 : 1;
+                const int step = st->spec->step > 0 ? st->spec->step
+                                                    : (range > 100 ? range / 100 : 1);
                 if (wp == VK_LEFT || wp == VK_DOWN) {
                     applyValue(*st, st->value - step);
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -537,6 +582,13 @@ const char* volumeGrade(int pct) {
     if (pct < 85)  return "较响";
     return "很响";
 }
+// 待机时长评价，参数是十分之一秒（50 = 5.0 秒）。
+const char* standbyGrade(int tenths) {
+    if (tenths < 60)  return "偏激进";
+    if (tenths < 80)  return "适中";
+    if (tenths < 100) return "较保守";
+    return "最保守";
+}
 } // namespace
 
 int showLatencyDialog(int currentMs) {
@@ -594,6 +646,23 @@ int showVolumeDialog(int currentPct) {
     spec.unit = "%";
     spec.grade = volumeGrade;
     return showSliderDialog(spec, currentPct);
+}
+
+int showStandbyDialog(int currentTenths) {
+    SliderDialogSpec spec;
+    spec.title = "AirPlay Bridge — 静音自动待机";
+    spec.hint = "连续静音这么久之后断开与设备的连接，让屏幕熄灭；"
+                "再有任何声音立刻重连。档位太短会在换歌、"
+                "安静段落里误断，太长则熄屏迟钝。";
+    spec.minValue = 50;    // 5.0 秒
+    spec.maxValue = 100;   // 10.0 秒
+    spec.tickFreq = 0;
+    spec.unit = "秒";
+    spec.displayDivisor = 10;   // 内部十分之一秒 -> 显示秒
+    spec.displayDecimals = 1;   // "7.5 秒"
+    spec.step = 5;              // 0.5 秒一档
+    spec.grade = standbyGrade;
+    return showSliderDialog(spec, currentTenths);
 }
 
 } // namespace fxchain

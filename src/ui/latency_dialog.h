@@ -18,6 +18,14 @@ struct SliderDialogSpec {
     int         maxValue = 100;
     int         tickFreq = 10;    // 刻度间隔，0 = 不画刻度
     std::string unit;        // 数值后缀，例如 "ms" 或 "%"
+    // 内部单位 -> 显示单位的换算。默认 1/0 表示"内部值就是显示值"，
+    // 老的三项（延迟 / 音量 / 音质）不受影响。
+    // 待机时长用 divisor=10、decimals=1：内部 75 -> 显示 "7.5 秒"。
+    int         displayDivisor  = 1;   // 显示时用它除（内部单位 -> 显示单位）
+    int         displayDecimals = 0;   // 显示保留几位小数
+    // 拖动时吸附到的步长（内部单位）。默认 1 = 不吸附，
+    // 老的三项都是整数区间，行为不变；待机那项传 5（= 0.5 秒）。
+    int         step = 1;
     // 根据数值返回一句评价（可空）
     const char* (*grade)(int) = nullptr;
 };
@@ -34,6 +42,10 @@ int showVolumeDialog(int currentPct);
 
 // 便捷封装：重采样质量（0-100）
 int showQualityDialog(int currentLevel);
+
+// 便捷封装：静音自动待机时长（50-100，单位十分之一秒）。
+// 返回新的十分之一秒值；取消返回 -1。
+int showStandbyDialog(int currentTenths);
 
 // 音质档位名（关闭 / 标准 / 高 / 极高 / 至臻）。
 // 菜单和滑块共用，保证两边显示一致。
