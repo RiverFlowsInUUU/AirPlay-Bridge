@@ -937,7 +937,10 @@ void checkFirewallRuleAtStartup() {
 // 约束：这一份**不起托盘图标、不跑主循环** —— 做完就退。
 // 用户点了菜单总得有反馈，所以做完必须弹一个 MessageBox；
 // 提权进程一闪而过会让人以为没生效。
-int runFixFirewall() {
+// quiet = true 时不弹提示框，只写日志 —— 给安装程序用。
+// 用户在等安装完成，不该再冒一个框让他点；失败与否有日志，
+// 而且程序启动时的自检还会再提示一次（有兜底）。
+int runFixFirewall(bool quiet = false) {
     logLine("--fix-firewall: 开始添加防火墙入站规则");
 
     // 先删同名旧规则，再加 —— 保证只有一条，且 program 指向当前 exe。
@@ -992,8 +995,12 @@ int runFixFirewall() {
             MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
         return w;
     };
-    promptUser(toWide(msg).c_str(), toWide(title).c_str(),
-                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+    if (!quiet) {
+        promptUser(toWide(msg).c_str(), toWide(title).c_str(),
+                   MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+    } else {
+        logLine("--fix-firewall: 静默模式，跳过提示框");
+    }
     return exitCode;
 }
 
@@ -2201,6 +2208,7 @@ int main(int argc, char** argv) {
     bool wantFixFirewall = false;       // --fix-firewall
     bool wantCleanFirewall = false;     // --clean-firewall-rules
     bool wantUninstallCleanup = false;  // --uninstall-cleanup
+    bool wantQuiet = false;             // --quiet（配合 --fix-firewall 给安装程序用）
     bool wantAudioDevices = false;      // --audio-devices
     std::string setDefaultArg;          // --set-default <设备名子串>
     std::string hostArg;
@@ -2216,6 +2224,7 @@ int main(int argc, char** argv) {
         else if (a == "--fix-firewall") { wantFixFirewall = true; wantTray = false; }
         else if (a == "--clean-firewall-rules") { wantCleanFirewall = true; wantTray = false; }
         else if (a == "--uninstall-cleanup") { wantUninstallCleanup = true; wantTray = false; }
+        else if (a == "--quiet")     wantQuiet = true;
         else if (a == "--audio-devices") { wantAudioDevices = true; wantTray = false; }
         else if (a == "--set-default" && i + 1 < argc) {
             setDefaultArg = argv[++i];
@@ -2234,7 +2243,7 @@ int main(int argc, char** argv) {
     // CoInitialize，所以这里先放掉 main 开头那次初始化。
     if (wantFixFirewall) {
         CoUninitialize();
-        return runFixFirewall();
+        return runFixFirewall(wantQuiet);
     }
 
     // ---- 清理陈旧放行规则（提权拉起的那一份）----

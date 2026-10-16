@@ -72,6 +72,14 @@ Name: "{group}\卸载 {#AppName}";       Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}";     Filename: "{app}\{#ExeName}"; Tasks: desktopicon
 
 [Run]
+; 安装时就把网络放行规则加好。
+;
+; 接收端要主动 UDP 回连本机做时钟同步，没有这条规则会一直卡在「连接中」。
+; 安装程序本来就是管理员权限，顺手做掉比让用户装完再去菜单里点一次舒服。
+;
+; 用 --quiet 让它别弹提示框 —— 用户在等安装完成，不该再冒一个框；
+; 成功与否都写进日志，而且程序启动时的自检还有一道兜底提示。
+Filename: "{app}\{#ExeName}"; Parameters: "--fix-firewall --quiet"; StatusMsg: "正在配置网络放行…"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#ExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]

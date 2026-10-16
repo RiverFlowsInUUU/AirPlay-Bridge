@@ -193,3 +193,7 @@ ISCC.exe /DAppVersion=X.Y.Z installer\airplay-bridge.iss
   —— 实测卸载阶段它的 `waituntilterminated` 不生效，130ms 后就把 exe 删了，
   清理程序来不及跑完
 - 静默卸载时不能弹「要不要删配置」的询问框（没人回答，Inno 取默认值会误删）
+
+- 安装时会自动把网络放行规则配好（`[Run]` 段调 `--fix-firewall --quiet`）——
+  安装程序本来就有管理员权限，顺手做掉比让用户装完再点一次舒服。
+  `--quiet` 让它不弹提示框；失败与否有日志，而且程序启动时的自检还有一道兜底

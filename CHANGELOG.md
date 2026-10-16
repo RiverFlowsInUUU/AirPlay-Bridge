@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.50] - 2026-10-16
+
+### Changed
+
+- 安装版在安装过程中就把网络放行配好，装完即可使用，不需要再手动点一次。
+
 ## [1.2.49] - 2026-10-16
 
 ### Added
