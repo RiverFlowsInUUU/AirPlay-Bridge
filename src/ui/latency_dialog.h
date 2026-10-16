@@ -43,7 +43,7 @@ int showVolumeDialog(int currentPct);
 // 便捷封装：重采样质量（0-100）
 int showQualityDialog(int currentLevel);
 
-// 便捷封装：静音自动待机时长（50-100，单位十分之一秒）。
+// 便捷封装：无声音时待机时长（0-200，单位十分之一秒）。
 // 返回新的十分之一秒值；取消返回 -1。
 int showStandbyDialog(int currentTenths);
 

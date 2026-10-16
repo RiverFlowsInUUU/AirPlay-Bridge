@@ -35,7 +35,7 @@ struct BridgeConfig {
     std::string preCaptureDevice;
     bool        autoReconnect = true;
     bool        hideAppleTV = true;    // 列表里静默 Apple TV，只显示 HomePod
-    // 静音自动待机：连续无声音若干秒就断开与接收端的连接，
+    // 无声音时待机：连续无声音若干秒就断开与接收端的连接，
     // 让 HomePod 屏幕熄灭；一旦再听到声音立刻重连。
     bool        standbyEnabled = true;
     // 静音判定时长，单位十分之一秒（50 = 5.0 秒）。

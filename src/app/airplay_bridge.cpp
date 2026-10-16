@@ -155,7 +155,7 @@ std::atomic<bool> g_wasMutedBefore{false};
 constexpr int kHideDeviceMenuBase    = 1600;
 constexpr int kCaptureDeviceMenuBase = 1700;
 
-// 静音自动待机的固定档位（内部单位是十分之一秒）。
+// 无声音时待机的固定档位（内部单位是十分之一秒）。
 // 更短的档位（0/1/3 秒）实测体验很差 —— 一停就断，换歌和安静段落都会误触，
 // 所以整档砍掉，只保留 5/6/8/10 秒这四档；中间值走「自定义（滑块）」。
 struct StandbyLevel { int tenths; const char* label; };
@@ -190,15 +190,16 @@ enum : int {
     MENU_VOLUME_CUSTOM = 108,   // 自定义音量（滑块）
     MENU_QUALITY   = 110,   // 音质（子菜单）
     MENU_QUALITY_CUSTOM = 111,   // 自定义音质（滑块）
-    MENU_OPEN_LOG  = 109,   // 打开日志文件夹
-    MENU_STANDBY   = 114,   // 静音自动待机（子菜单）
+    MENU_OPEN_LOG  = 109,   // 日志（打开日志文件夹）
+    MENU_STANDBY   = 114,   // 无声音时待机（子菜单）
     MENU_STANDBY_CUSTOM = 115,   // 自定义静音待机（无极滑块）
-    MENU_FIX_FIREWALL = 116,   // 修复连接问题（一键加入站放行规则）
-    MENU_CHECK_UPDATE = 118,   // 检查更新（紧邻「关于」上方）
+    MENU_FIX_FIREWALL = 116,   // 连接诊断（一键加入站放行规则）
+    MENU_CHECK_UPDATE = 118,   // 检查更新（无独立菜单项；由「关于」落下触发）
     MENU_MUTE_LOCAL = 119,      // 连接时静音电脑扬声器（开关）
     MENU_HIDE_DEVICE = 120,     // 隐藏设备（子菜单）
     MENU_CAPTURE_DEVICE = 121,  // 采集哪一个音频端点（子菜单）
     MENU_DEVICE_GROUP = 122,    // 设备（一级子菜单，含 选择/隐藏/采集 三项）
+    MENU_ADVANCED = 123,        // 高级设置（一级子菜单，含诊断/待机/静音/自启/日志）
     MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
@@ -562,7 +563,7 @@ bool anotherInstanceIsRunning() {
 }
 
 // ============================================================
-// 防火墙入站规则的修复（托盘菜单「修复连接问题」）
+// 防火墙入站规则的修复（托盘菜单「高级设置 › 连接诊断」）
 // ============================================================
 // 背景见下面「握手超时的防火墙诊断」。结论是：缺的就是一条入站 UDP
 // 放行规则，加规则必须管理员权限 —— 所以这条路径是：托盘菜单提权拉起
@@ -886,7 +887,7 @@ std::vector<std::wstring> findStaleFirewallRules() {
     // ⚠️ 这里曾经是「只要不指向当前 exe 就删」，后果很严重：
     // 机器上同时留着两份副本时（比如换了安装目录但旧的没卸干净），
     // 放行规则只能指向其中一份 —— 另一份每次启动都报「未被防火墙放行」，
-    // 而且**真的连不上**；用户点多少次「修复连接问题」都没用，
+    // 而且**真的连不上**；用户点多少次「连接诊断」都没用，
     // 因为修复只会把规则抢到自己这边、下次打开另一份又重复。
     //
     // 现在按「文件还在不在」分：活着的另一份是条**合法的**放行，留着；
@@ -1145,7 +1146,7 @@ void checkFirewallRuleAtStartup() {
         tip += kNLw;
         tip += L"点「是」立即修复（需要管理员权限）。";
         tip += kNLw; tip += kNLw;
-        tip += L"也可以稍后从托盘菜单点「修复连接问题」。";
+        tip += L"也可以稍后从托盘菜单点「高级设置 › 连接诊断」。";
     } else {
         tip += kNLw;
         tip += L"点「是」清理，点「否」跳过。";
@@ -1448,7 +1449,7 @@ bool runUninstallCleanup() {
 std::atomic<int> g_handshakeFailStreak{0};
 // 已经提示过防火墙了吗？只提示一次，直到下一次连接成功才复位。
 std::atomic<bool> g_firewallHintShown{false};
-// 托盘菜单里已经出现过「修复连接问题」了吗？
+// 托盘菜单里已经出现过「连接诊断」了吗？
 // 出现之后就不再关掉：一旦让用户看见它，menu 每弹一次都去枚举一遍
 // 防火墙规则太贵，而且用户点完没成功时这项必须还在（还得能再点）。
 std::atomic<bool> g_fixFirewallOffered{false};
@@ -1522,7 +1523,7 @@ void maybeLogFirewallHint() {
     msg += char(10);
     // 上面那条命令是给老用户 / 远程排查用的。真正的用户路径是菜单：
     // 没人会去敲命令 —— 所以必须给出菜单里的入口。
-    msg += "也可在托盘菜单点「修复连接问题」一键添加规则。";
+    msg += "也可在托盘菜单点「高级设置 › 连接诊断」一键添加规则。";
     logLine(msg);
 }
 
@@ -1905,7 +1906,7 @@ struct Session {
     std::atomic<bool> wantReconnect{false};
     std::atomic<bool> running{false};
 
-    // ---- 静音自动待机 ----
+    // ---- 无声音时待机 ----
     // 静音满配置的秒数就把整个会话拆掉（接收端屏幕随之熄灭）。
     // 拆掉后不能什么都不做 —— 那样就再也听不到声音、永远不会醒。
     // 所以另开一个轻量采集 standbyEar 只测峰值，听到声音就唤醒。
@@ -2541,7 +2542,7 @@ int main(int argc, char** argv) {
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    // ---- 防火墙修复（提权拉起的那一份，见托盘菜单「修复连接问题」）----
+    // ---- 防火墙修复（提权拉起的那一份，见托盘菜单「高级设置 › 连接诊断」）----
     // 放在最前面：这一份只做一件事 —— 加规则、弹提示、退出。
     // 不读配置、不起托盘图标、不跑主循环。走 COM 的函数自己管
     // CoInitialize，所以这里先放掉 main 开头那次初始化。
@@ -3041,9 +3042,6 @@ int main(int argc, char** argv) {
             //
             // 点它时的行为才是分流的地方（见 MENU_FIX_FIREWALL 分支）：
             // 没规则就加，有规则就告诉用户已经配好了。
-            menu.push_back({"修复连接问题（需要管理员权限）",
-                            MENU_FIX_FIREWALL});
-
             // "选择设备"是个真子菜单（向右展开），内容来自缓存的设备列表。
             // 之所以要缓存：Windows 的菜单树必须在弹出前一次建好，
             // 没法在展开的那一刻去扫网段。
@@ -3216,15 +3214,24 @@ int main(int argc, char** argv) {
                 menu.push_back(std::move(it));
             }
             menu.push_back({"", 0, true, true, false});
-            // 静音自动待机 —— 和延迟 / 音量 / 音质一样做成带 › 箭头的子菜单。
-            // 标签里带上当前值，用户不用展开就知道现在是多少。
+            // 高级设置 —— 平时不需要动的那些收在这里。
+            // 命名照 Apple 系统设置的习惯：短名词短语、不放动词、不塞解释。
             {
+                TrayMenuItem adv;
+                adv.id = MENU_ADVANCED;
+                adv.label = "高级设置";
+
+                // 连接诊断：检查并修复网络放行（原来叫「修复连接问题」，动词开头太长）
+                adv.children.push_back({"连接诊断", MENU_FIX_FIREWALL});
+
+                // 无声音时待机：原来叫「静音自动待机」——
+                // 「静音」和「待机」两个概念粘在一起，容易被读成「静音就待机」。
                 TrayMenuItem it;
                 it.id = MENU_STANDBY;   // 父项本身不可点，但保留 id 便于识别
                 const bool sbOn = standbyActiveConfig(cfg);
                 it.label = sbOn
-                               ? ("静音待机  " + tenthsToSecsText(cfg.standbyTenths))
-                               : std::string("静音待机  关闭");
+                               ? ("无声音时待机  " + tenthsToSecsText(cfg.standbyTenths))
+                               : std::string("无声音时待机  关闭");
                 bool standbyCustom = true;
                 for (int i = 0; i < kStandbyLevelCount; ++i) {
                     const bool on = sbOn &&
@@ -3243,18 +3250,24 @@ int main(int argc, char** argv) {
                 // 时长为 0 也走这一项 —— 0 在语义上就是关闭。
                 it.children.push_back({"关闭（不自动待机）", MENU_STANDBY + 1000,
                                        true, false, !sbOn});
-                menu.push_back(std::move(it));
+                adv.children.push_back(std::move(it));
+
+                // 静音本机输出：原来叫「连接时静音电脑扬声器」——
+                // 一句话塞进菜单，Apple 不会这么写。
+                adv.children.push_back({"静音本机输出", MENU_MUTE_LOCAL,
+                                        true, false, cfg.muteLocalOnConnect});
+
+                // 登录时打开：macOS 的原话，比「开机自启」更像系统设置里的说法。
+                adv.children.push_back({"登录时打开", MENU_AUTOSTART,
+                                        true, false, isAutoStartEnabled()});
+
+                adv.children.push_back({"日志", MENU_OPEN_LOG});
+
+                menu.push_back(std::move(adv));
             }
-            // 连接时静音电脑自己的扬声器 —— 独立开关，默认开。
-            // 只能在菜单里关，不在别处隐式关闭。
-            menu.push_back({"连接时静音电脑扬声器", MENU_MUTE_LOCAL,
-                            true, false, cfg.muteLocalOnConnect});
-            menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
-            menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
-            menu.push_back({"检查更新", MENU_CHECK_UPDATE});
-            // 版本号就在标题里，一眼看到 —— 省得用户回复问题时还要去翻文件属性。
-            menu.push_back({"关于 AirPlay Bridge v" + std::string(kAppVersion),
-                            MENU_ABOUT});
+            // 关于 —— 检查更新并进来了：点开就是版本信息，有新版本再告诉用户。
+            // 版本号不放在菜单标题里（那是「关于」弹窗该说的）。
+            menu.push_back({"关于", MENU_ABOUT});
             menu.push_back({"", 0, true, true, false});
             menu.push_back({"退出", MENU_QUIT});
 
@@ -3569,7 +3582,7 @@ int main(int argc, char** argv) {
                         //   2) 那一份跑完后弹的结果提示框。
                         // 已经有规则就直接告知，不再走提权 —— 免得多弹一次 UAC。
                         if (firewallRuleExists()) {
-                            logLine("「修复连接问题」：本机已有放行规则，无需重复添加");
+                            logLine("「连接诊断」：本机已有放行规则，无需重复添加");
                             // 用 (wchar_t)10 拼换行，避免在源码里写转义字符。
                             const wchar_t kNLw = static_cast<wchar_t>(10);
                             std::wstring tip;
@@ -3580,7 +3593,7 @@ int main(int argc, char** argv) {
                                         L"AirPlay Bridge", MB_OK | MB_ICONINFORMATION);
                             break;
                         }
-                        logLine("用户点击「修复连接问题」，请求提权添加防火墙入站规则");
+                        logLine("用户点击「连接诊断」，请求提权添加防火墙入站规则");
                         elevateAndRunFixFirewall();
                         break;
                     case MENU_AUTOSTART:
@@ -3593,6 +3606,29 @@ int main(int argc, char** argv) {
                         ShellExecuteA(nullptr, "open", appDataDir().c_str(),
                                       nullptr, nullptr, SW_SHOWNORMAL);
                         break;
+                    case MENU_ABOUT: {
+                        // 「关于」：**立刻弹窗，不等网络** —— 点下去就有反应。
+                        //
+                        // 检查更新并进来了：弹完窗**有意不 break**，让控制流落到
+                        // 下面 MENU_CHECK_UPDATE 那段去做一次后台检查。
+                        // 有新版本时它会再弹一个窗；已是最新则完全静默。
+                        std::string about = "AirPlay Bridge";
+                        about += char(10); about += char(10);
+                        about += "版本 v" + std::string(kAppVersion);
+                        about += char(10); about += char(10);
+                        about += kProjectUrl;
+                        {
+                            const int need = MultiByteToWideChar(
+                                CP_UTF8, 0, about.c_str(), -1, nullptr, 0);
+                            std::wstring w(need > 1 ? static_cast<size_t>(need) : 0, 0);
+                            if (need > 1)
+                                MultiByteToWideChar(CP_UTF8, 0, about.c_str(), -1,
+                                                    w.data(), need);
+                            promptUser(w.c_str(), L"关于",
+                                       MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                        }
+                        // 落下去执行检查更新（见上方注释）。
+                    }
                     case MENU_CHECK_UPDATE: {
                         // 网络请求放独立线程 —— 托盘程序卡一下就会被当成死掉。
                         // 结果通过 g_updateResult 交给主循环去弹窗（见下面轮询）。
@@ -3624,11 +3660,6 @@ int main(int argc, char** argv) {
                         }).detach();
                         break;
                     }
-                    case MENU_ABOUT:
-                        // 打开项目主页 —— 用户找更新、报问题、看说明都在那里。
-                        ShellExecuteA(nullptr, "open", kProjectUrl,
-                                      nullptr, nullptr, SW_SHOWNORMAL);
-                        break;
                     case MENU_QUIT:
                         g_stop.store(true);
                         break;
@@ -3654,7 +3685,10 @@ int main(int argc, char** argv) {
             if (r.state == UpdateState::Failed) {
                 tip += L"检查更新失败，请稍后重试。";
             } else if (r.state == UpdateState::UpToDate) {
-                tip += L"当前已是最新版本（v"; tip += cur; tip += L"）。";
+                // 已是最新：**什么都不弹** ——
+                // 用户点「关于」只是想看版本，没更新就不该多一个窗打扰。
+                logLine("检查更新：已是最新版本 v" + std::string(kAppVersion));
+                tip.clear();
             } else {
                 tip += L"发现新版本 ";
                 tip += std::wstring(r.tag.begin(), r.tag.end());
@@ -3728,7 +3762,7 @@ int main(int argc, char** argv) {
             retryBackoffSec = 5;
         }
 
-        // ---- 静音自动待机 ----
+        // ---- 无声音时待机 ----
         // 必须在下面的重连逻辑之前处理：
         // 待机是主动断开，不是掉线，不能被重连退避循环接管。
         {

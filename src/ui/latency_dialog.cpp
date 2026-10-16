@@ -656,7 +656,7 @@ int showVolumeDialog(int currentPct) {
 
 int showStandbyDialog(int currentTenths) {
     SliderDialogSpec spec;
-    spec.title = "AirPlay Bridge — 静音自动待机";
+    spec.title = "AirPlay Bridge — 无声音时待机";
     spec.hint = "连续静音这么久之后断开与设备的连接，让屏幕熄灭；"
                 "再有任何声音立刻重连。档位太短会在换歌、"
                 "安静段落里误断，太长则熄屏迟钝。"
