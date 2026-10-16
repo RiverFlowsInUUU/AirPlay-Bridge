@@ -34,12 +34,12 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 1 | 搞清项目在做什么、代码怎么分层 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 2 | 把环境跑起来 —— **这是最先要做的事**，环境不通什么都别谈 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「环境」「构建」 |
 | 3 | **验证你跑的是你刚编的**（版本号 + 能连上 + 日志有输出） | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「环境自检」 |
-| 4 | 确认这次要改什么、影响哪些层、有哪些相关约束 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「接任务」 |
+| 4 | 确认这次要改什么、影响哪些层、有哪些相关约束 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「第 4 步 — 确认任务」 |
 | 5 | 看清红线 —— **有 19 条是踩过坑换来的** | [docs/RULES.md](docs/RULES.md) |
 | 6 | 小步改 + 每步验证 + 提交 + 交接 | [docs/WORKFLOW.md](docs/WORKFLOW.md) |
 
 **不要跳过第 2、3 步。** 历史上多次出现「验证通过」实际测的是旧二进制 ——
-见 [docs/PITFALLS.md](docs/PITFALLS.md) 的「验证前先核对被测二进制版本号」。
+见 [docs/PITFALLS.md](docs/PITFALLS.md) 的「验证前先核对被测二进制的版本号」。
 
 ---
 
@@ -102,7 +102,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境、构建、测试、验收、调试、命令行参数、图标、发布 | 跑环境 / 发版 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | D1–D15 关键决策与理由、被否决的方案 | 想知道「为什么这样」 |
 | [docs/STYLE.md](docs/STYLE.md) | 发布说明文风、README 文风、i18n 约定 | 写对外文档 |
-| [docs/PITFALLS.md](docs/PITFALLS.md) | 每条禁令「为什么存在」—— 踩坑复盘 | 禁令看不懂时 |
+| [docs/PITFALLS.md](docs/PITFALLS.md) | 每条禁令为什么存在 —— 踩坑复盘 | 禁令看不懂时 |
 | [docs/GLOSSARY.md](docs/GLOSSARY.md) | 术语表 | 遇到不认识的词 |
 | [README.md](README.md) / [README.zh-CN.md](README.zh-CN.md) | 人类入口（英/中） | 写给用户看 |
 | [CHANGELOG.md](CHANGELOG.md) | 变更记录（双语） | 发版时更新 |

@@ -15,6 +15,26 @@
 
 依赖方向**只能向下**。Audio 和 Device 不引用 UI；Protocol 不引用本项目任何代码。
 
+## 目录
+
+```
+src/
+  app/       主程序：入口、配置读写、防火墙与自启集成、i18n
+  audio/     音频采集与重采样（WASAPI loopback 到 44100）
+  device/    音频设备枚举、默认设备切换、系统音量与静音
+  ui/        托盘、菜单构建、滑块窗口（全自绘）、深色模式
+  icons/     图标资源（.ico / .rc）
+tools/       图标生成脚本（仓库根下）
+third_party/ 协议引擎 airplay2-sender-cpp（git submodule + 本项目补丁）
+patches/     相对上游的 git diff（见 RULES.md C2）
+installer/   Inno Setup 脚本
+docs/        本套文档
+```
+
+**主循环和托盘菜单回调都在 `src/app/airplay_bridge.cpp` 的 `main()` 里**（约 960 行）。
+它们深度依赖 main 的局部状态，抽出去会牵动一大片调用约定 ——
+这一点有专门的决策记录，见 [DECISIONS.md](DECISIONS.md) 和 [PITFALLS.md](PITFALLS.md)。
+
 ## 模块表
 
 | 路径 | 职责 |

@@ -115,6 +115,12 @@
 
 ## 三、提交
 
+**本仓库没有 PR 流程。** 直接推到 `master` —— 没有 PR 模板，`release.yml` /
+`check-patch.yml` 都只响应 `push` 和 tag，历史里也**没有任何 merge commit**。
+
+所以「提交规范」就只有两条：**message 怎么写**、**什么必须先 commit**。
+
+
 - **message 用中文**，格式 `前缀：一句话描述`
   （现有前缀：`修复` / `文档` / `纪律` / `清理` / `移除`）
 - **补丁有改动时必须先 commit 再验证** —— `git clone` 只认已提交内容，见 C2

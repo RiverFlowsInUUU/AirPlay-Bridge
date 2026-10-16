@@ -8,6 +8,27 @@
 
 ---
 
+## 代码风格
+
+**本仓库没有强制的风格配置**（没有 `.clang-format` / `.editorconfig` / `CONTRIBUTING.md`）。
+以下是**现有代码的一致做法** —— 写新代码时跟随它，不要引入第二套：
+
+| 项 | 现状 |
+|---|---|
+| 缩进 | 4 空格，不用 Tab |
+| 头文件保护 | `#pragma once` |
+| 注释语言 | **中文**（含代码注释与文档） |
+| 文件头 | 部分文件有 SPDX 许可行 |
+| 命名 | 函数小驼峰（`logLine` / `checkFirewallRule`）、类型大驼峰（`BridgeConfig` /`TrayIcon`）、常量 `k` 前缀（`kSilencePeak` / `kLatencyLevels`） |
+| 字符串 | 源码是 UTF-8（靠 `/utf-8` 编译选项，见 C5）；界面文案走 i18n，见 [STYLE.md](STYLE.md) |
+| 平台相关 | 一律用 Win32 API + `W` 后缀的宽字符版本（`LoadImageW` / `MessageBoxW`） |
+
+**为什么不做成 `.clang-format`**：这个项目由 agent 维护、单线程迭代，
+格式统一靠「跟随现有代码」就够了；引入一份配置文件反而多一处要同步的东西。
+**如果哪天要引入，记得同时改这一节。**
+
+---
+
 ## 硬约束
 
 违反任一条会导致构建失败或功能回归。**原理与实测数据见
