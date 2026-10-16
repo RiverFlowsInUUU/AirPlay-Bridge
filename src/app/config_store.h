@@ -41,7 +41,7 @@ struct BridgeConfig {
     // 静音判定时长，单位十分之一秒（50 = 5.0 秒）。
     // 下限 50：太短的档位（0/1/3 秒）会在换歌、安静段落误断，实测体验很差，
     // 所以整档砍掉，范围固定在 5.0-10.0 秒之间细调。
-    int         standbyTenths = 50;
+    int         standbyTenths = 100;   // 默认 10 秒
     std::vector<std::string> ignoredDeviceIds;   // 用户手动忽略的设备
     // 首次运行引导是否已经做过。
     // 只做一次 —— 每次启动都问用户"要不要开机自启"是骚扰。

@@ -114,9 +114,9 @@ constexpr int kStandbyMenuBase = 1500;   // 静音待机档位菜单 id = base +
 struct StandbyLevel { int tenths; const char* label; };
 const StandbyLevel kStandbyLevels[] = {
     {  50, "5 秒" },
-    {  60, "6 秒" },
-    {  80, "8 秒" },
     { 100, "10 秒" },
+    { 150, "15 秒" },
+    { 200, "20 秒" },
 };
 constexpr int kStandbyLevelCount = sizeof(kStandbyLevels) / sizeof(kStandbyLevels[0]);
 

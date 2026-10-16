@@ -584,9 +584,9 @@ const char* volumeGrade(int pct) {
 }
 // 待机时长评价，参数是十分之一秒（50 = 5.0 秒）。
 const char* standbyGrade(int tenths) {
-    if (tenths < 60)  return "偏激进";
-    if (tenths < 80)  return "适中";
-    if (tenths < 100) return "较保守";
+    if (tenths < 75)  return "偏激进";
+    if (tenths < 125) return "适中";
+    if (tenths < 175) return "较保守";
     return "最保守";
 }
 } // namespace
@@ -655,7 +655,7 @@ int showStandbyDialog(int currentTenths) {
                 "再有任何声音立刻重连。档位太短会在换歌、"
                 "安静段落里误断，太长则熄屏迟钝。";
     spec.minValue = 50;    // 5.0 秒
-    spec.maxValue = 100;   // 10.0 秒
+    spec.maxValue = 200;   // 20.0 秒
     spec.tickFreq = 0;
     spec.unit = "秒";
     spec.displayDivisor = 10;   // 内部十分之一秒 -> 显示秒
