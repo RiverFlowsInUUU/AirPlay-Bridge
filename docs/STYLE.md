@@ -20,6 +20,15 @@
 
 正确开头就是直接 `## Added` / `## Fixed` 开列。日期用 ISO 格式，同步更新 `CHANGELOG.md`。
 
+**技术数据可以有，但必须服务于判断** ——
+比如写性能数字是为了帮用户选档位，不是为了展示自己做了什么。
+读者看完那条要能做一个决定，否则就不该写。
+
+**范本**：[Keep a Changelog](https://keepachangelog.com/) 的标准分组，
+以及 [Flow Launcher](https://github.com/Flow-Launcher/Flow.Launcher/releases) /
+[YoutubeDownloader](https://github.com/Tyrrrz/YoutubeDownloader/releases) 的实际写法 ——
+截图打头、短句、不解释。**写之前扫一眼这几个页面找手感。**
+
 **双语（2026-10-16 起）**：CHANGELOG 每个版本写**两块**，**中文在前、英文在后**，
 各自带自己的分组标题。
 

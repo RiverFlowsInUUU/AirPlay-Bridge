@@ -56,6 +56,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 写 README / 发布说明 | [docs/STYLE.md](docs/STYLE.md) |
 | 某条禁令看不懂 | [docs/PITFALLS.md](docs/PITFALLS.md) |
 | 查术语 | [docs/GLOSSARY.md](docs/GLOSSARY.md) |
+| 汇报节奏 / 协作约定 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「七、协作方式」 |
 
 ---
 
