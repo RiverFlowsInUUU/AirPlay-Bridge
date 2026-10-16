@@ -1622,6 +1622,9 @@ struct Session {
 
         RaopEvents ev;
         ev.launched = [this](bool ok, const std::string& e) {
+            // 某些分支想给状态文案加点补充（比如"无虚拟声卡"）。
+            // 攒在这里、最后统一发，避免被后面那句通用文案覆盖掉。
+            std::string extraStatus;
             // 连上了：记住当前默认设备，然后切到虚拟声卡。
             // 这样系统声音不再走向物理音箱，而是进了虚拟声卡；
             // 我们从虚拟声卡采集推给 HomePod —— 电脑自己静悄悄。
@@ -1645,7 +1648,10 @@ struct Session {
                             // 必须让用户知道 —— 否则他以为在接管模式，会奇怪为什么
                             // 电脑自己也在响。
                             logLine("未找到虚拟声卡，退回监听复制模式（电脑与 HomePod 将同时出声）");
-                            if (onStatus) onStatus("已连接（无虚拟声卡，两边同时出声）");
+                            // 不在这里直接发 onStatus —— 下面还会用
+                            // "已连接"覆盖一次，用户就看不到这条提示了。
+                            // 记下来，等状态文案统一发的时候带上。
+                            extraStatus = "已连接（无虚拟声卡，两边同时出声）";
                         }
                     }
                 }
@@ -1670,7 +1676,10 @@ struct Session {
                                      .count());
             }
             if (onConnected) onConnected(ok);
-            if (onStatus) onStatus(ok ? "已连接" : ("连接失败: " + e));
+            if (onStatus) {
+                if (ok && !extraStatus.empty()) onStatus(extraStatus);
+                else onStatus(ok ? "已连接" : ("连接失败: " + e));
+            }
             // 首次连上时弹一次气泡。
             // 只在首次 —— 自动重连时不弹，否则隔一会儿蹦一个很烦。
             if (ok && onFirstConnect) {
@@ -1811,7 +1820,20 @@ struct Session {
         if (capture) capture->stop();
         if (sender)  sender->stop();
         if (producer.joinable()) producer.join();
-        connected.store(false);
+
+        // 状态改了就必须通知托盘。
+        //
+        // 图标和 tooltip 是**事件驱动**的（只在被通知时才更新），
+        // 而托盘菜单是每次打开时**实时读** connected 的。
+        // 这里只 store 不通知，就会出现自相矛盾的状态：
+        // 图标/tooltip 说"已连接"、点开菜单却是"未连接"。
+        //
+        // 走到这里最常见的情况是重连：teardown() -> stop() 收尾之后
+        // 才去连下一个，中间这段时间托盘会一直挂着上一次的状态。
+        if (connected.load()) {
+            connected.store(false);
+            if (onConnected) onConnected(false);
+        }
     }
 
     void teardown() {
@@ -2278,7 +2300,14 @@ int main(int argc, char** argv) {
         tray.setTooltip(tip);
         logLine(s);
     };
-    sess.onConnected = [&tray](bool ok) { tray.setConnected(ok); };
+    sess.onConnected = [&tray](bool ok) {
+        tray.setConnected(ok);
+        // tooltip 的"基础文案"跟着图标一起走 —— 这两者必须始终一致，
+        // 分成两条独立的路就一定会有一条被漏掉。
+        // 具体状态（失败原因、断开原因）稍后由 onStatus 覆盖上去。
+        tray.setTooltip(ok ? "AirPlay Bridge - 已连接"
+                           : "AirPlay Bridge - 未连接");
+    };
 
     // 菜单打开期间继续推音频 IO。
     // TrackPopupMenu 自带模态消息循环，主循环在里面完全停摆 ——

@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.43] - 2026-10-16
+
+### Fixed
+
+- 修复托盘图标与菜单状态不一致的问题。此前连接中断后图标仍显示为已连接，
+  菜单里却是未连接。
+
 ## [1.2.42] - 2026-10-16
 
 ### Fixed
