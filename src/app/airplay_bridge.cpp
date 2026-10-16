@@ -561,7 +561,7 @@ bool anotherInstanceIsRunning() {
     // MB_SETFOREGROUND：托盘程序是后台进程，不加的话弹窗可能被压在
     // 别的窗口后面，用户只看到进程一闪而过，完全不知道发生了什么。
     promptUser(msg.c_str(), title.c_str(),
-                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                MB_OK | MB_SETFOREGROUND);
     return true;
 }
 
@@ -1240,7 +1240,7 @@ int runFixFirewall(bool quiet = false) {
     };
     if (!quiet) {
         promptUser(toWide(msg).c_str(), toWide(title).c_str(),
-                   MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                   MB_OK | MB_SETFOREGROUND);
     } else {
         logLine("--fix-firewall: 静默模式，跳过提示框");
     }
@@ -1276,7 +1276,7 @@ int runCleanFirewallRules() {
     }
 
     promptUser(screenText(msg).c_str(), L"AirPlay Bridge",
-                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                MB_OK | MB_SETFOREGROUND);
     // 提示框不是失败信号 —— 与 --fix-firewall 那里不同，这里没有"失败"的
     // 概念（没东西可删也是正常结束）。
     return 0;
@@ -1785,7 +1785,7 @@ void askLanguageOnFirstRun(BridgeConfig& cfg, const std::string& cfgPath) {
         MultiByteToWideChar(CP_UTF8, 0, msg.c_str(), -1, w.data(), need);
 
     const int r = promptUser(w.c_str(), L"AirPlay Bridge",
-                             MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+                             MB_YESNO | MB_SETFOREGROUND);
     cfg.language = (r == IDYES) ? "zh" : "en";
     logLine("首次运行：界面语言选择为 " + cfg.language);
     if (!cfgPath.empty()) saveConfig(cfgPath, cfg);
@@ -1801,7 +1801,7 @@ void askAutoStartOnFirstRun() {
     tip += i18n::trw("以后随时可以在托盘菜单里改。");
 
     const int r = promptUser(tip.c_str(), L"AirPlay Bridge",
-                              MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+                              MB_YESNO | MB_SETFOREGROUND);
     if (r == IDYES) {
         setAutoStart(true);
         logLine("首次运行：用户选择开机自启");
@@ -3698,7 +3698,7 @@ int main(int argc, char** argv) {
                             tip += kNLw; tip += kNLw;
                             tip += i18n::trw("若仍连不上，请确认接收端与本程序在同一网络下。");
                             promptUser(tip.c_str(),
-                                        L"AirPlay Bridge", MB_OK | MB_ICONINFORMATION);
+                                        L"AirPlay Bridge", MB_OK);
                             break;
                         }
                         logLine("用户点击「连接诊断」，请求提权添加防火墙入站规则");
@@ -3734,7 +3734,7 @@ int main(int argc, char** argv) {
                                                     w.data(), need);
                             const std::wstring aboutTitle = i18n::trw("关于");
                             promptUser(w.c_str(), aboutTitle.c_str(),
-                                       MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                                       MB_OK | MB_SETFOREGROUND);
                         }
                         // 落下去执行检查更新（见上方注释）。
                     }
@@ -3805,7 +3805,7 @@ int main(int argc, char** argv) {
                 tip += kNLw; tip += kNLw; tip += i18n::trw("是否前往下载？");
                 logLine("发现新版本 " + r.tag + "（当前 " + std::string(kAppVersion) + "）");
                 const int r2 = promptUser(tip.c_str(), L"AirPlay Bridge",
-                                           MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                                           MB_YESNO | MB_SETFOREGROUND);
                 if (r2 == IDYES && !r.url.empty()) {
                     ShellExecuteA(nullptr, "open", r.url.c_str(),
                                   nullptr, nullptr, SW_SHOWNORMAL);
@@ -3814,7 +3814,7 @@ int main(int argc, char** argv) {
             }
             if (!tip.empty()) {
                 promptUser(tip.c_str(), L"AirPlay Bridge",
-                            MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                            MB_OK | MB_SETFOREGROUND);
                 logLine(r.state == UpdateState::Failed
                             ? std::string("检查更新失败（网络不可用或接口异常）")
                             : ("检查更新：已是最新版本 " + std::string(kAppVersion)));

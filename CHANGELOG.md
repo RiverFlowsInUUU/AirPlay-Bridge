@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.0] - 2026-10-16
+
+**中文**
+
+### 修改
+
+- 点击「关于」等菜单项时不再播放系统提示音。
+  信息类和提问类的弹窗去掉了图标（Windows 下图标与提示音是绑定的），
+  只有真正需要提醒的「连接诊断」警告仍保留提示音。
+
+**English**
+
+### Changed
+
+- Menu dialogs no longer play the system notification sound, except the
+  connection-check warning where it is still useful.
+
 ## [1.4.9] - 2026-10-16
 
 **中文**
