@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.3.3] - 2026-10-16
+
+### Fixed
+
+- 移除 1.3.2 中遗留的一行调试输出。
+
 ## [1.3.2] - 2026-10-16
 
 ### Fixed

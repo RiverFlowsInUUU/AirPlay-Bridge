@@ -2799,10 +2799,6 @@ int main(int argc, char** argv) {
         //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
         //     已经静音的端点也必须还回去。
         if (ok) {
-            logLine("DIAG-M 静音检查: switch=" + std::to_string(cfg.muteLocalOnConnect ? 1 : 0) +
-                    " 接管中=" + std::to_string(cfg.preCaptureDevice.empty() ? 0 : 1) +
-                    " 本进程已静音=" + std::to_string(g_mutedByUs.load() ? 1 : 0) +
-                    " 端点原本静音=" + std::to_string(isSystemMuted() ? 1 : 0));
             if (cfg.muteLocalOnConnect && cfg.preCaptureDevice.empty() &&
                 !g_mutedByUs.load()) {
                 g_wasMutedBefore.store(isSystemMuted());
