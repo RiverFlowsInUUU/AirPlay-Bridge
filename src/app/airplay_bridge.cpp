@@ -2172,10 +2172,10 @@ struct Session {
         // 第一件要确认的就是「采集多少 Hz、有没有转、引擎收到多少 Hz」。
         logLine("音频链路: 采集 " + std::to_string(inputRate) + " Hz -> 引擎 " +
                 std::to_string(engineInputRate) + " Hz" +
-                (needResample ? ("（本机重采样，品质 " +
-                                  std::string(qualityLevelName(cfg ? cfg->qualityLevel : 0)) +
-                                  "）")
-                              : std::string("（直通）")));
+                (needResample ? (std::string(i18n::tr("（本机重采样，品质 ")) +
+                                  qualityLevelName(cfg ? cfg->qualityLevel : 0) +
+                                  i18n::tr("）"))
+                              : std::string(i18n::tr("（直通）"))));
 
         sender->setInputFormat(engineInputRate);
         sender->setIdentity({"AirPlay Bridge", g_deviceId, "MacBookPro18,3"});
@@ -3048,7 +3048,7 @@ int main(int argc, char** argv) {
             {
                 std::string line1, line2, line3;
                 if (sess.connected.load()) {
-                    line1 = "已连接";
+                    line1 = i18n::tr("已连接");
                     // 设备名单独一行；过长则截断，避免把菜单撑宽
                     std::string who = sess.deviceName.empty() ? sess.host : sess.deviceName;
                     const size_t kMaxName = 22;
@@ -3057,9 +3057,9 @@ int main(int argc, char** argv) {
                     // IP 再单独一行（短，不会撑宽菜单）
                     line3 = sess.host;
                 } else if (sess.running.load()) {
-                    line1 = "连接中...";
+                    line1 = i18n::tr("连接中...");
                 } else {
-                    line1 = "未连接";
+                    line1 = i18n::tr("未连接");
                 }
                 // 状态行左侧用彩色圆点（绿=已连接，灰=未连接）。
                 // 原生菜单不能给文字上色，圆点位图是唯一能做彩色的方式。
@@ -3150,7 +3150,7 @@ int main(int argc, char** argv) {
                     for (size_t i = 0; i < all.size(); ++i) {
                         TrayMenuItem d;
                         d.label = all[i].name.empty()
-                                      ? std::string("(未命名设备)")
+                                      ? std::string(i18n::tr("(未命名设备)"))
                                       : all[i].name;
                         d.id = static_cast<int>(kHideDeviceMenuBase + i);
                         // 勾选 = 显示中。取消勾选即隐藏。
@@ -3183,7 +3183,7 @@ int main(int argc, char** argv) {
                 for (size_t i = 0; i < g_captureDevices.size(); ++i) {
                     TrayMenuItem d;
                     d.label = g_captureDevices[i].second.empty()
-                                  ? std::string("(未命名设备)")
+                                  ? std::string(i18n::tr("(未命名设备)"))
                                   : g_captureDevices[i].second;
                     d.id = static_cast<int>(kCaptureDeviceMenuBase + i);
                     d.checked = (cfg.captureDeviceId ==
@@ -3248,7 +3248,7 @@ int main(int argc, char** argv) {
             {
                 TrayMenuItem it;
                 it.id = MENU_QUALITY;
-                it.label = std::string("音质  ") + qualityLevelName(cfg.qualityLevel);
+                it.label = std::string(i18n::tr("音质  ")) + qualityLevelName(cfg.qualityLevel);
                 for (int i = 0; i < kQualityLevelCount; ++i) {
                     it.children.push_back({i18n::tr(kQualityLevels[i].label),
                                            kQualityMenuBase + i,
@@ -3285,8 +3285,9 @@ int main(int argc, char** argv) {
                 it.id = MENU_STANDBY;   // 父项本身不可点，但保留 id 便于识别
                 const bool sbOn = standbyActiveConfig(cfg);
                 it.label = sbOn
-                               ? ("无声音时待机  " + tenthsToSecsText(cfg.standbyTenths))
-                               : std::string("无声音时待机  关闭");
+                               ? (std::string(i18n::tr("无声音时待机  ")) +
+                                  tenthsToSecsText(cfg.standbyTenths))
+                               : std::string(i18n::tr("无声音时待机  关闭"));
                 bool standbyCustom = true;
                 for (int i = 0; i < kStandbyLevelCount; ++i) {
                     const bool on = sbOn &&
@@ -3630,8 +3631,9 @@ int main(int argc, char** argv) {
                                                static_cast<int>(1000 + i),
                                                true, false, false});
                             }
-                            tray.setTooltip("AirPlay Bridge - 找到 " +
-                                            std::to_string(discovered.size()) + " 台设备");
+                            tray.setTooltip(
+                                std::string(i18n::tr("AirPlay Bridge - 找到 ")) +
+                                std::to_string(discovered.size()) + i18n::tr(" 台设备"));
                         }
 
                         tray.showMenu(sub, [&](int sid) {

@@ -1,0 +1,21 @@
+<stdin>:8: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+<stdin>:13: SyntaxWarning: "\)" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\)"? A raw string is also an option.
+COUNT: 18
+airplay_bridge.cpp      1515  msg     | 握手超时。常见原因：Windows 防火墙拦了本程序的入站 UDP ——
+airplay_bridge.cpp      1517  msg     | 接收端需要通过 UDP 回连本机做时钟同步，收不到就不会回应 stream SETUP。
+airplay_bridge.cpp      1519  msg     | 放行方法（管理员命令提示符）：
+airplay_bridge.cpp      1529  msg     | 也可在托盘菜单点「更多设置 › 连接诊断」一键添加规则。
+airplay_bridge.cpp      1753  msg     | 选择界面语言。
+airplay_bridge.cpp      1755  msg     | Yes / 是  ->  中文
+airplay_bridge.cpp      1757  msg     | No  / 否  ->  English
+airplay_bridge.cpp      1761  msg     | 之后可以在托盘菜单的「更多设置 › 语言」里随时更改。
+airplay_bridge.cpp      2178  value   | （直通）
+airplay_bridge.cpp      3051  line    | 已连接
+airplay_bridge.cpp      3060  line    | 连接中...
+airplay_bridge.cpp      3062  line    | 未连接
+airplay_bridge.cpp      3153  value   | (未命名设备)
+airplay_bridge.cpp      3186  value   | (未命名设备)
+airplay_bridge.cpp      3251  value   | 音质  
+airplay_bridge.cpp      3289  value   | 无声音时待机  关闭
+airplay_bridge.cpp      3532  value   | 静音待机已关闭（滑块拉到 0）
+airplay_bridge.cpp      3798  value   | 检查更新失败（网络不可用或接口异常）

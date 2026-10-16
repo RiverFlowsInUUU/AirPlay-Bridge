@@ -91,6 +91,7 @@ const Entry kEntries[] = {
     {"AirPlay Bridge - 连接失败", "AirPlay Bridge - Connection failed"},
     {"AirPlay Bridge - 已断开（手动）", "AirPlay Bridge - Disconnected (manual)"},
     {"AirPlay Bridge - 未找到设备", "AirPlay Bridge - No devices found"},
+    {" 台设备", " devices"},
     {"AirPlay Bridge - 扫描中", "AirPlay Bridge - Scanning"},
     {"AirPlay Bridge - 启动失败", "AirPlay Bridge - Startup failed"},
     {"AirPlay Bridge - 找到 ", "AirPlay Bridge - Found "},
@@ -202,6 +203,14 @@ const Entry kEntries[] = {
     // ── 滑块窗口：按钮 / 单位 ──
     {"取消", "Cancel"},
     {"应用", "Apply"},
+    // ── 菜单状态行与父项标题（带尾随空格的按原样收录）──
+    {"音质  ", "Quality  "},
+    {"无声音时待机  ", "Standby when silent  "},
+    {"无声音时待机  关闭", "Standby when silent  Off"},
+    {"（直通）", "(passthrough)"},
+    {"（本机重采样，品质 ", "(resampled on this PC, quality "},
+    {"）", ")"},
+
     {"秒", "s"},
     {" 秒", " s"},
 

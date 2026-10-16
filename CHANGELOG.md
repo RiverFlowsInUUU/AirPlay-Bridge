@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.4.6] - 2026-10-16
+
+**中文**
+
+### 修复
+
+- 修复切换成英文后，托盘菜单里仍有部分文字保持中文的问题（顶部状态行、「音质」、
+  「无声音时待机」、设备列表里的「(未命名设备)」等）。
+
+**English**
+
+### Fixed
+
+- Fixed parts of the tray menu staying in Chinese after switching to English
+  (the status line at the top, Quality, Standby when silent, and "(unnamed device)"
+  in the device list).
+
 ## [1.4.5] - 2026-10-16
 
 **中文**
