@@ -198,6 +198,7 @@ enum : int {
     MENU_MUTE_LOCAL = 119,      // 连接时静音电脑扬声器（开关）
     MENU_HIDE_DEVICE = 120,     // 隐藏设备（子菜单）
     MENU_CAPTURE_DEVICE = 121,  // 采集哪一个音频端点（子菜单）
+    MENU_DEVICE_GROUP = 122,    // 设备（一级子菜单，含 选择/隐藏/采集 三项）
     MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
@@ -3046,6 +3047,14 @@ int main(int argc, char** argv) {
             // "选择设备"是个真子菜单（向右展开），内容来自缓存的设备列表。
             // 之所以要缓存：Windows 的菜单树必须在弹出前一次建好，
             // 没法在展开的那一刻去扫网段。
+            // 「设备」一级子菜单：把 选择设备 / 隐藏设备 / 采集设备 收进来。
+            //
+            // 为什么可以收成三级：这三项都是**低频**的 —— 程序本来就会自动
+            // 连上次的设备，用户配好一次基本不再动。家里也就一两台设备，
+            // 不存在频繁切换。所以多两级展开可以接受，换来的是一级菜单更短。
+            TrayMenuItem devGroup;
+            devGroup.id = MENU_DEVICE_GROUP;
+            devGroup.label = "设备";
             {
                 TrayMenuItem devItem;
                 devItem.id = MENU_DEVICES;
@@ -3068,7 +3077,7 @@ int main(int argc, char** argv) {
                 }
                 devItem.children.push_back({"", 0, true, true, false});
                 devItem.children.push_back({"重新扫描", MENU_RESCAN_SUB, true, false, false});
-                menu.push_back(std::move(devItem));
+                devGroup.children.push_back(std::move(devItem));
             }
 
             // 「隐藏设备」子菜单 —— 列出**全部**扫到的设备，勾选 = 显示。
@@ -3106,7 +3115,7 @@ int main(int argc, char** argv) {
                         hideItem.children.push_back(std::move(d));
                     }
                 }
-                menu.push_back(std::move(hideItem));
+                devGroup.children.push_back(std::move(hideItem));
             }
 
             // 「采集设备」子菜单 —— 指定从哪个输出端点采声音。
@@ -3131,8 +3140,9 @@ int main(int argc, char** argv) {
                                  g_captureDevices[i].first);
                     capItem.children.push_back(std::move(d));
                 }
-                menu.push_back(std::move(capItem));
+                devGroup.children.push_back(std::move(capItem));
             }
+            menu.push_back(std::move(devGroup));
 
             // 延迟 / 音量 / 音质 —— 三个都是音频参数，都做成真子菜单。
             //
