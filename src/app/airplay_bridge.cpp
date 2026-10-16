@@ -136,6 +136,14 @@ constexpr int kStandbyMenuBase = 1500;   // 静音待机档位菜单 id = base +
 // 配置本身也是全局唯一的，放这里语义上并不别扭。
 std::string g_captureDeviceId;
 
+// 当前是否处于「虚拟声卡接管」状态。
+//
+// 接管时程序会把默认输出设备切到虚拟声卡，系统声音全部流向它 ——
+// 这时必须采默认设备（也就是虚拟声卡）才能拿到声音。
+// 用户指定的采集端点在这个模式下没有意义，采它会「HomePod 没声音、
+// 电脑那边还在出声」（隔离也失效）。所以 start() 里要按这个标志跳过。
+std::atomic<bool> g_takeoverActive{false};
+
 std::vector<std::pair<std::string, std::string>> g_captureDevices;
 
 std::vector<AirPlayDevice> g_lastScanAll;
@@ -506,7 +514,11 @@ bool isOneShotToolArg() {
         L"--clean-firewall-rules",
         L"--uninstall-cleanup",
         L"--audio-devices",
-        L"--console",
+        // ⚠️ 不要加 --console。
+        //
+        // 它不是一次性工具参数 —— 它会起引擎、去连接收端（只是不显示托盘）。
+        // 放进来就等于允许两个实例同时抢同一个接收端，表现为互相踢、
+        // 声音反复中断。这跟本函数注释里那条「不碰接收端」直接冲突。
     };
     for (const wchar_t* t : kTools) {
         if (wcsstr(cmd, t)) {
@@ -1959,14 +1971,17 @@ struct Session {
         if (producer.joinable()) producer.join();
         producer = std::thread();
 
-        // 音频采集。默认采集"所有活动的输出设备"并混音 ——
+        // 音频采集。默认采**系统默认输出设备**这一路 ——
+        //（WasapiCaptureConfig 的 mode 是 DefaultOnly；多设备混音的实现
+        //  另有未解决的问题，没有启用。）
         // 这样即使某个应用（比如浏览器）被单独指到了别的声卡，
         // 它的声音也能抓到，用户不用去音量合成器里改输出。
         {
             WasapiCaptureConfig wcfg;
             // 用户指定了采集端点就用它（空 = 跟随系统默认输出设备）。
             // 配置里存的是 UTF-8，COM 需要宽字符。
-            if (!g_captureDeviceId.empty()) {
+            // 接管中一律跟随默认设备（见 g_takeoverActive 的说明）。
+            if (!g_takeoverActive.load() && !g_captureDeviceId.empty()) {
                 const int need = MultiByteToWideChar(
                     CP_UTF8, 0, g_captureDeviceId.c_str(), -1, nullptr, 0);
                 if (need > 1) {
@@ -2017,6 +2032,7 @@ struct Session {
                     if (cur.find("CABLE") == std::string::npos) {
                         if (setDefaultRenderDevice("CABLE Input")) {
                             savedRenderDevice = cur;
+                            g_takeoverActive.store(true);   // 见 g_takeoverActive 的说明
                             // 落盘记录，这样即使我们崩了，下次启动也能恢复
                             if (!cfgPath.empty()) {
                                 BridgeConfig tmp;
@@ -2219,6 +2235,7 @@ struct Session {
         if (!savedRenderDevice.empty()) {
             setDefaultRenderDevice(savedRenderDevice);
             savedRenderDevice.clear();
+            g_takeoverActive.store(false);
             // 正常恢复了，清掉落盘标记
             if (!cfgPath.empty()) {
                 BridgeConfig tmp;
@@ -2510,6 +2527,7 @@ int main(int argc, char** argv) {
         else if (a == "--clean-firewall-rules") { wantCleanFirewall = true; wantTray = false; }
         else if (a == "--uninstall-cleanup") { wantUninstallCleanup = true; wantTray = false; }
         else if (a == "--quiet")     wantQuiet = true;
+
         else if (a == "--audio-devices") { wantAudioDevices = true; wantTray = false; }
         else if (a == "--set-default" && i + 1 < argc) {
             setDefaultArg = argv[++i];
@@ -2617,6 +2635,16 @@ int main(int argc, char** argv) {
     // 只做一次 —— 菜单树必须在弹出前建好，展开时才去枚举 COM 会卡。
     // 插拔设备后要刷新的话，重启程序即可（这类操作极罕见）。
     g_captureDeviceId = cfg.captureDeviceId;
+
+    // 「连接时静音电脑扬声器」的崩溃恢复 ——
+    // 和 preCaptureDevice 同一个模式：正常退出会清掉这个标记，
+    // 启动时看到它还在，说明上次是被强杀的，端点多半还静着。
+    if (cfg.localMutedByUs) {
+        logLine("检测到上次异常退出时电脑扬声器仍处于静音，正在恢复");
+        setSystemMuted(false);
+        cfg.localMutedByUs = false;
+        saveConfig(cfgPath, cfg);
+    }
     g_captureDevices = listRenderDevicesWithId();
 
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
@@ -2752,7 +2780,8 @@ int main(int argc, char** argv) {
         tray.setTooltip(tip);
         logLine(s);
     };
-    sess.onConnected = [&tray, &cfg](bool ok) {
+    // 捕获 cfgPath：下面「静音扬声器」那几条要落盘（崩溃恢复用）。
+    sess.onConnected = [&tray, &cfg, &cfgPath](bool ok) {
         tray.setConnected(ok);
         // tooltip 的"基础文案"跟着图标一起走 —— 这两者必须始终一致，
         // 分成两条独立的路就一定会有一条被漏掉。
@@ -2770,17 +2799,28 @@ int main(int argc, char** argv) {
         //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
         //     已经静音的端点也必须还回去。
         if (ok) {
+            logLine("DIAG-M 静音检查: switch=" + std::to_string(cfg.muteLocalOnConnect ? 1 : 0) +
+                    " 接管中=" + std::to_string(cfg.preCaptureDevice.empty() ? 0 : 1) +
+                    " 本进程已静音=" + std::to_string(g_mutedByUs.load() ? 1 : 0) +
+                    " 端点原本静音=" + std::to_string(isSystemMuted() ? 1 : 0));
             if (cfg.muteLocalOnConnect && cfg.preCaptureDevice.empty() &&
                 !g_mutedByUs.load()) {
                 g_wasMutedBefore.store(isSystemMuted());
                 if (!g_wasMutedBefore.load() && setSystemMuted(true)) {
                     g_mutedByUs.store(true);
+                    // 落盘：万一进程被强杀，下次启动能据此把端点还回去。
+                    cfg.localMutedByUs = true;
+                    saveConfig(cfgPath, cfg);
                     logLine("已静音电脑扬声器（断开时自动恢复）");
                 }
             }
         } else if (g_mutedByUs.load()) {
             setSystemMuted(false);
             g_mutedByUs.store(false);
+            if (cfg.localMutedByUs) {
+                cfg.localMutedByUs = false;
+                saveConfig(cfgPath, cfg);
+            }
             logLine("已恢复电脑扬声器的声音");
         }
     };

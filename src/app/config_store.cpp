@@ -148,6 +148,7 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.muteLocalOnConnect =
         jsonGetBool(j, "muteLocalOnConnect", out.muteLocalOnConnect);
     out.captureDeviceId = jsonGetString(j, "captureDeviceId");
+    out.localMutedByUs = jsonGetBool(j, "localMutedByUs", out.localMutedByUs);
 
     if (out.standbyTenths < 0)   out.standbyTenths = 0;
     if (out.standbyTenths > 200) out.standbyTenths = 200;
@@ -204,6 +205,8 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
           << (cfg.muteLocalOnConnect ? "true" : "false") << "," << char(10);
         f << "  " << QC << "captureDeviceId" << QC << ": " << QC
           << escapeJson(cfg.captureDeviceId) << QC << "," << char(10);
+        f << "  " << QC << "localMutedByUs" << QC << ": "
+          << (cfg.localMutedByUs ? "true" : "false") << "," << char(10);
     }
     f << "  \"ignoredDeviceIds\": [";
     for (size_t i = 0; i < cfg.ignoredDeviceIds.size(); ++i) {

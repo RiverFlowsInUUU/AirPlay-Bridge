@@ -57,6 +57,12 @@ struct BridgeConfig {
     bool        muteLocalOnConnect = true;
     // 指定采集哪一个音频端点（设备 id）。空 = 跟随系统默认输出设备。
     std::string captureDeviceId;
+    // 「连接时静音电脑扬声器」是否由我们置上的。
+    //
+    // 和 preCaptureDevice 同一个用途：落盘记录，这样即使程序被强杀
+    // （退出兜底没跑到），下次启动也能看出「上次我们把端点静音了、
+    // 但没来得及恢复」并把它还回去。否则用户会以为电脑没声音了。
+    bool        localMutedByUs = false;
 };
 
 // 静音待机是否真的启用。
