@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.4.5] - 2026-10-16
+
+**中文**
+
+### 修改
+
+- 系统通知改用本程序自己的图标，不再显示成灰色的默认图标。
+- 「更多设置」里「语言」移到「日志」上方。
+
+**English**
+
+### Changed
+
+- System notifications now use the app's own icon instead of a grey default.
+- Moved Language above Logs in More settings.
+
 ## [1.4.4] - 2026-10-16
 
 **中文**

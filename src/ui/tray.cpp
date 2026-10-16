@@ -12,6 +12,7 @@
 #include "darkmode.h"
 
 #include <windows.h>
+#include <shobjidl_core.h>   // SetCurrentProcessExplicitAppUserModelID
 #include <shellapi.h>
 
 #include <cmath>
@@ -33,6 +34,18 @@ UINT g_taskbarCreatedMsg = 0;
 NOTIFYICONDATAW g_lastNid{};      // 记住最后一次注册的参数，便于重建
 bool g_haveNid = false;
 constexpr UINT ID_TRAY_ICON     = 1;
+
+// 让 Windows 知道"这是哪个应用"。
+//
+// 不设的话，系统通知没有归属的应用标识，只能拿通用图标顶上（灰扑扑的）；
+// 任务栏分组、通知中心里的应用名也会显示成 exe 文件名。
+// 这个 ID 是进程内的自我声明，不需要注册表配合。
+void declareAppUserModelId() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    SetCurrentProcessExplicitAppUserModelID(L"RiverFlowsInUUU.AirPlayBridge");
+}
 
 // 动态生成一个圆点图标（连接=绿，未连接=灰）
 HICON makeDotIcon(bool connected) {
@@ -287,6 +300,7 @@ bool TrayIcon::create(const std::string& tooltip) {
     // 菜单跟随系统深浅色（Windows 11 深色模式下原生菜单本来是白的）
     darkmode::applyToWindow(d_->hwnd, darkmode::isDark());
 
+    declareAppUserModelId();   // 必须在注册托盘图标之前
     d_->iconConnected = loadTrayIcon(102, true);
     d_->iconIdle      = loadTrayIcon(103, false);
     d_->current       = d_->iconIdle;
@@ -354,10 +368,23 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     nid.cbSize = sizeof(nid);
     nid.hWnd = d_->hwnd;
     nid.uID = ID_TRAY_ICON;
-    nid.uFlags = NIF_INFO;
+
+    // 通知图标必须自己指定，否则用系统通用图标（灰的）。
+    //
+    // 原来 dwInfoFlags = NIIF_NONE 且不给 hBalloonIcon —— Windows 10/11
+    // 把托盘气泡转成系统 toast，没图标就顶一个灰的通用图标，跟托盘的
+    // 橘橙色完全不搭。
+    //
+    // 用 102（已连接那枚，橘橙）而不是 d_->current：通知在任何状态下都可能
+    // 发，图标不该随连接状态变 —— 它代表"这个程序"，不是"当前已连接"。
+    nid.uFlags = NIF_INFO | NIF_ICON;
+    nid.hIcon = d_->iconConnected;
+    nid.hBalloonIcon = d_->iconConnected;
+    nid.dwInfoFlags = NIIF_USER;
     MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nid.szInfo, 255);
     MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, nid.szInfoTitle, 63);
-    nid.dwInfoFlags = NIIF_NONE;
+    // 不要再写 nid.dwInfoFlags —— 上面已设为 NIIF_USER（用我们自己的图标），
+    // 这里再赋值会把 NIIF_USER 盖掉，图标又变回系统那个灰的。
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 

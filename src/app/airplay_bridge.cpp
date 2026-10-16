@@ -3318,8 +3318,7 @@ int main(int argc, char** argv) {
                 adv.children.push_back({i18n::tr("开机自启"), MENU_AUTOSTART,
                                         true, false, isAutoStartEnabled()});
 
-                adv.children.push_back({i18n::tr("日志"), MENU_OPEN_LOG});
-
+                // 语言排在「日志」之上：它比翻日志更常被点。
                 // 语言：用各语言自己的写法作项名 —— 中文用户找「中文」、
                 // 英文用户找「English」，都不需要先看懂另一种语言。
                 {
@@ -3335,6 +3334,8 @@ int main(int argc, char** argv) {
                                              cur == i18n::Lang::En});
                     adv.children.push_back(std::move(lang));
                 }
+
+                adv.children.push_back({i18n::tr("日志"), MENU_OPEN_LOG});
 
                 menu.push_back(std::move(adv));
             }
