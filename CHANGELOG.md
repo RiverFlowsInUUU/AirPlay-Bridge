@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.53] - 2026-10-16
+
+### Added
+
+- 日志新增「采集电平」：每 5 秒记录一次采集到的最大峰值，用于定位杂音、爆音与误判静音。
+
 ## [1.2.52] - 2026-10-16
 
 ### Fixed

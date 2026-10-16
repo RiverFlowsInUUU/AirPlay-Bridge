@@ -1245,6 +1245,11 @@ std::atomic<bool> g_notifyIfNoDevice{false};
 // 两个都记下来，主循环每秒汇总一次（见 logAudioHealth）。
 std::atomic<uint64_t> g_ringDroppedFrames{0};   // 推不进环、被丢掉的帧数
 std::atomic<uint64_t> g_clippedSamples{0};      // 峰值触顶（可能削波）的样本数
+// 诊断用：本窗口内采集到的最大峰值。
+// 排查「杂音/爆音」时必须知道**采集侧到底有多大电平** ——
+// 如果一直是 0 或接近 0，那问题在采集（比如把音频送到一个没接设备的
+// 数字输出上，系统几乎不渲染），而不在后续链路。
+std::atomic<int> g_peakWindowMax{0};
 
 constexpr int kFirewallHintAfterFails = 3;
 
@@ -1919,6 +1924,7 @@ struct Session {
                 const bool pushing = connected.load();
 
                 if (peak >= 32700) g_clippedSamples.fetch_add(1);
+                if (peak > g_peakWindowMax.load()) g_peakWindowMax.store(peak);
 
                 if (peak >= kSilencePeak) {
                     lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -3229,6 +3235,13 @@ int main(int argc, char** argv) {
                             " 帧推不进缓冲环（音频不连续，会造成爆音）");
                     lastDropped = dNow;
                 }
+                // 采集电平：诊断期间每窗口都记一条（看清链路才有得判断）。
+                {
+                    const int pk = g_peakWindowMax.exchange(0);
+                    logLine("采集电平：本 5 秒最大峰值 " + std::to_string(pk) +
+                            "（静音阈值 " + std::to_string(kSilencePeak) + "）");
+                }
+
                 if (cNow != lastClipped) {
                     logLine("音频削波：累计 " + std::to_string(cNow) +
                             " 次峰值触顶（系统混音可能过载，会产生失真）");
