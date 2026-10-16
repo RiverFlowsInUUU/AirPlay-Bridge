@@ -43,4 +43,9 @@ bool setDefaultRenderDevice(const std::string& nameSubstring);
 // 列出所有活动输出设备名
 std::vector<std::string> listRenderDevices();
 
+// 输出端点列表，返回 (设备 id, 友好名)。
+// 菜单要 id（唯一、可持久化），显示要名字 —— 所以两个都要。
+// id 取自 IMMDevice::GetId，形如 "{0.0.0.00000000}.{...}"。
+std::vector<std::pair<std::string, std::string>> listRenderDevicesWithId();
+
 } // namespace fxchain

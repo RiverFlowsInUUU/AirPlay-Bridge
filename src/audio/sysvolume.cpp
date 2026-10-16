@@ -199,6 +199,42 @@ std::string getDefaultRenderDeviceName() {
     return out;
 }
 
+std::vector<std::pair<std::string, std::string>> listRenderDevicesWithId() {
+    std::vector<std::pair<std::string, std::string>> out;
+
+    ComPtr<IMMDeviceEnumerator> en;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                IID_PPV_ARGS(&en)))) return out;
+
+    ComPtr<IMMDeviceCollection> coll;
+    if (FAILED(en->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &coll))) return out;
+
+    UINT32 n = 0;
+    coll->GetCount(&n);
+    for (UINT32 i = 0; i < n; ++i) {
+        ComPtr<IMMDevice> d;
+        if (FAILED(coll->Item(i, &d))) continue;
+
+        std::string id, name;
+        LPWSTR wid = nullptr;
+        if (SUCCEEDED(d->GetId(&wid)) && wid) {
+            id = wideToUtf8(wid);
+            CoTaskMemFree(wid);
+        }
+        ComPtr<IPropertyStore> ps;
+        if (SUCCEEDED(d->OpenPropertyStore(STGM_READ, &ps))) {
+            PROPVARIANT pv;
+            PropVariantInit(&pv);
+            if (SUCCEEDED(ps->GetValue(PKEY_Device_FriendlyName, &pv)) &&
+                pv.vt == VT_LPWSTR)
+                name = wideToUtf8(pv.pwszVal);
+            PropVariantClear(&pv);
+        }
+        if (!id.empty()) out.emplace_back(id, name);
+    }
+    return out;
+}
+
 std::vector<std::string> listRenderDevices() {
     std::vector<std::string> out;
 

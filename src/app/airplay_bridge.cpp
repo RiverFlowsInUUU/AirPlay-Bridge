@@ -81,8 +81,8 @@ struct LatencyLevel { int ms; const char* label; };
 // 此前默认 150ms、还提供 120ms 档 —— 都在下限以下。实测 120ms 爆音明显、
 // 150ms 有间歇性爆音，调到 250ms 以上才干净。
 const LatencyLevel kLatencyLevels[] = {
-    { 150,  "150ms" },
-    { 200,  "200ms" },
+    { 150,  "150ms（低延迟）" },
+    { 200,  "200ms（较平衡）" },
     { 250,  "250ms（推荐）" },
     { 300,  "300ms（更稳）" },
 };
@@ -117,6 +117,35 @@ constexpr int kQualityMenuBase = 1300;   // 音质档位菜单 id = base + index
 constexpr int kDeviceMenuBase  = 1400;   // 设备列表菜单 id = base + index
 constexpr int kLatencyMenuBase = 1100;   // 档位菜单 id = base + index
 constexpr int kStandbyMenuBase = 1500;   // 静音待机档位菜单 id = base + index
+// 隐藏设备 / 采集端点的子项 id 基址（和设备数量无关，各留 100 个位置）
+// 「连接时静音电脑扬声器」用到的状态。
+//
+// g_mutedByUs     —— 是我们把端点静音了吗（只有自己静音的才负责恢复）
+// g_wasMutedBefore —— 静音之前用户本来的状态（他本来就静音的话，断开时别给打开）
+// 最近一次扫描的**未过滤**设备列表。
+//
+// 「选择设备」列表用的是过滤后的结果（被隐藏的不出现）；
+// 但「隐藏设备」子菜单必须能看到**全部**，否则被隐藏的设备
+// 就再也没有入口可以取消隐藏了 —— 用户会以为它消失了。
+// 可选采集端点（设备 id + 友好名）。启动时枚举一次 ——
+// 菜单树必须在弹出前一次建好，不能等到展开子菜单时再去枚举 COM。
+// 当前生效的采集端点 id（UTF-8）。空 = 跟随系统默认输出设备。
+//
+// 为什么用全局而不是 Session 成员：Session::start() 每次重连都会被调用，
+// 而它的调用点分散在 main 的多个 lambda 里，逐个传参会牵动一大片。
+// 配置本身也是全局唯一的，放这里语义上并不别扭。
+std::string g_captureDeviceId;
+
+std::vector<std::pair<std::string, std::string>> g_captureDevices;
+
+std::vector<AirPlayDevice> g_lastScanAll;
+std::mutex                 g_lastScanAllMutex;
+
+std::atomic<bool> g_mutedByUs{false};
+std::atomic<bool> g_wasMutedBefore{false};
+
+constexpr int kHideDeviceMenuBase    = 1600;
+constexpr int kCaptureDeviceMenuBase = 1700;
 
 // 静音自动待机的固定档位（内部单位是十分之一秒）。
 // 更短的档位（0/1/3 秒）实测体验很差 —— 一停就断，换歌和安静段落都会误触，
@@ -158,6 +187,9 @@ enum : int {
     MENU_STANDBY_CUSTOM = 115,   // 自定义静音待机（无极滑块）
     MENU_FIX_FIREWALL = 116,   // 修复连接问题（一键加入站放行规则）
     MENU_CHECK_UPDATE = 118,   // 检查更新（紧邻「关于」上方）
+    MENU_MUTE_LOCAL = 119,      // 连接时静音电脑扬声器（开关）
+    MENU_HIDE_DEVICE = 120,     // 隐藏设备（子菜单）
+    MENU_CAPTURE_DEVICE = 121,  // 采集哪一个音频端点（子菜单）
     MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
@@ -1888,7 +1920,21 @@ struct Session {
         // 音频采集。默认采集"所有活动的输出设备"并混音 ——
         // 这样即使某个应用（比如浏览器）被单独指到了别的声卡，
         // 它的声音也能抓到，用户不用去音量合成器里改输出。
-        capture = std::make_unique<WasapiCapture>(WasapiCaptureConfig{});
+        {
+            WasapiCaptureConfig wcfg;
+            // 用户指定了采集端点就用它（空 = 跟随系统默认输出设备）。
+            // 配置里存的是 UTF-8，COM 需要宽字符。
+            if (!g_captureDeviceId.empty()) {
+                const int need = MultiByteToWideChar(
+                    CP_UTF8, 0, g_captureDeviceId.c_str(), -1, nullptr, 0);
+                if (need > 1) {
+                    wcfg.deviceId.resize(static_cast<size_t>(need - 1));
+                    MultiByteToWideChar(CP_UTF8, 0, g_captureDeviceId.c_str(),
+                                        -1, wcfg.deviceId.data(), need);
+                }
+            }
+            capture = std::make_unique<WasapiCapture>(wcfg);
+        }
         setPhase(PHASE_CAPTURE_OPEN);   // 打点：开采集设备可能耗时
         if (!capture->open(&err)) {
             capture.reset();   // 失败路径不留半成品
@@ -2260,7 +2306,14 @@ bool resolveDevice(Session& sess, const BridgeConfig& cfg,
         // 复用缓存：跳过那 2.5 秒的同步扫描
     } else {
         setPhase(PHASE_SCAN);   // 打点：这里是唯一会同步扫网段的地方
-        discovered = filterDevices(discoverAirPlayDevices(2500), cfg);
+        {
+            std::vector<AirPlayDevice> all = discoverAirPlayDevices(2500);
+            {
+                std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
+                g_lastScanAll = all;
+            }
+            discovered = filterDevices(all, cfg);
+        }
         lastScanMs = steadyNowMs();
     }
     if (discovered.empty()) return false;
@@ -2518,6 +2571,12 @@ int main(int argc, char** argv) {
     // 菜单里这种情况由「自定义（滑块）」那一项承接勾选（见菜单构建处）。
     if (volume < 0) volume = cfg.volume;
 
+    // 枚举可选采集端点，供托盘菜单使用。
+    // 只做一次 —— 菜单树必须在弹出前建好，展开时才去枚举 COM 会卡。
+    // 插拔设备后要刷新的话，重启程序即可（这类操作极罕见）。
+    g_captureDeviceId = cfg.captureDeviceId;
+    g_captureDevices = listRenderDevicesWithId();
+
     // 把加载到的设置写进日志 —— 用户能确认"上次调的值记住了"。
     logLine("已加载设置: 音量 " + std::to_string(cfg.volume) + "%" +
             ", 延迟 " + std::to_string(cfg.latencyMs) + "ms" +
@@ -2651,13 +2710,37 @@ int main(int argc, char** argv) {
         tray.setTooltip(tip);
         logLine(s);
     };
-    sess.onConnected = [&tray](bool ok) {
+    sess.onConnected = [&tray, &cfg](bool ok) {
         tray.setConnected(ok);
         // tooltip 的"基础文案"跟着图标一起走 —— 这两者必须始终一致，
         // 分成两条独立的路就一定会有一条被漏掉。
         // 具体状态（失败原因、断开原因）稍后由 onStatus 覆盖上去。
         tray.setTooltip(ok ? "AirPlay Bridge - 已连接"
                            : "AirPlay Bridge - 未连接");
+
+        // 连接时静音电脑自己的扬声器，断开时恢复。
+        //
+        // 三条边界：
+        //  1. 只在**没走虚拟声卡接管**时做 —— 接管中默认端点已经是虚拟设备，
+        //     用户本来就听不到，静音它没有意义（而且会污染我们的判断）。
+        //  2. **用户本来就静音**的话，我们什么都不做 —— 断开时也不去打开，
+        //     那是他自己设的状态，不该被一个音频程序改掉。
+        //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
+        //     已经静音的端点也必须还回去。
+        if (ok) {
+            if (cfg.muteLocalOnConnect && cfg.preCaptureDevice.empty() &&
+                !g_mutedByUs.load()) {
+                g_wasMutedBefore.store(isSystemMuted());
+                if (!g_wasMutedBefore.load() && setSystemMuted(true)) {
+                    g_mutedByUs.store(true);
+                    logLine("已静音电脑扬声器（断开时自动恢复）");
+                }
+            }
+        } else if (g_mutedByUs.load()) {
+            setSystemMuted(false);
+            g_mutedByUs.store(false);
+            logLine("已恢复电脑扬声器的声音");
+        }
     };
 
     // 菜单打开期间继续推音频 IO。
@@ -2910,6 +2993,69 @@ int main(int argc, char** argv) {
                 menu.push_back(std::move(devItem));
             }
 
+            // 「隐藏设备」子菜单 —— 列出**全部**扫到的设备，勾选 = 显示。
+            //
+            // 为什么必须列全部：被隐藏的设备不出现在「选择设备」里，
+            // 如果这里也只列可见的，用户就再也没有入口把它放回来了 ——
+            // 那会变成「一隐藏就永远消失」。
+            {
+                TrayMenuItem hideItem;
+                hideItem.id = MENU_HIDE_DEVICE;
+                hideItem.label = "隐藏设备";
+                std::vector<AirPlayDevice> all;
+                {
+                    std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
+                    all = g_lastScanAll;
+                }
+                if (all.empty()) {
+                    hideItem.children.push_back({"尚未扫描到设备", 0, false, false, false});
+                } else {
+                    for (size_t i = 0; i < all.size(); ++i) {
+                        TrayMenuItem d;
+                        d.label = all[i].name.empty()
+                                      ? std::string("(未命名设备)")
+                                      : all[i].name;
+                        d.id = static_cast<int>(kHideDeviceMenuBase + i);
+                        // 勾选 = 显示中。取消勾选即隐藏。
+                        bool ignored = false;
+                        for (auto& ig : cfg.ignoredDeviceIds)
+                            if (!ig.empty() && ig == all[i].deviceId) {
+                                ignored = true; break;
+                            }
+                        d.checked = !ignored;
+                        // 没有 deviceId 的设备无法被记住，禁止操作。
+                        d.enabled = !all[i].deviceId.empty();
+                        hideItem.children.push_back(std::move(d));
+                    }
+                }
+                menu.push_back(std::move(hideItem));
+            }
+
+            // 「采集设备」子菜单 —— 指定从哪个输出端点采声音。
+            // 默认跟随系统默认输出设备（绝大多数人不用改）。
+            {
+                TrayMenuItem capItem;
+                capItem.id = MENU_CAPTURE_DEVICE;
+                capItem.label = "采集设备";
+                capItem.children.push_back({"跟随系统默认",
+                                           MENU_CAPTURE_DEVICE + 1000,
+                                           true, false,
+                                           cfg.captureDeviceId.empty()});
+                if (!g_captureDevices.empty())
+                    capItem.children.push_back({"", 0, true, true, false});
+                for (size_t i = 0; i < g_captureDevices.size(); ++i) {
+                    TrayMenuItem d;
+                    d.label = g_captureDevices[i].second.empty()
+                                  ? std::string("(未命名设备)")
+                                  : g_captureDevices[i].second;
+                    d.id = static_cast<int>(kCaptureDeviceMenuBase + i);
+                    d.checked = (cfg.captureDeviceId ==
+                                 g_captureDevices[i].first);
+                    capItem.children.push_back(std::move(d));
+                }
+                menu.push_back(std::move(capItem));
+            }
+
             // 延迟 / 音量 / 音质 —— 三个都是音频参数，都做成真子菜单。
             //
             // 内容都是固定的预设档位，不需要扫描，所以可以直接建成
@@ -3011,6 +3157,10 @@ int main(int argc, char** argv) {
                                        true, false, !sbOn});
                 menu.push_back(std::move(it));
             }
+            // 连接时静音电脑自己的扬声器 —— 独立开关，默认开。
+            // 只能在菜单里关，不在别处隐式关闭。
+            menu.push_back({"连接时静音电脑扬声器", MENU_MUTE_LOCAL,
+                            true, false, cfg.muteLocalOnConnect});
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
             menu.push_back({"打开日志文件夹", MENU_OPEN_LOG});
             menu.push_back({"检查更新", MENU_CHECK_UPDATE});
@@ -3025,6 +3175,60 @@ int main(int argc, char** argv) {
             setPhase(PHASE_MENU_OPEN);
             tray.showMenu(menu, [&](int id) {
                 // 设备列表里点了一项：直接连它。
+                // 「隐藏设备」子菜单的点击 —— 切换该设备的显示/隐藏。
+                if (id >= kHideDeviceMenuBase) {
+                    std::vector<AirPlayDevice> all;
+                    {
+                        std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
+                        all = g_lastScanAll;
+                    }
+                    const size_t idx =
+                        static_cast<size_t>(id - kHideDeviceMenuBase);
+                    if (idx < all.size() && !all[idx].deviceId.empty()) {
+                        const std::string& did = all[idx].deviceId;
+                        auto& v = cfg.ignoredDeviceIds;
+                        auto it = std::find(v.begin(), v.end(), did);
+                        if (it == v.end()) {
+                            v.push_back(did);
+                            logLine("已隐藏设备: " + all[idx].name);
+                        } else {
+                            v.erase(it);
+                            logLine("已恢复显示设备: " + all[idx].name);
+                        }
+                        saveConfig(cfgPath, cfg);
+                    }
+                    return;
+                }
+
+                // 「采集设备」子菜单的点击 —— 选中即保存并重连生效。
+                if (id == MENU_CAPTURE_DEVICE + 1000) {
+                    cfg.captureDeviceId.clear();
+                    g_captureDeviceId.clear();
+                    saveConfig(cfgPath, cfg);
+                    logLine("采集设备改为跟随系统默认，重连生效");
+                    if (sess.running.load()) {
+                        sess.teardown();
+                        tryConnect();
+                    }
+                    return;
+                }
+                if (id >= kCaptureDeviceMenuBase) {
+                    const size_t ci =
+                        static_cast<size_t>(id - kCaptureDeviceMenuBase);
+                    if (ci < g_captureDevices.size()) {
+                        cfg.captureDeviceId = g_captureDevices[ci].first;
+                        g_captureDeviceId = cfg.captureDeviceId;
+                        saveConfig(cfgPath, cfg);
+                        logLine("采集设备改为: " + g_captureDevices[ci].second +
+                                "，重连生效");
+                        if (sess.running.load()) {
+                            sess.teardown();
+                            tryConnect();
+                        }
+                    }
+                    return;
+                }
+
                 // 这些 id 在子菜单里（kDeviceMenuBase + 序号）。
                 if (id >= kDeviceMenuBase &&
                     id < kDeviceMenuBase + static_cast<int>(discovered.size())) {
@@ -3164,6 +3368,19 @@ int main(int argc, char** argv) {
                     return;
                 }
                 if (id == MENU_STANDBY) return;   // 父项，展开用，点它本身不做事
+
+                if (id == MENU_MUTE_LOCAL) {
+                    cfg.muteLocalOnConnect = !cfg.muteLocalOnConnect;
+                    saveConfig(cfgPath, cfg);
+                    // 关掉开关时如果端点还静着，立刻还回去 ——
+                    // 不能等下一次断开，那时用户已经在困惑电脑为什么没声音了。
+                    if (!cfg.muteLocalOnConnect &&
+                        g_mutedByUs.exchange(false)) {
+                        setSystemMuted(false);
+                        logLine("已恢复电脑扬声器的声音（开关关闭）");
+                    }
+                    return;
+                }
 
                 switch (id) {
                     case MENU_TOGGLE:
@@ -3490,6 +3707,9 @@ int main(int argc, char** argv) {
     if (watchdog.joinable()) watchdog.join();
 
     sess.teardown();
+    // 兜底：万一断开那条路没走到，退出前保证端点恢复原状，
+    // 否则用户会以为电脑没声音了。
+    if (g_mutedByUs.exchange(false)) setSystemMuted(false);
     tray.destroy();
     CoUninitialize();
     return 0;

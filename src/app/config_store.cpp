@@ -145,6 +145,9 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     // 首次运行引导有没有做过。
     // 走 jsonGetBool，不手写带转义的 key 字面量。
     out.askedAutoStart = jsonGetBool(j, "askedAutoStart", out.askedAutoStart);
+    out.muteLocalOnConnect =
+        jsonGetBool(j, "muteLocalOnConnect", out.muteLocalOnConnect);
+    out.captureDeviceId = jsonGetString(j, "captureDeviceId");
 
     if (out.standbyTenths < 0)   out.standbyTenths = 0;
     if (out.standbyTenths > 200) out.standbyTenths = 200;
@@ -197,6 +200,10 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
           << cfg.standbyTenths << "," << char(10);
         f << "  " << QC << "askedAutoStart" << QC << ": "
           << (cfg.askedAutoStart ? "true" : "false") << "," << char(10);
+        f << "  " << QC << "muteLocalOnConnect" << QC << ": "
+          << (cfg.muteLocalOnConnect ? "true" : "false") << "," << char(10);
+        f << "  " << QC << "captureDeviceId" << QC << ": " << QC
+          << escapeJson(cfg.captureDeviceId) << QC << "," << char(10);
     }
     f << "  \"ignoredDeviceIds\": [";
     for (size_t i = 0; i < cfg.ignoredDeviceIds.size(); ++i) {

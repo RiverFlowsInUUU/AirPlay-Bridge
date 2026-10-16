@@ -277,8 +277,15 @@ bool WasapiCapture::open(std::string* errOut) {
     // （声音都进虚拟声卡了，采一台就够），所以暂不启用。
     if (cfg_.mode == CaptureMode::DefaultOnly) {
         ComPtr<IMMDevice> dev;
-        if (FAILED(impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &dev)))
-            return fail("no default playback device");
+        // 用户指定了某个输出端点就用它；没指定（或那个设备已经不在了）
+        // 就用系统默认。**回退而不是报错** —— 设备被拔掉、改名、
+        // 或者用户换了台机器，都不该让整个程序采集不了。
+        if (!cfg_.deviceId.empty())
+            impl_->enumerator->GetDevice(cfg_.deviceId.c_str(), &dev);
+        if (!dev) {
+            if (FAILED(impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &dev)))
+                return fail("no default playback device");
+        }
         targets.push_back(dev);
     } else {
         ComPtr<IMMDeviceCollection> coll;

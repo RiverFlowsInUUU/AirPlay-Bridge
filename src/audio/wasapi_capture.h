@@ -32,6 +32,12 @@ struct WasapiCaptureConfig {
     // 默认单设备（默认输出设备）。多设备混音实现有未解决的问题，
     // 见 wasapi_capture.cpp 里的说明；接管模式下也不需要。
     CaptureMode mode = CaptureMode::DefaultOnly;
+    // 指定采集哪个输出端点（设备 id，来自 IMMDevice::GetId）。
+    // 空 = 跟随系统默认输出设备。
+    //
+    // mode 仍保持 DefaultOnly —— 它表达的是「只采一路」，
+    // 而不是「必须采默认的那一路」。AllDevices 那条路仍未启用。
+    std::wstring deviceId;
     uint32_t    targetSampleRate = 44100;
     uint32_t    bufferMs         = 30;
 };
