@@ -3257,8 +3257,10 @@ int main(int argc, char** argv) {
                 adv.children.push_back({"静音本机输出", MENU_MUTE_LOCAL,
                                         true, false, cfg.muteLocalOnConnect});
 
-                // 登录时打开：macOS 的原话，比「开机自启」更像系统设置里的说法。
-                adv.children.push_back({"登录时打开", MENU_AUTOSTART,
+                // 开机自启：这里**不用** macOS 的「登录时打开」——
+                // 参考系统设置的措辞是为了更好懂，而中文 Windows 用户对
+                // 「开机自启」远比直译过来的说法熟。参考不等于照搬。
+                adv.children.push_back({"开机自启", MENU_AUTOSTART,
                                         true, false, isAutoStartEnabled()});
 
                 adv.children.push_back({"日志", MENU_OPEN_LOG});
