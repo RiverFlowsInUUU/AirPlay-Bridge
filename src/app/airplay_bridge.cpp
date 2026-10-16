@@ -1303,18 +1303,121 @@ bool setAutoStart(bool enable) {
     return rc == ERROR_SUCCESS;
 }
 
-bool isAutoStartEnabled() {
+// 读「开机自启」注册表项，返回它里面记的 exe 路径。空 = 没有这一项。
+//
+// 值的格式是 "<exe 全路径>" --last —— 引号里是路径，后面跟着启动参数。
+std::string autoStartExePath() {
     HKEY key = nullptr;
     const char* runKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     if (RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
-        return false;
-    char buf[1024] = {};
+        return std::string();
+
+    char buf[2048] = {};
     DWORD sz = sizeof(buf);
     DWORD type = 0;
-    LONG rc = RegQueryValueExA(key, "AirPlayBridge", nullptr, &type,
-                               reinterpret_cast<BYTE*>(buf), &sz);
+    const char* valueName = "AirPlayBridge";
+    const LONG rc = RegQueryValueExA(key, valueName, nullptr, &type,
+                                     reinterpret_cast<BYTE*>(buf), &sz);
     RegCloseKey(key);
-    return rc == ERROR_SUCCESS;
+    if (rc != ERROR_SUCCESS) return std::string();
+
+    const std::string v(buf);
+    if (!v.empty() && v[0] == static_cast<char>(34)) {   // 开头的引号
+        const size_t end = v.find(static_cast<char>(34), 1);
+        if (end == std::string::npos) return std::string();
+        return v.substr(1, end - 1);
+    }
+    const size_t sp = v.find(static_cast<char>(32));      // 无引号：取到第一个空格
+    return (sp == std::string::npos) ? v : v.substr(0, sp);
+}
+
+// 自启是否指向**当前这个 exe**。
+//
+// 只看「注册表里有没有这一项」是不够的 —— 自启项存的是 exe 的完整路径。
+// 用户换了目录、改了文件名、或者删掉旧文件之后，键还在，但它指向的是那个
+// 已经不存在的老文件：开机时 Windows 找不到它，会**静默跳过**；
+// 而菜单里「开机自启」照样打着勾，用户以为开着、实际从来没启动过。
+//
+// 所以必须同时比对路径：只有指向当前 exe 才算真的开着。
+bool isAutoStartEnabled() {
+    const std::string registered = autoStartExePath();
+    if (registered.empty()) return false;
+    const std::string cur = exePath();
+    if (cur.empty()) return false;
+    return _stricmp(registered.c_str(), cur.c_str()) == 0;
+}
+
+// 系统是否在「任务管理器 → 启动应用」里单独禁用过本项。
+//
+// Windows 把这类用户/系统决策记在 StartupApproved 里，是个二进制值：
+// 第一个字节偶数（02/06）表示禁用，奇数（03/07）表示启用；
+// 值不存在说明没被单独动过，按 Run 键本身生效。
+//
+// 这里只在需要时调用（日志诊断），取不到一律当作"没被禁用"——
+// 宁可漏报也不误报。
+bool autoStartDisabledBySystem() {
+    HKEY key = nullptr;
+    const char* k = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, k, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+        return false;
+    BYTE buf[64] = {};
+    DWORD sz = sizeof(buf);
+    DWORD type = 0;
+    const char* valueName = "AirPlayBridge";
+    const LONG rc = RegQueryValueExA(key, valueName, nullptr, &type, buf, &sz);
+    RegCloseKey(key);
+    if (rc != ERROR_SUCCESS || sz == 0) return false;
+    return (buf[0] % 2) == 0;
+}
+
+// 把开机自启的实际情况记进日志。
+//
+// 用户报「开机没有自启」时，光看代码猜不出是哪种 ——
+// 可能是从没开过、可能是路径失效、也可能是被系统在「启动应用」里禁用了。
+// 启动时记一笔，三种情况一眼可分。
+void logAutoStartStatus() {
+    const std::string registered = autoStartExePath();
+    if (registered.empty()) {
+        logLine("开机自启：未开启");
+        return;
+    }
+    const std::string cur = exePath();
+    const bool sameExe = !cur.empty() && _stricmp(registered.c_str(), cur.c_str()) == 0;
+    const bool fileExists = GetFileAttributesA(registered.c_str()) != INVALID_FILE_ATTRIBUTES;
+
+    if (!fileExists) {
+        logLine("开机自启：指向的文件已不存在（换位置或改名留下的旧记录）");
+    } else if (!sameExe) {
+        logLine("开机自启：指向的是另一个程序，本程序没有自启");
+    } else if (autoStartDisabledBySystem()) {
+        logLine("开机自启：已在系统的「启动应用」里被禁用");
+    } else {
+        logLine("开机自启：已开启");
+    }
+}
+
+// 启动时修一次已经失效的自启项。
+//
+// 只在「有这一项 且 它指向的文件已经不存在」时动手 —— 那明确是换位置留下的
+// 死路径。用户当初既然开了自启，把路径更新到当前这个 exe 正是他的意图，
+// 所以这里直接改，不弹窗打扰（只写一行日志）。
+//
+// 其它情况一律不碰：
+//   - 没有这一项               -> 用户没开过（或主动关了），不该替他打开
+//   - 指向的是另一个**存在**的文件 -> 那是另一个版本在用，别去抢
+void fixAutoStartIfStale() {
+    const std::string registered = autoStartExePath();
+    if (registered.empty()) return;                       // 没开过自启
+
+    if (GetFileAttributesA(registered.c_str()) != INVALID_FILE_ATTRIBUTES)
+        return;                                           // 那个文件还在，别动
+
+    const std::string cur = exePath();
+    if (cur.empty()) return;
+    if (_stricmp(registered.c_str(), cur.c_str()) == 0) return;
+
+    logLine("开机自启原本指向一个已不存在的文件，已更新为当前程序");
+    setAutoStart(true);
 }
 
 // ---- 设备过滤与显示 ----
@@ -2019,6 +2122,10 @@ int main(int argc, char** argv) {
     // 但托盘模式以外（--console 等）同样需要，所以只排除那两个内部开关
     //（--fix-firewall / --clean-firewall-rules，它们本来就在干这件事）。
     if (wantTray) {
+        // 自启项失效就顺手修正（静默，只写日志）。
+        // 放在防火墙检查之前：它不弹窗，不会跟后面那个提示抢注意力。
+        fixAutoStartIfStale();
+        logAutoStartStatus();
         checkFirewallRuleAtStartup();
     }
 
