@@ -883,6 +883,20 @@ void checkFirewallRuleAtStartup() {
         tip += L"AirPlay Bridge 还没有被防火墙放行。";
         tip += kNLw; tip += kNLw;
         tip += L"这会让声音连不上或频繁中断。";
+
+        // 如果本机存在指向**另一份副本**的放行规则，说清楚 ——
+        // 否则用户会疑惑「我明明配好了，怎么还提示」。
+        // 放行规则按 exe 完整路径记，两份副本会互相顶掉对方的设置：
+        // 谁点一次修复就把另一份的规则覆盖掉，于是两份轮流提示。
+        if (staleCount > 0) {
+            tip += kNLw; tip += kNLw;
+            logLine("启动检查: 检测到另一份副本占用了放行设置（两份会互相顶）");
+            tip += L"本机已有另一份 AirPlay Bridge 占用了放行设置。";
+            tip += kNLw;
+            tip += L"（安装版和免安装版同时留着就会这样，两份互相顶。）";
+            tip += kNLw;
+            tip += L"建议只保留一份，再点下面的修复。";
+        }
         wantFixOnYes = true;
     }
 
@@ -1899,6 +1913,11 @@ struct Session {
                 }
                 // 峰值触顶 = 波形可能已经被削平（系统混音过载）。
                 // 这跟静音判定无关，单独计数，主循环汇总。
+                // 丢帧只在「已连上、真的在推流」时才算 ——
+                // 没连上时采集照跑但没人消费，丢弃是正常的，
+                // 算进来会刷出「每 5 秒丢 4 秒音频」这种毫无意义的警报。
+                const bool pushing = connected.load();
+
                 if (peak >= 32700) g_clippedSamples.fetch_add(1);
 
                 if (peak >= kSilencePeak) {
@@ -1908,8 +1927,9 @@ struct Session {
                 }
                 if (!needResample) {
                     // 设备本来就是 44.1k，直接送
-                    if (!ring->tryPush(std::span<const int16_t>(d, n * 2)))
-                        g_ringDroppedFrames.fetch_add(n * 2);
+                    if (!ring->tryPush(std::span<const int16_t>(d, n * 2))) {
+                        if (pushing) g_ringDroppedFrames.fetch_add(n * 2);
+                    }
                     return;
                 }
                 // 转到 44.1k 再送。resampleBuf 复用，避免每回调都分配。
@@ -1917,8 +1937,9 @@ struct Session {
                 resampler.process(d, n, resampleBuf);
                 if (!resampleBuf.empty()) {
                     if (!ring->tryPush(std::span<const int16_t>(resampleBuf.data(),
-                                                       resampleBuf.size())))
-                        g_ringDroppedFrames.fetch_add(resampleBuf.size());
+                                                       resampleBuf.size()))) {
+                        if (pushing) g_ringDroppedFrames.fetch_add(resampleBuf.size());
+                    }
                 }
             });
         });
