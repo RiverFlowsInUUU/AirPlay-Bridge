@@ -169,10 +169,27 @@ cmake --build build --config Release --target airplay_bridge
 # 3. 提交并推送
 git add -A && git commit && git push
 
-# 4. 发版（单文件，直接挂 exe，不压缩）
-cp build/Release/airplay_bridge.exe /tmp/AirPlay-Bridge-vX.Y.Z.exe
-gh release create vX.Y.Z /tmp/AirPlay-Bridge-vX.Y.Z.exe \
-  --title "AirPlay Bridge vX.Y.Z" --notes-file /tmp/notes.md
+# 4. 打 tag 推上去 —— CI 会自动编译并出两个产物（exe + 安装包）
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+`.github/workflows/release.yml` 只在 tag 或手动触发时跑完整构建
+（平时不烧分钟数，理由见 check-patch.yml 的注释）。
+它会从 `CMakeLists.txt` 读版本号、用 Inno 打安装包、建 release。
+
+不想等 CI 也可以本机打（装了 Inno Setup 6 之后）：
+
+```bash
+ISCC.exe /DAppVersion=X.Y.Z installer\airplay-bridge.iss
 ```
 
 发版前确认 `CHANGELOG.md` 与 release notes 内容一致。
+
+### 安装脚本
+
+`installer/airplay-bridge.iss`。两个容易踩的点，注释里都写清了：
+
+- 卸载前的系统集成清理走 `InitializeUninstall` 事件，**不要用 `[UninstallRun]`**
+  —— 实测卸载阶段它的 `waituntilterminated` 不生效，130ms 后就把 exe 删了，
+  清理程序来不及跑完
+- 静默卸载时不能弹「要不要删配置」的询问框（没人回答，Inno 取默认值会误删）
