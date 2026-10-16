@@ -563,6 +563,8 @@ const char* const kFirewallRuleName = "AirPlay Bridge inbound UDP";
 // 前置声明：deleteFirewallRuleByName() 要用这两个，
 // 而它们的定义在下面（findStaleFirewallRules 依赖上面的常量与 exePath）。
 std::vector<std::wstring> findStaleFirewallRules();
+// 所有前缀匹配的规则名（不只「多余的」）—— 加规则前清场用。
+std::vector<std::wstring> findAllOurFirewallRules();
 bool deleteFirewallRuleByNameEx(const std::wstring& name);
 
 // netsh 的**完整路径** —— 不能只写 "netsh"。
@@ -645,8 +647,26 @@ std::string netshAddRuleArgs(bool useFullNetshPath) {
 // Range" 等）名字对不上前缀，一条都不会被碰到。用 findStaleFirewallRules()
 // 而不是自己拼 netsh 通配：它走 INetFwPolicy2 枚举 + 前缀比较，判据与
 // 启动检查完全同一套，不会出现"检查时算一条、删的时候删另一批"的错位。
+// ⚠️ 这个函数必须删掉**所有**前缀匹配的规则，不能只删「多余的」。
+//
+// 原因（实测踩到，导致放行规则归零）：
+//   1. netsh 的 `delete rule name="X"` 会把**同名的所有规则一起删**，
+//      没法只删其中一条 —— 所以「精确地只删多余那条」本来就做不到。
+//   2. 更糟的是加规则前若不把同名规则清干净，netsh add 会**再产生一条同名**。
+//      于是先删一条（结果两条都没了）、或者保留一条再新增（变成两条同名），
+//      两种情况最后都是一场空。
+//
+// 真实表现：覆盖安装时旧规则还在 → 加规则前没删掉它 → 变成两条同名 →
+// 随后「清理多余规则」按名字删 → **两条一起消失** → 放行规则 0 条 →
+// 接收端 UDP 回连被丢 → 连不上 + 每次启动都提示未被防火墙放行。
+//
+// 所以这里的语义就是「加规则前先把同名规则全部清掉」，然后干净地加一条。
 bool deleteFirewallRuleByName() {
-    const std::vector<std::wstring> ours = findStaleFirewallRules();
+    // ⚠️ 必须用「全部」而不是「多余的」。理由见上方那段长注释：
+    //   - netsh 按名字删会把同名的**一起删**，做不到"只删多余那条"
+    //   - 加规则前若不清干净同名规则，netsh add 会再产生一条同名 →
+    //     随后任何按名字的删除都会把它们一起删光 → 放行规则归零
+    const std::vector<std::wstring> ours = findAllOurFirewallRules();
     if (ours.empty()) return true;   // 本来就没有，等价于删成功
     bool ok = true;
     for (const std::wstring& name : ours) {
@@ -802,7 +822,7 @@ std::vector<std::wstring> findStaleFirewallRules() {
         const std::string p = exePath();
         const int need = MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, nullptr, 0);
         if (need > 1) {
-            curExe.resize(static_cast<size_t>(need - 1));
+            curExe.resize(static_cast<size_t>(need));
             MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, curExe.data(), need);
         }
     }
@@ -898,7 +918,7 @@ std::vector<std::wstring> findOtherCopies() {
         const std::string p8 = exePath();
         const int need = MultiByteToWideChar(CP_ACP, 0, p8.c_str(), -1, nullptr, 0);
         if (need > 1) {
-            curExe.resize(static_cast<size_t>(need - 1));
+            curExe.resize(static_cast<size_t>(need));
             MultiByteToWideChar(CP_ACP, 0, p8.c_str(), -1, curExe.data(), need);
         }
     }
@@ -934,6 +954,28 @@ std::vector<std::wstring> findOtherCopies() {
     return out;
 }
 
+// 列出**所有**前缀匹配的放行规则名（不只「多余的」）。
+//
+// 加规则前的清场要用它 —— 理由见 deleteFirewallRuleByName 上方那段。
+// 前缀比较的写法与 findStaleFirewallRules 完全一致，避免两处判据漂移。
+std::vector<std::wstring> findAllOurFirewallRules() {
+    std::vector<std::wstring> out;
+    const std::wstring prefix(
+        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR name = nullptr;
+        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+            const std::wstring w(name);
+            if (w.size() >= prefix.size() &&
+                w.compare(0, prefix.size(), prefix) == 0)
+                out.push_back(w);
+        }
+        if (name) SysFreeString(name);
+        return true;   // 收齐全部
+    });
+    return out;
+}
+
 // 删掉一条指定名字的放行规则（**只能删我们自己的名字** ——
 // 传进来的名字必须先确认过前缀，调用方负责）。
 //
@@ -959,7 +1001,7 @@ bool deleteFirewallRuleByNameEx(const std::wstring& name) {
         const int need = WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1,
                                              nullptr, 0, nullptr, nullptr);
         if (need > 1) {
-            narrow.resize(static_cast<size_t>(need - 1));
+            narrow.resize(static_cast<size_t>(need));
             WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1, narrow.data(),
                                 need, nullptr, nullptr);
         }
@@ -1928,7 +1970,7 @@ struct Session {
                 const int need = MultiByteToWideChar(
                     CP_UTF8, 0, g_captureDeviceId.c_str(), -1, nullptr, 0);
                 if (need > 1) {
-                    wcfg.deviceId.resize(static_cast<size_t>(need - 1));
+                    wcfg.deviceId.resize(static_cast<size_t>(need));
                     MultiByteToWideChar(CP_UTF8, 0, g_captureDeviceId.c_str(),
                                         -1, wcfg.deviceId.data(), need);
                 }
