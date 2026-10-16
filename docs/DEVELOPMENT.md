@@ -33,7 +33,8 @@ cmake -S . -B build -G "<本机生成器>" -A x64
 cmake --build build --config Release
 ```
 
-产物：`build/Release/airplay_bridge.exe` —— 单文件，静态链接 CRT，无需运行库。
+本机构建产物：`build/Release/airplay_bridge.exe`（单文件，静态链接 CRT）。
+**对用户交付的是安装包**，由 CI 打包，见「发布」。
 
 首次配置会拉取 Mbed TLS（约 190MB）。网络受限时改用本地已有源目录：
 
@@ -72,6 +73,8 @@ cmake --build build --config Release --target resampler_test
 
 改完照这个走，全绿才算完成。
 
+**第一步先确认被测二进制的版本号** —— 版本不对，后面所有「通过」都是假的。
+
 ```bash
 # 1. 干净克隆到临时目录，确认补丁在「已提交」状态下仍能应用
 git clone --recursive <repo> /tmp/verify && cd /tmp/verify
@@ -86,13 +89,14 @@ cmake --build build --config Release
 
 运行时验收（需要设备在线）：
 
-```bash
-# 串流稳定性：跑 120 秒，日志不应出现「连接断开」
-%LOCALAPPDATA%\AirPlayBridge\bridge.log
+运行 120 秒，读日志（**路径用资源管理器打开，不要粘进终端**）：
 
-# 接管模式：默认设备应自动切到 CABLE Input
-./build/Release/airplay_bridge.exe --audio-devices
-```
+| 看什么 | 在哪 |
+|---|---|
+| 串流稳定性 | 日志 `bridge.log`（在 `%LOCALAPPDATA%` 下的 `AirPlayBridge` 目录）
+  —— 不应出现「连接断开」 |
+| 接管模式 | 跑 `--audio-devices`，默认设备应切到 CABLE Input |
+
 
 要验「掉线后能不能恢复」，不用真拔网线 —— 先让它连上，再切断到接收端的流量：
 
@@ -128,6 +132,12 @@ netsh advfirewall firewall delete rule name="APB-BLOCK-TEST"
 | `--set-default <名>` | 切换默认播放设备 |
 | `--fix-firewall` | 加入站 UDP 放行规则（托盘菜单提权后拉起自己时用） |
 | `--clean-firewall-rules` | 删掉指向已失效文件的放行规则（同上） |
+| `--uninstall-cleanup` | 卸载前的系统集成清理（安装程序调，豁免单实例检测） |
+| `--quiet` | 配合上面几个用：不弹提示框，只写日志 |
+| `--volume <n>` | 直设音量百分比 |
+
+`--fix-firewall` / `--clean-firewall-rules` / `--uninstall-cleanup` / `--audio-devices` /
+`--console` **豁免单实例检测** —— 否则安装在程序正开着时会静默失败。
 
 ```bash
 airplay_bridge --audio-devices             列出音频设备及缓冲参数
@@ -169,7 +179,7 @@ cmake --build build --config Release --target airplay_bridge
 # 3. 提交并推送
 git add -A && git commit && git push
 
-# 4. 打 tag 推上去 —— CI 会自动编译并出两个产物（exe + 安装包）
+# 4. 打 tag 推上去 —— CI 自动编译并出安装包
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
