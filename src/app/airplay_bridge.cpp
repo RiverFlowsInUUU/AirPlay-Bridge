@@ -71,11 +71,20 @@ std::atomic<bool> g_stop{false};
 // 所以档位收在 120-150ms 这一段 —— 需要更大值的话用下面的"自定义"滑块。
 // 用户自己试出"不爆音的最低档"就是最优解。
 struct LatencyLevel { int ms; const char* label; };
+// ⚠️ 不要往 250ms 以下加档位当默认值。
+//
+// 端到端延迟决定接收端预先垫多少音频；垫得越少，网络和调度抖动越容易
+// 把缓冲掏空（underrun），听感就是爆音。上游源码里写得很明确：
+//「调小可以降低延迟，但太小会导致接收端 underrun（爆音）」
+// 并注明 0.25s 才是 AP2 的现实下限（shairport-sync 作者给出的约 250ms）。
+//
+// 此前默认 150ms、还提供 120ms 档 —— 都在下限以下。实测 120ms 爆音明显、
+// 150ms 有间歇性爆音，调到 250ms 以上才干净。
 const LatencyLevel kLatencyLevels[] = {
-    { 120,  "120ms" },
-    { 130,  "130ms" },
-    { 140,  "140ms" },
-    { 150,  "150ms（推荐）" },
+    { 150,  "150ms" },
+    { 200,  "200ms" },
+    { 250,  "250ms（推荐）" },
+    { 300,  "300ms（更稳）" },
 };
 constexpr int kLatencyLevelCount = sizeof(kLatencyLevels) / sizeof(kLatencyLevels[0]);
 
