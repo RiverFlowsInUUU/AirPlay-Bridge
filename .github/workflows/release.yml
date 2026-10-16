@@ -53,23 +53,24 @@ jobs:
       - name: 安装 Inno Setup
         run: choco install innosetup --no-progress -y
 
+      # 只发布安装版 —— 不再出免安装的裸 exe。
+      #
+      # 原因：防火墙放行规则和开机自启项都是按 exe 的**完整路径**记录的。
+      # 安装版永远落在同一个固定路径上，升级不会失效；而免安装版用户一换位置
+      # 或改名，两者的系统集成就全断。更麻烦的是两种版本同时留在机器上时，
+      # 两份路径不同 → 谁点一次「修复连接问题」就把对方的放行规则顶掉 →
+      # 两份轮流提示「未被防火墙放行」，永远修不好（v1.2.51 用户实际踩到）。
+      # 少一个分叉就少一类问题。
       - name: 打包安装程序
         shell: cmd
         run: |
           "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=${{ steps.ver.outputs.version }} installer\airplay-bridge.iss
-
-      - name: 裸 exe 改名（带版本号，方便用户分辨下载的是哪一版）
-        shell: bash
-        run: |
-          cp build/Release/airplay_bridge.exe "AirPlay-Bridge-v${{ steps.ver.outputs.version }}.exe"
-          ls -la "AirPlay-Bridge-v${{ steps.ver.outputs.version }}.exe"
 
       - name: 产物清单（人工核对用）
         shell: bash
         run: |
           echo "=== 本次产物 ==="
           ls -la dist/*.exe
-          ls -la AirPlay-Bridge-v*.exe
 
       - name: 从 CHANGELOG 提取本版说明
         id: notes
@@ -95,7 +96,6 @@ jobs:
           body_path: release-notes.md
           files: |
             dist/AirPlay-Bridge-Setup-v${{ steps.ver.outputs.version }}.exe
-            AirPlay-Bridge-v${{ steps.ver.outputs.version }}.exe
 
       - name: 手动触发时留存产物
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -104,4 +104,3 @@ jobs:
           name: AirPlay-Bridge-v${{ steps.ver.outputs.version }}
           path: |
             dist/AirPlay-Bridge-Setup-v*.exe
-            AirPlay-Bridge-v*.exe

@@ -12,14 +12,13 @@ TuneBlade 在 HomePod OS 27 失效后的替代方案。
 
 先装 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费，装完需重启）。
 
-然后从 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest) 里挑一个：
+从 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
+下载 `AirPlay-Bridge-Setup-vX.Y.Z.exe`，双击安装。
 
-| 版本 | 适合 |
-|---|---|
-| **安装版** `AirPlay-Bridge-Setup-vX.Y.Z.exe` | 一般用户。装到固定位置，**以后升级不用重新配置**，控制面板里有卸载入口 |
-| **免安装版** `AirPlay-Bridge-vX.Y.Z.exe` | 放 U 盘、临时试、不方便装软件的机器。双击就跑 |
+装到固定位置（`Program Files\AirPlayBridge`）。**以后升级不用重新配置** ——
+防火墙放行和开机自启都跟着这个位置走，换版本也不会失效。
 
-Windows 10 / 11，64 位。两个版本都是单个文件，不需要装运行库。
+Windows 10 / 11，64 位。安装包自带运行库，不需要单独安装。
 
 > 首次运行 Windows 可能拦一次，点「更多信息」→「仍要运行」。
 
