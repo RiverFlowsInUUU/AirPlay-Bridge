@@ -779,6 +779,7 @@ std::vector<std::wstring> findStaleFirewallRules() {
     // 不能边枚举边删 —— 分组 A 要「留下哪一条」得先看全同组的所有名字。
     std::vector<std::wstring> ours;      // 名字（前缀匹配的全部）
     std::vector<bool>        isCurrent;  // 与 ours 一一对应：是否指向当前 exe
+    std::vector<bool>        aliveOther; // 指向的是**另一个确实存在**的文件
 
     // 规则组是全局的、与 profile 无关，一趟枚举收齐。
     forEachFirewallRule([&](INetFwRule* rule) -> bool {
@@ -791,27 +792,47 @@ std::vector<std::wstring> findStaleFirewallRules() {
                 wide.compare(0, prefix.size(), prefix) == 0) {
                 BSTR appPath = nullptr;
                 bool sameAsCurrent = false;
+                bool otherFileExists = false;
                 if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
                     appPath) {
                     sameAsCurrent =
                         (_wcsicmp(appPath, curExe.c_str()) == 0);
+                    if (!sameAsCurrent) {
+                        otherFileExists =
+                            (GetFileAttributesW(appPath) !=
+                             INVALID_FILE_ATTRIBUTES);
+                    }
                 }
                 if (appPath) SysFreeString(appPath);
                 ours.push_back(wide);
                 isCurrent.push_back(sameAsCurrent);
+                aliveOther.push_back(otherFileExists);
             }
         }
         if (name) SysFreeString(name);
         return true;   // 收齐全部，不提前停
     });
 
-    // 每一组（指向当前 exe / 指向别处）各挑一条留下。
     // keep[i] = true 表示第 i 条要保留，其余收进待删列表。
     std::vector<bool> keep(ours.size(), false);
 
-    // 分组 B：指向别的 exe 的一条都不留。
+    // 分组 B：指向**别的** exe 的规则 —— 只有那个文件**已经不在了**才删。
+    //
+    // ⚠️ 这里曾经是「只要不指向当前 exe 就删」，后果很严重：
+    // 机器上同时留着两份副本时（比如换了安装目录但旧的没卸干净），
+    // 放行规则只能指向其中一份 —— 另一份每次启动都报「未被防火墙放行」，
+    // 而且**真的连不上**；用户点多少次「修复连接问题」都没用，
+    // 因为修复只会把规则抢到自己这边、下次打开另一份又重复。
+    //
+    // 现在按「文件还在不在」分：活着的另一份是条**合法的**放行，留着；
+    // 死路径才清。既不堆积垃圾，也不会把有效副本顶掉。
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (isCurrent[i]) continue;          // 指向当前 exe 的走分组 A
+        keep[i] = aliveOther[i];
+    }
+
     // 分组 A：只留一条 —— 优先"名字恰好是 kFirewallRuleName"的那条，
-    // 否则留枚举到的第一条（组内顺序无所谓，反正只留一条）。
+    // 否则留枚举到的第一条（同一份 exe 的重复规则，留一条就够）。
     size_t keepCurrentIdx = static_cast<size_t>(-1);
     for (size_t i = 0; i < ours.size(); ++i) {
         if (!isCurrent[i]) continue;
