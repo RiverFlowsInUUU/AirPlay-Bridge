@@ -173,8 +173,8 @@ constexpr int kStandbyLevelCount = sizeof(kStandbyLevels) / sizeof(kStandbyLevel
 std::string tenthsToSecsText(int tenths) {
     const int whole = tenths / 10;
     const int frac  = tenths % 10;
-    if (frac == 0) return std::to_string(whole) + " 秒";
-    return std::to_string(whole) + "." + std::to_string(frac) + " 秒";
+    if (frac == 0) return std::to_string(whole) + i18n::tr(" 秒");
+    return std::to_string(whole) + "." + std::to_string(frac) + i18n::tr(" 秒");
 }
 
 // 托盘菜单 ID
@@ -553,10 +553,10 @@ bool anotherInstanceIsRunning() {
 
     std::wstring title = L"AirPlay Bridge";
     std::wstring msg;
-    msg += L"已有 AirPlay Bridge 在运行。";
+    msg += i18n::trw("已有 AirPlay Bridge 在运行。");
     msg += static_cast<wchar_t>(10);
     msg += static_cast<wchar_t>(10);
-    msg += L"同时运行两个会导致声音反复中断，请先关闭另一个再启动本程序。";
+    msg += i18n::trw("同时运行两个会导致声音反复中断，请先关闭另一个再启动本程序。");
 
     // MB_SETFOREGROUND：托盘程序是后台进程，不加的话弹窗可能被压在
     // 别的窗口后面，用户只看到进程一闪而过，完全不知道发生了什么。
@@ -1090,9 +1090,9 @@ void checkFirewallRuleAtStartup() {
 
     if (!ruleOk) {
         logLine("启动检查: 本程序尚未被防火墙放行，可能影响连接");
-        tip += L"AirPlay Bridge 还没有被防火墙放行。";
+        tip += i18n::trw("AirPlay Bridge 还没有被防火墙放行。");
         tip += kNLw; tip += kNLw;
-        tip += L"这会让声音连不上或频繁中断。";
+        tip += i18n::trw("这会让声音连不上或频繁中断。");
 
         // 如果本机存在指向**另一份副本**的放行规则，说清楚 ——
         // 否则用户会疑惑「我明明配好了，怎么还提示」。
@@ -1105,7 +1105,7 @@ void checkFirewallRuleAtStartup() {
             logLine("启动检查: 检测到另一份副本占用了放行设置（两份会互相顶）");
             tip += kNLw; tip += kNLw;
             if (!others.empty()) {
-                tip += L"本机还有另一份 AirPlay Bridge，占着网络放行设置：";
+                tip += i18n::trw("本机还有另一份 AirPlay Bridge，占着网络放行设置：");
                 tip += kNLw;
                 for (size_t i = 0; i < others.size() && i < 2; ++i) {
                     tip += L"    ";
@@ -1113,17 +1113,17 @@ void checkFirewallRuleAtStartup() {
                     tip += kNLw;
                 }
                 tip += kNLw;
-                tip += L"两个文件不能同时用（放行设置只能指向一个），";
+                tip += i18n::trw("两个文件不能同时用（放行设置只能指向一个），");
                 tip += kNLw;
-                tip += L"而且会互相顶掉，所以每次打开都提示。";
+                tip += i18n::trw("而且会互相顶掉，所以每次打开都提示。");
                 tip += kNLw;
-                tip += L"请删掉上面那个不用的，再用你常用的这个打开。";
+                tip += i18n::trw("请删掉上面那个不用的，再用你常用的这个打开。");
             } else {
-                tip += L"本机已有另一份 AirPlay Bridge 占用了放行设置。";
+                tip += i18n::trw("本机已有另一份 AirPlay Bridge 占用了放行设置。");
                 tip += kNLw;
-                tip += L"（安装版和免安装版同时留着就会这样，两份互相顶。）";
+                tip += i18n::trw("（安装版和免安装版同时留着就会这样，两份互相顶。）");
                 tip += kNLw;
-                tip += L"建议只保留一份，再点下面的修复。";
+                tip += i18n::trw("建议只保留一份，再点下面的修复。");
             }
         }
         wantFixOnYes = true;
@@ -1134,10 +1134,10 @@ void checkFirewallRuleAtStartup() {
                 " 条多余的防火墙规则（同一条放行被重复添加，或指向旧文件）");
         // 已经有主提示时隔一行再追加，读起来是两段而不是一串。
         if (!tip.empty()) { tip += kNLw; tip += kNLw; }
-        tip += L"检测到 " + std::to_wstring(staleCount) +
-               L" 条多余的网络放行设置（重复添加，或指向已不存在或已更换位置的文件）。";
+        tip += i18n::trw("检测到 ") + std::to_wstring(staleCount) +
+               i18n::trw(" 条多余的网络放行设置（重复添加，或指向已不存在或已更换位置的文件）。");
         tip += kNLw; tip += kNLw;
-        tip += L"它们不影响使用，但会让系统里的设置变乱。";
+        tip += i18n::trw("它们不影响使用，但会让系统里的设置变乱。");
         wantCleanOnYes = true;
     }
 
@@ -1147,12 +1147,12 @@ void checkFirewallRuleAtStartup() {
     // 用户只看到一次 UAC，再点一下就好。
     if (wantFixOnYes) {
         tip += kNLw;
-        tip += L"点「是」立即修复（需要管理员权限）。";
+        tip += i18n::trw("点「是」立即修复（需要管理员权限）。");
         tip += kNLw; tip += kNLw;
-        tip += L"也可以稍后从托盘菜单点「更多设置 › 连接诊断」。";
+        tip += i18n::trw("也可以稍后从托盘菜单点「更多设置 › 连接诊断」。");
     } else {
         tip += kNLw;
-        tip += L"点「是」清理，点「否」跳过。";
+        tip += i18n::trw("点「是」清理，点「否」跳过。");
     }
 
     // MB_SETFOREGROUND：托盘程序没有前台窗口，不加的话弹窗可能被压在别的
@@ -1210,22 +1210,22 @@ int runFixFirewall(bool quiet = false) {
     if (rc == 0) {
         logLine("已添加防火墙入站规则（允许接收端回连）");
         title = "AirPlay Bridge";
-        msg  = "已修复，程序正在重连。";
+        msg  = i18n::tr("已修复，程序正在重连。");
         msg += char(10);
         msg += char(10);
-        msg += "已添加防火墙入站规则，允许接收端回连本机做时钟同步。";
+        msg += i18n::tr("已添加防火墙入站规则，允许接收端回连本机做时钟同步。");
         msg += char(10);
         // 规则对已经建立的连接不一定立刻生效，所以提醒一句，
         // 而不是让用户对着一动不动的界面猜。
-        msg += "若仍连不上，请断开后重新连接一次（或重启程序）。";
+        msg += i18n::tr("若仍连不上，请断开后重新连接一次（或重启程序）。");
     } else {
         logLine("--fix-firewall: 添加防火墙入站规则失败（返回值 " +
                 std::to_string(rc) + "）");
         title = "AirPlay Bridge";
-        msg  = "修复失败：无法添加防火墙入站规则。";
+        msg  = i18n::tr("修复失败：无法添加防火墙入站规则。");
         msg += char(10);
         msg += char(10);
-        msg += "请确认在弹出的用户账户控制窗口中选择了「是」。";
+        msg += i18n::tr("请确认在弹出的用户账户控制窗口中选择了「是」。");
         exitCode = 1;
     }
 
@@ -1262,17 +1262,17 @@ int runCleanFirewallRules() {
 
     std::string msg;
     if (n > 0) {
-        msg  = "已清理 " + std::to_string(n) + " 条旧的网络放行设置。";
+        msg  = std::string(i18n::tr("已清理 ")) + std::to_string(n) + i18n::tr(" 条旧的网络放行设置。");
         msg += char(10);
         msg += char(10);
-        msg += "它们指向的文件已经不存在了，清理不影响正在使用的放行设置。";
+        msg += i18n::tr("它们指向的文件已经不存在了，清理不影响正在使用的放行设置。");
     } else {
         // 走到这里通常有两种情况：读取规则时被挡（GROUP POLICY 禁了
         // INetFwPolicy2），或者删的动作没成功。都如实说。
-        msg  = "没有可清理的旧设置，或清理未能完成。";
+        msg  = i18n::tr("没有可清理的旧设置，或清理未能完成。");
         msg += char(10);
         msg += char(10);
-        msg += "请确认在弹出的用户账户控制窗口中选择了「是」。";
+        msg += i18n::tr("请确认在弹出的用户账户控制窗口中选择了「是」。");
     }
 
     promptUser(screenText(msg).c_str(), L"AirPlay Bridge",
@@ -1775,11 +1775,11 @@ void askLanguageOnFirstRun(BridgeConfig& cfg, const std::string& cfgPath) {
 void askAutoStartOnFirstRun() {
     const wchar_t kNLw = static_cast<wchar_t>(10);
     std::wstring tip;
-    tip += L"要不要让 AirPlay Bridge 开机时自动启动？";
+    tip += i18n::trw("要不要让 AirPlay Bridge 开机时自动启动？");
     tip += kNLw; tip += kNLw;
-    tip += L"选「是」之后，开机会自动运行并连上上次用过的音箱。";
+    tip += i18n::trw("选「是」之后，开机会自动运行并连上上次用过的音箱。");
     tip += kNLw;
-    tip += L"以后随时可以在托盘菜单里改。";
+    tip += i18n::trw("以后随时可以在托盘菜单里改。");
 
     const int r = promptUser(tip.c_str(), L"AirPlay Bridge",
                               MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
@@ -3206,7 +3206,7 @@ int main(int argc, char** argv) {
                 it.id = MENU_LATENCY;   // 父项本身不可点，但保留 id 便于识别
                 it.label = std::string(i18n::tr("延迟")) + "  " + std::to_string(cfg.latencyMs) + "ms";
                 for (int i = 0; i < kLatencyLevelCount; ++i) {
-                    it.children.push_back({kLatencyLevels[i].label,
+                    it.children.push_back({i18n::tr(kLatencyLevels[i].label),
                                            kLatencyMenuBase + i,
                                            true, false,
                                            cfg.latencyMs == kLatencyLevels[i].ms});
@@ -3228,7 +3228,7 @@ int main(int argc, char** argv) {
                 it.id = MENU_VOLUME;
                 it.label = std::string(i18n::tr("音量")) + "  " + std::to_string(cfg.volume) + "%";
                 for (int i = 0; i < kVolumeLevelCount; ++i) {
-                    it.children.push_back({kVolumeLevels[i].label,
+                    it.children.push_back({i18n::tr(kVolumeLevels[i].label),
                                            kVolumeMenuBase + i,
                                            true, false,
                                            cfg.volume == kVolumeLevels[i].pct});
@@ -3250,7 +3250,7 @@ int main(int argc, char** argv) {
                 it.id = MENU_QUALITY;
                 it.label = std::string("音质  ") + qualityLevelName(cfg.qualityLevel);
                 for (int i = 0; i < kQualityLevelCount; ++i) {
-                    it.children.push_back({kQualityLevels[i].label,
+                    it.children.push_back({i18n::tr(kQualityLevels[i].label),
                                            kQualityMenuBase + i,
                                            true, false,
                                            cfg.qualityLevel == kQualityLevels[i].value});
@@ -3292,7 +3292,7 @@ int main(int argc, char** argv) {
                     const bool on = sbOn &&
                                     cfg.standbyTenths == kStandbyLevels[i].tenths;
                     if (on) standbyCustom = false;
-                    it.children.push_back({kStandbyLevels[i].label,
+                    it.children.push_back({i18n::tr(kStandbyLevels[i].label),
                                            kStandbyMenuBase + i,
                                            true, false, on});
                 }
@@ -3672,9 +3672,9 @@ int main(int argc, char** argv) {
                             // 用 (wchar_t)10 拼换行，避免在源码里写转义字符。
                             const wchar_t kNLw = static_cast<wchar_t>(10);
                             std::wstring tip;
-                            tip += L"本机已有本程序的放行规则，无需重复添加。";
+                            tip += i18n::trw("本机已有本程序的放行规则，无需重复添加。");
                             tip += kNLw; tip += kNLw;
-                            tip += L"若仍连不上，请确认接收端与本程序在同一网络下。";
+                            tip += i18n::trw("若仍连不上，请确认接收端与本程序在同一网络下。");
                             promptUser(tip.c_str(),
                                         L"AirPlay Bridge", MB_OK | MB_ICONINFORMATION);
                             break;
@@ -3700,7 +3700,7 @@ int main(int argc, char** argv) {
                         // 有新版本时它会再弹一个窗；已是最新则完全静默。
                         std::string about = "AirPlay Bridge";
                         about += char(10); about += char(10);
-                        about += "版本 v" + std::string(kAppVersion);
+                        about += std::string(i18n::tr("版本")) + " v" + kAppVersion;
                         about += char(10); about += char(10);
                         about += kProjectUrl;
                         {
@@ -3710,7 +3710,8 @@ int main(int argc, char** argv) {
                             if (need > 1)
                                 MultiByteToWideChar(CP_UTF8, 0, about.c_str(), -1,
                                                     w.data(), need);
-                            promptUser(w.c_str(), L"关于",
+                            const std::wstring aboutTitle = i18n::trw("关于");
+                            promptUser(w.c_str(), aboutTitle.c_str(),
                                        MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
                         }
                         // 落下去执行检查更新（见上方注释）。
@@ -3769,17 +3770,17 @@ int main(int argc, char** argv) {
             std::wstring tip;
             const std::wstring cur(kAppVersion, kAppVersion + std::strlen(kAppVersion));
             if (r.state == UpdateState::Failed) {
-                tip += L"检查更新失败，请稍后重试。";
+                tip += i18n::trw("检查更新失败，请稍后重试。");
             } else if (r.state == UpdateState::UpToDate) {
                 // 已是最新：**什么都不弹** ——
                 // 用户点「关于」只是想看版本，没更新就不该多一个窗打扰。
                 logLine("检查更新：已是最新版本 v" + std::string(kAppVersion));
                 tip.clear();
             } else {
-                tip += L"发现新版本 ";
+                tip += i18n::trw("发现新版本 ");
                 tip += std::wstring(r.tag.begin(), r.tag.end());
-                tip += L"（当前 v"; tip += cur; tip += L"）。";
-                tip += kNLw; tip += kNLw; tip += L"是否前往下载？";
+                tip += i18n::trw("（当前 v"); tip += cur; tip += L"）。";
+                tip += kNLw; tip += kNLw; tip += i18n::trw("是否前往下载？");
                 logLine("发现新版本 " + r.tag + "（当前 " + std::string(kAppVersion) + "）");
                 const int r2 = promptUser(tip.c_str(), L"AirPlay Bridge",
                                            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND);

@@ -3,6 +3,26 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.4.4] - 2026-10-16
+
+**中文**
+
+### 修改
+
+- 「关于」弹窗、连接诊断弹窗、授权提示等界面文案接入多语言。
+- 托盘菜单和滑块窗口里的档位名（延迟 / 音质 / 待机时长）跟随界面语言。
+- 「关于」弹窗标题用英文。
+
+**English**
+
+### Changed
+
+- Translated the About dialog, the connection-check dialogs, and the
+  admin-prompt text.
+- Preset names in the tray menu and slider windows (latency / quality /
+  standby) now follow the interface language.
+- The About dialog title is now in English.
+
 ## [1.4.3] - 2026-10-16
 
 ### Added
