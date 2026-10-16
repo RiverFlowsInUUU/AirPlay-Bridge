@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.46] - 2026-10-16
+
+### Fixed
+
+- 修复安静但有声音的内容（例如球赛解说停顿时的现场环境声）被误判成静音、
+  导致频繁断连的问题。
+
 ## [1.2.45] - 2026-10-16
 
 ### Changed
