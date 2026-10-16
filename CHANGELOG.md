@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.48] - 2026-10-16
+
+### Changed
+
+- 未安装虚拟声卡时的提示改用更准确的说法：系统声音仍会送往电脑的输出设备。
+
 ## [1.2.47] - 2026-10-16
 
 ### Changed
