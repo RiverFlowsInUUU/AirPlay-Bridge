@@ -41,12 +41,24 @@ struct BridgeConfig {
     // 静音判定时长，单位十分之一秒（50 = 5.0 秒）。
     // 下限 50：太短的档位（0/1/3 秒）会在换歌、安静段落误断，实测体验很差，
     // 所以整档砍掉，范围固定在 5.0-10.0 秒之间细调。
-    int         standbyTenths = 100;   // 默认 10 秒
+    // 静音多久之后断开。单位十分之一秒；0 = 不做静音待机。
+    int         standbyTenths = 50;    // 默认 5 秒
     std::vector<std::string> ignoredDeviceIds;   // 用户手动忽略的设备
     // 首次运行引导是否已经做过。
     // 只做一次 —— 每次启动都问用户"要不要开机自启"是骚扰。
     bool        askedAutoStart = false;
 };
+
+// 静音待机是否真的启用。
+//
+// 两个条件缺一不可：开关打开，且时长大于 0。
+//
+// **时长为 0 时绝不能参与「静音超过 N 秒」的判断** —— 那个条件恒成立，
+// 连上就立刻断，然后在待机/唤醒之间反复振荡。
+// 所以 0 在语义上就是「关闭」，菜单里显示成关闭、和「关闭」那一项共用一个勾。
+inline bool standbyActiveConfig(const BridgeConfig& c) {
+    return c.standbyEnabled && c.standbyTenths > 0;
+}
 
 // 运行时数据目录（%LOCALAPPDATA%\\AirPlayBridge\\），不存在则创建。
 std::string appDataDir();

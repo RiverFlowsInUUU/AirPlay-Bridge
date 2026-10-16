@@ -139,14 +139,14 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     } else if (j.find("\"standbySecs\"") != std::string::npos) {
         // 老配置是整秒（还有已经被砍掉的 0/1/3 秒档位）。乘 10 换算成十分之一秒，
         // 再钳到 50-100：老值 0/1/3 会抬到下限 5.0 秒，20 秒这类会压到上限 10.0 秒。
-        out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbySecs", 10)) * 10;
+        out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbySecs", 5)) * 10;
     }
     // 50-100 之外的都是脏数据或老配置的越界值，钳回区间。
     // 首次运行引导有没有做过。
     // 走 jsonGetBool，不手写带转义的 key 字面量。
     out.askedAutoStart = jsonGetBool(j, "askedAutoStart", out.askedAutoStart);
 
-    if (out.standbyTenths < 50)  out.standbyTenths = 50;
+    if (out.standbyTenths < 0)   out.standbyTenths = 0;
     if (out.standbyTenths > 200) out.standbyTenths = 200;
 
     // ignoredDeviceIds: 简单的字符串数组解析

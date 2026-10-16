@@ -2705,12 +2705,13 @@ int main(int argc, char** argv) {
             {
                 TrayMenuItem it;
                 it.id = MENU_STANDBY;   // 父项本身不可点，但保留 id 便于识别
-                it.label = cfg.standbyEnabled
+                const bool sbOn = standbyActiveConfig(cfg);
+                it.label = sbOn
                                ? ("静音待机  " + tenthsToSecsText(cfg.standbyTenths))
                                : std::string("静音待机  关闭");
                 bool standbyCustom = true;
                 for (int i = 0; i < kStandbyLevelCount; ++i) {
-                    const bool on = cfg.standbyEnabled &&
+                    const bool on = sbOn &&
                                     cfg.standbyTenths == kStandbyLevels[i].tenths;
                     if (on) standbyCustom = false;
                     it.children.push_back({kStandbyLevels[i].label,
@@ -2723,8 +2724,9 @@ int main(int argc, char** argv) {
                 it.children.push_back({"自定义（滑块）...", MENU_STANDBY_CUSTOM,
                                        true, false, standbyCustom});
                 it.children.push_back({"", 0, true, true, false});
+                // 时长为 0 也走这一项 —— 0 在语义上就是关闭。
                 it.children.push_back({"关闭（不自动待机）", MENU_STANDBY + 1000,
-                                       true, false, !cfg.standbyEnabled});
+                                       true, false, !sbOn});
                 menu.push_back(std::move(it));
             }
             menu.push_back({"开机自启", MENU_AUTOSTART, true, false, isAutoStartEnabled()});
@@ -2855,11 +2857,15 @@ int main(int argc, char** argv) {
                 }
                 if (id == MENU_STANDBY_CUSTOM) {   // "自定义（滑块）..."
                     const int picked = showStandbyDialog(cfg.standbyTenths);
-                    if (picked > 0) {
+                    // 注意是 >= 0 —— 拉到 0 表示关闭，也要存下来。
+                    // 只处理 > 0 的话，用户往左拖到底会没反应。
+                    if (picked >= 0) {
                         cfg.standbyTenths = picked;
                         cfg.standbyEnabled = true;
                         saveConfig(cfgPath, cfg);
-                        logLine("静音待机改为 " + tenthsToSecsText(picked));
+                        logLine(picked > 0
+                                    ? ("静音待机改为 " + tenthsToSecsText(picked))
+                                    : std::string("静音待机已关闭（滑块拉到 0）"));
                     }
                     return;
                 }
@@ -3119,8 +3125,12 @@ int main(int argc, char** argv) {
                 // 连接成功时会被重置成当前时间（见 ev.launched），
                 // 所以刚连上不会秒待机。
                 // 十分之一秒 -> 毫秒是 ×100。
+                // 用 standbyActiveConfig：时长为 0 时它返回 false，
+                // 不会掉进「静音超过 0 秒」这个恒成立的条件里
+                // （那样会连上就断、然后反复振荡）。
                 const bool wantStandby =
-                    cfg.standbyEnabled && sess.running.load() && sess.connected.load() &&
+                    standbyActiveConfig(cfg) && sess.running.load() &&
+                    sess.connected.load() &&
                     nowMs - sess.lastLoudMs.load() >=
                         static_cast<long long>(cfg.standbyTenths) * 100;
                 if (wantStandby) sess.enterStandby();

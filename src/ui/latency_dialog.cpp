@@ -584,6 +584,7 @@ const char* volumeGrade(int pct) {
 }
 // 待机时长评价，参数是十分之一秒（50 = 5.0 秒）。
 const char* standbyGrade(int tenths) {
+    if (tenths <= 0)   return "关闭";
     if (tenths < 75)  return "偏激进";
     if (tenths < 125) return "适中";
     if (tenths < 175) return "较保守";
@@ -653,14 +654,15 @@ int showStandbyDialog(int currentTenths) {
     spec.title = "AirPlay Bridge — 静音自动待机";
     spec.hint = "连续静音这么久之后断开与设备的连接，让屏幕熄灭；"
                 "再有任何声音立刻重连。档位太短会在换歌、"
-                "安静段落里误断，太长则熄屏迟钝。";
-    spec.minValue = 50;    // 5.0 秒
+                "安静段落里误断，太长则熄屏迟钝。"
+                "拖到最左边（0 秒）表示关掉这个功能。";
+    spec.minValue = 0;     // 0 = 关闭（不参与静音计时）
     spec.maxValue = 200;   // 20.0 秒
     spec.tickFreq = 0;
     spec.unit = "秒";
     spec.displayDivisor = 10;   // 内部十分之一秒 -> 显示秒
     spec.displayDecimals = 1;   // "7.5 秒"
-    spec.step = 5;              // 0.5 秒一档
+    spec.step = 1;              // 0.1 秒（内部最小单位）—— 无极调节
     spec.grade = standbyGrade;
     return showSliderDialog(spec, currentTenths);
 }

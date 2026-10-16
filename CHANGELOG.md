@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.47] - 2026-10-16
+
+### Changed
+
+- 静音自动待机的滑块改为 0 – 20 秒无级调节，拖到 0 即关闭该功能。
+- 默认时长由 10 秒改为 5 秒。
+
 ## [1.2.46] - 2026-10-16
 
 ### Fixed
