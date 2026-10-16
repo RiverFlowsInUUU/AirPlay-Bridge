@@ -410,8 +410,6 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     int cmd = static_cast<int>(TrackPopupMenu(
         hmenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, d_->hwnd, nullptr));
 
-    if (g_menuPump) KillTimer(d_->hwnd, kMenuPumpTimer);
-
     PostMessageW(d_->hwnd, WM_NULL, 0, 0);
     DestroyMenu(hmenu);
 
@@ -419,7 +417,19 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     // 重入保护要防的是菜单还开着时又来一次右键，不是连续弹菜单。
     d_->menuOpen = false;
 
+    // ★ 心跳必须活到回调结束，不能在这里就 KillTimer。
+    //
+    // 回调里会弹模态窗（「关于」、连接诊断的确认框）或开滑块窗口
+    // （延迟/音量/音质/待机）—— 那些窗口各有自己的消息循环，主循环进不去。
+    // 而音频是靠 pumpNonBlocking() 喂的：心跳一停，RTP 就断，
+    // 用户听到的就是「点一下菜单里的东西，声音没了」。
+    //
+    // 实测确认（真走 showMenu 的测试入口）：修复前回调期间心跳 0 次；
+    // 修复后正常跳动。模态循环会把 WM_TIMER 派发到托盘窗口，
+    // 和 TrackPopupMenu 期间是同一个机制。
     if (cmd != 0 && cb) cb(cmd);
+
+    if (g_menuPump) KillTimer(d_->hwnd, kMenuPumpTimer);
 }
 
 void TrayIcon::setMenuPump(std::function<void()> pump) {
