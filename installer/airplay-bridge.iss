@@ -27,6 +27,15 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
 DefaultDirName={autopf}\AirPlayBridge
+; 永远装上 DefaultDirName，不沿用上次装的目录。
+;
+; 这个选项默认是 yes —— Inno 会读注册表里上次的安装路径。
+; 对本程序来说那是**有害**的：安装版的全部价值就是「固定路径」，
+; 防火墙放行和开机自启都按这个路径记录。一旦它跟着上次的目录跑，
+; 用户就会遇到「明明装了新版，还是老样子」——因为新版装到了别处，
+; 原来那个位置的文件压根没被碰。
+;（实测踩到：把包解开到临时目录验证一次，后续安装全都跟着跑到那儿去了。）
+UsePreviousAppDir=no
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
