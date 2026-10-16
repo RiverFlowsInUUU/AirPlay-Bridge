@@ -30,8 +30,8 @@ body:
       description: 说清楚卡在哪一步
       placeholder: |
         比如：
-        - 托盘图标一直是灰色，从来没绿过
-        - 图标是绿的，但 HomePod 一点声音都没有
+        - 托盘图标一直是灰色，从来没变成橙红色
+        - 图标是橙红色的，但 HomePod 一点声音都没有
         - 响了十几秒就断，然后自己重连
     validations:
       required: true
@@ -77,6 +77,22 @@ body:
       placeholder: "比如 HomePod OS 27.0"
     validations:
       required: false
+
+  - type: dropdown
+    id: firewall
+    attributes:
+      label: 托盘菜单里的「修复连接问题」点过吗
+      description: |
+        程序需要 Windows 防火墙放行入站 UDP，接收端才能回连做时钟同步。
+        菜单里那一项能一键补上（会弹一次管理员确认）。
+      options:
+        - 点过，提示已配置好
+        - 点过，成功添加了规则
+        - 点过，但报错了
+        - 没点过 / 没注意有没有这一项
+        - 菜单里没有这一项
+    validations:
+      required: true
 
   - type: checkboxes
     id: checks

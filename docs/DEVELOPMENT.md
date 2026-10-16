@@ -94,6 +94,18 @@ cmake --build build --config Release
 ./build/Release/airplay_bridge.exe --audio-devices
 ```
 
+要验「掉线后能不能恢复」，不用真拔网线 —— 先让它连上，再切断到接收端的流量：
+
+```bash
+netsh advfirewall firewall add rule name="APB-BLOCK-TEST" dir=out
+      action=block remoteip=<接收端 IP>
+# 观察 60 秒，然后**务必删掉**，否则接收端一直不可达：
+netsh advfirewall firewall delete rule name="APB-BLOCK-TEST"
+```
+
+日志里看两件事：**「主线程无响应」有没有「恢复」**（没有恢复 = 死锁），
+以及**重试间隔有没有逐次拉长**（恒定不变 = 退避被清零了）。
+
 ## 调试
 
 程序是 WIN32 子系统，没有控制台。`AttachConsole(ATTACH_PARENT_PROCESS)`
@@ -114,6 +126,8 @@ cmake --build build --config Release
 | `--uninstall` | 取消开机自启 |
 | `--audio-devices` | 列出音频设备及缓冲参数 |
 | `--set-default <名>` | 切换默认播放设备 |
+| `--fix-firewall` | 加入站 UDP 放行规则（托盘菜单提权后拉起自己时用） |
+| `--clean-firewall-rules` | 删掉指向已失效文件的放行规则（同上） |
 
 ```bash
 airplay_bridge --audio-devices             列出音频设备及缓冲参数
@@ -149,6 +163,8 @@ cmake --build build --config Release --target airplay_bridge
 
 # 2. 更新 CHANGELOG.md，文风见 AGENTS.md「发布说明文风」
 #    版本号遵循 Semantic Versioning，日期用 ISO 格式
+#    版本号只有一处：CMakeLists.txt 的 project(... VERSION x.y.z)，
+#    经 APP_VERSION 编译期注入，菜单「关于」自动跟上（源码里不再手写）
 
 # 3. 提交并推送
 git add -A && git commit && git push

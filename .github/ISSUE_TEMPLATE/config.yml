@@ -7,6 +7,6 @@ contact_links:
   - name: 使用说明 / 常见问题
     url: https://github.com/RiverFlowsInUUU/AirPlay-Bridge/blob/master/README.md
     about: 先看一眼 README，很多问题那里已经有答案
-  - name: 音频设备诊断方法
-    url: https://github.com/RiverFlowsInUUU/AirPlay-Bridge/blob/master/README.md
-    about: 跑 --audio-devices 看默认设备对不对
+  - name: 连不上 / 一直显示「连接中」
+    url: https://github.com/RiverFlowsInUUU/AirPlay-Bridge/blob/master/README.md#一直显示连接中
+    about: 多半是网络放行没生效 —— 托盘菜单里有「修复连接问题」

@@ -29,6 +29,7 @@
 | `src/device/audiodevices.h` | `--audio-devices` 的实现 |
 | `src/ui/tray.*` | 托盘图标、菜单树构建与分发 |
 | `src/ui/latency_dialog.*` | 滑块窗口，延迟/音量/音质共用 |
+| `src/ui/darkmode.h` | 菜单深色模式（uxtheme 未公开序号，header-only） |
 | `src/icons/` | 图标资源与 `bridge.rc` |
 | `tools/gen_icons.py` | 由一张源图生成全部图标（**直接写 `src/icons/`**） |
 
@@ -79,7 +80,9 @@ ap2_->eventIn  = hkdfSha512("Events-Salt", "Events-Write-Encryption-Key", ap2_->
 ap2_->eventOut = hkdfSha512("Events-Salt", "Events-Read-Encryption-Key",  ap2_->sharedSecret, 32);
 ```
 
-反向事件通道的读写密钥是**交换**的 —— 这里写反同样连不通。
+上面这段是**有意为之，不是笔误**：反向事件通道的收发方向与正向相反，
+所以两把密钥按名字「对调」使用 —— `eventIn` 取 Write 键、`eventOut` 取 Read 键。
+改回「按名字对应」会连不通。
 
 补丁把延迟从写死改为可变（SETUP 时下发），并使相关测试断言随之动态。
 
