@@ -858,6 +858,7 @@ int cleanStaleFirewallRules() {
 // 前置声明：两个提权入口定义在下面，而启动检查要用它们。
 bool elevateAndRunFixFirewall();
 bool elevateAndRunCleanFirewallRules();
+bool setAutoStart(bool enable);   // 前置声明：卸载清理要用
 
 void checkFirewallRuleAtStartup() {
     // 一次启动最多弹**一个**窗口 —— 两个提示框叠着弹只会让用户烦。
@@ -1125,6 +1126,57 @@ bool elevateAndRunCleanFirewallRules() {
         }
         CloseHandle(sei.hProcess);
     }
+    return true;
+}
+
+// 卸载前清理系统集成：删掉防火墙放行规则和开机自启项。
+//
+// 由安装程序在卸载时调用（Inno 的 [UninstallRun]）。这两样都是
+// **按 exe 路径**写进系统的 —— 程序被删掉之后，它们会变成指向
+// 一个不存在文件的死记录，留着只会让人困惑。
+//
+// 不弹窗、不起托盘、不读配置；配置和日志**保留**（用户重装还能续上设置）。
+// 想彻底清干净的话，卸载说明里写了路径。
+//
+// 注意它和 --fix-firewall / --clean-firewall-rules 一样要**豁免单实例检测** ——
+// 卸载时托盘里那个实例可能还开着，不能被自己挡住。
+// 删掉本程序的**全部**防火墙规则（卸载时用）。
+//
+// 别拿 deleteFirewallRuleByName() 顶替 —— 那个的语义是
+// 「删掉多余的、**保留**正在起作用的那条」（v1.2.39 为启动自检设计的）。
+// 卸载时那条正好也指向要被删掉的 exe，必须一起清，
+// 否则系统里就留下一条指向不存在文件的死规则。
+//
+// 这种「两个函数名字像、语义不同」的地方最容易用错。所以这里单开一个，
+// 名字也写清楚是 All。
+void removeAllFirewallRules() {
+    const std::wstring prefix(
+        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+    std::vector<std::wstring> names;
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR name = nullptr;
+        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+            const std::wstring w(name);
+            if (w.compare(0, prefix.size(), prefix) == 0) names.push_back(w);
+        }
+        if (name) SysFreeString(name);
+        return true;   // 收齐全部
+    });
+    for (const auto& n : names) deleteFirewallRuleByNameEx(n);
+}
+
+bool runUninstallCleanup() {
+    logLine("--uninstall-cleanup: 开始清理系统集成（防火墙规则 / 开机自启）");
+
+    removeAllFirewallRules();
+    logLine("--uninstall-cleanup: 防火墙放行规则已清空");
+
+    if (setAutoStart(false))
+        logLine("--uninstall-cleanup: 开机自启项已移除");
+    else
+        logLine("--uninstall-cleanup: 移除开机自启项失败（可能本来就没有）");
+
+    logLine("--uninstall-cleanup: 完成");
     return true;
 }
 
@@ -2148,6 +2200,7 @@ int main(int argc, char** argv) {
     bool wantConsole = false, wantLast = false, wantTray = true;
     bool wantFixFirewall = false;       // --fix-firewall
     bool wantCleanFirewall = false;     // --clean-firewall-rules
+    bool wantUninstallCleanup = false;  // --uninstall-cleanup
     bool wantAudioDevices = false;      // --audio-devices
     std::string setDefaultArg;          // --set-default <设备名子串>
     std::string hostArg;
@@ -2162,6 +2215,7 @@ int main(int argc, char** argv) {
         else if (a == "--last")      wantLast = true;
         else if (a == "--fix-firewall") { wantFixFirewall = true; wantTray = false; }
         else if (a == "--clean-firewall-rules") { wantCleanFirewall = true; wantTray = false; }
+        else if (a == "--uninstall-cleanup") { wantUninstallCleanup = true; wantTray = false; }
         else if (a == "--audio-devices") { wantAudioDevices = true; wantTray = false; }
         else if (a == "--set-default" && i + 1 < argc) {
             setDefaultArg = argv[++i];
@@ -2189,6 +2243,13 @@ int main(int argc, char** argv) {
     if (wantCleanFirewall) {
         CoUninitialize();
         return runCleanFirewallRules();
+    }
+
+    // ---- 卸载前清理（安装程序的 [UninstallRun] 调用）----
+    // 与上面两个同待遇：一次性操作、豁免单实例检测。
+    if (wantUninstallCleanup) {
+        CoUninitialize();
+        return runUninstallCleanup() ? 0 : 1;
     }
 
     // ---- 单实例检测（命名互斥体，见 anotherInstanceIsRunning）----

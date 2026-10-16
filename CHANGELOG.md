@@ -3,6 +3,13 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.49] - 2026-10-16
+
+### Added
+
+- 提供安装版：安装到固定位置，升级时无需重新配置。
+- 卸载时会自动清理系统里留下的网络放行设置和启动项。
+
 ## [1.2.48] - 2026-10-16
 
 ### Changed
