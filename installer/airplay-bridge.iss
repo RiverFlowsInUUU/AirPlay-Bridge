@@ -47,7 +47,8 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "chinese"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 语言文件随仓库走 —— CI 上新装的 Inno 不自带简体中文
+Name: "chinese"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
