@@ -14,6 +14,7 @@
 #define NOMINMAX
 
 #include "latency_dialog.h"
+#include "i18n.h"
 #include "darkmode.h"
 
 #include <windows.h>
@@ -276,14 +277,14 @@ void paint(HWND hwnd, DialogState& st) {
     RECT ba = st.btnApply, bc = st.btnCancel;
     fillRound(mem, bc, s(dpi, 6), st.hotCancel ? th.track : th.btnFill);
     strokeRound(mem, bc, s(dpi, 6), th.btnBorder);
-    drawTextIn(mem, L"取消", bc, st.fGrade, th.btnText,
+    drawTextIn(mem, i18n::trw("取消").c_str(), bc, st.fGrade, th.btnText,
                DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     COLORREF applyFill = kAccent;
     if (st.hotApply) applyFill = RGB(GetRValue(kAccent) + 18 > 255 ? 255 : GetRValue(kAccent) + 18,
                                      GetGValue(kAccent) + 12, GetBValue(kAccent) + 10);
     fillRound(mem, ba, s(dpi, 6), applyFill);
-    drawTextIn(mem, L"应用", ba, st.fGrade, RGB(0xFF, 0xFF, 0xFF),
+    drawTextIn(mem, i18n::trw("应用").c_str(), ba, st.fGrade, RGB(0xFF, 0xFF, 0xFF),
                DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
@@ -572,34 +573,34 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
 namespace {
 const char* latencyGrade(int ms) {
     // 分界依 AP2 的现实下限（约 250ms）：低于它有欠载爆音的风险。
-    if (ms < 200) return "可能爆音";
-    if (ms < 250) return "接近下限";
-    if (ms < 320) return "推荐";
-    return "更稳（延迟略高）";
+    if (ms < 200) return i18n::tr("可能爆音");
+    if (ms < 250) return i18n::tr("接近下限");
+    if (ms < 320) return i18n::tr("推荐");
+    return i18n::tr("更稳（延迟略高）");
 }
 const char* volumeGrade(int pct) {
-    if (pct == 0)  return "静音";
-    if (pct < 30)  return "很轻";
-    if (pct < 60)  return "适中";
-    if (pct < 85)  return "较响";
-    return "很响";
+    if (pct == 0)  return i18n::tr("静音");
+    if (pct < 30)  return i18n::tr("很轻");
+    if (pct < 60)  return i18n::tr("适中");
+    if (pct < 85)  return i18n::tr("较响");
+    return i18n::tr("很响");
 }
 // 待机时长评价，参数是十分之一秒（50 = 5.0 秒）。
 const char* standbyGrade(int tenths) {
-    if (tenths <= 0)   return "关闭";
-    if (tenths < 75)  return "偏激进";
-    if (tenths < 125) return "适中";
-    if (tenths < 175) return "较保守";
-    return "最保守";
+    if (tenths <= 0)   return i18n::tr("关闭");
+    if (tenths < 75)  return i18n::tr("偏激进");
+    if (tenths < 125) return i18n::tr("适中");
+    if (tenths < 175) return i18n::tr("较保守");
+    return i18n::tr("最保守");
 }
 } // namespace
 
 int showLatencyDialog(int currentMs) {
     SliderDialogSpec spec;
-    spec.title = "AirPlay Bridge — 延迟调节";
-    spec.hint = "拖到不爆音的最低位置就是最优解。低于 250ms 有爆音风险，"
-        "越低延迟越小，"
-                "但接收端缓冲不足会爆音或卡顿。";
+    spec.title = i18n::tr("AirPlay Bridge — 延迟调节");
+    spec.hint = i18n::tr(
+        "拖到不爆音的最低位置就是最优解。低于 250ms 有爆音风险，越低延迟越小，"
+        "但接收端缓冲不足会爆音或卡顿。");
     // 范围比档位宽：低端保留到 120ms 让用户自己探边界，高端给到 400ms
     // 以容纳网络条件差、需要更大缓冲的场景。
     spec.minValue = 120;
@@ -622,18 +623,18 @@ const char* qualityLevelName(int q) {
     // 命名沿用音频软件惯例（SoX 用 quick/low/medium/high，
     // Audacity 用 Low/Medium/High/Best）：按快慢和质量命名，
     // 不用「关」这种会被误解成"没声音"的词。
-    if (q < 10)  return "快速";
-    if (q < 30)  return "标准";
-    if (q < 55)  return "高";
-    if (q < 80)  return "极高";
-    return "至臻";
+    if (q < 10)  return i18n::tr("快速");
+    if (q < 30)  return i18n::tr("标准");
+    if (q < 55)  return i18n::tr("高");
+    if (q < 80)  return i18n::tr("极高");
+    return i18n::tr("至臻");
 }
 
 int showQualityDialog(int currentLevel) {
     SliderDialogSpec spec;
-    spec.title = "AirPlay Bridge — 音质";
-    spec.hint = "声卡通常跑 48kHz，推给设备前要先转到 44.1kHz。"
-                "越往右高频越干净，CPU 也越贵。";
+    spec.title = i18n::tr("AirPlay Bridge — 音质");
+    spec.hint = i18n::tr("声卡通常跑 48kHz，推给设备前要先转到 44.1kHz。"
+                         "越往右高频越干净，CPU 也越贵。");
     spec.minValue = 0;
     spec.maxValue = 100;
     spec.tickFreq = 0;
@@ -644,8 +645,8 @@ int showQualityDialog(int currentLevel) {
 
 int showVolumeDialog(int currentPct) {
     SliderDialogSpec spec;
-    spec.title = "AirPlay Bridge — 音量调节";
-    spec.hint = "调节设备的播放音量，不影响电脑本身的音量。";
+    spec.title = i18n::tr("AirPlay Bridge — 音量调节");
+    spec.hint = i18n::tr("调节设备的播放音量，不影响电脑本身的音量。");
     spec.minValue = 0;
     spec.maxValue = 100;
     spec.tickFreq = 0;
@@ -656,15 +657,15 @@ int showVolumeDialog(int currentPct) {
 
 int showStandbyDialog(int currentTenths) {
     SliderDialogSpec spec;
-    spec.title = "AirPlay Bridge — 无声音时待机";
-    spec.hint = "连续静音这么久之后断开与设备的连接，让屏幕熄灭；"
-                "再有任何声音立刻重连。档位太短会在换歌、"
-                "安静段落里误断，太长则熄屏迟钝。"
-                "拖到最左边（0 秒）表示关掉这个功能。";
+    spec.title = i18n::tr("AirPlay Bridge — 无声音时待机");
+    spec.hint = i18n::tr("连续静音这么久之后断开与设备的连接，让屏幕熄灭；"
+                         "再有任何声音立刻重连。档位太短会在换歌、"
+                         "安静段落里误断，太长则熄屏迟钝。"
+                         "拖到最左边（0 秒）表示关掉这个功能。");
     spec.minValue = 0;     // 0 = 关闭（不参与静音计时）
     spec.maxValue = 200;   // 20.0 秒
     spec.tickFreq = 0;
-    spec.unit = "秒";
+    spec.unit = i18n::tr("秒");
     spec.displayDivisor = 10;   // 内部十分之一秒 -> 显示秒
     spec.displayDecimals = 1;   // "7.5 秒"
     spec.step = 1;              // 0.1 秒（内部最小单位）—— 无极调节

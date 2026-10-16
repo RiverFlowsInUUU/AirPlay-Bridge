@@ -4,145 +4,147 @@
   <img src="src/icons/preview_connected.png" width="128" alt="AirPlay Bridge">
 </p>
 
-把 Windows 的系统声音实时串流到 AirPlay 2 设备，跑在托盘里。
+**English** · [中文](README.zh-CN.md)
 
-TuneBlade 在 HomePod OS 27 失效后的替代方案。
+Streams Windows system audio to AirPlay 2 devices, from the tray.
 
-## 安装
+A replacement for TuneBlade, which stopped working on HomePod OS 27.
 
-先装 [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)（免费，装完需重启）。
+## 📦 Install
 
-从 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
-下载 `AirPlay-Bridge-Setup-vX.Y.Z.exe`，双击安装。
+Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) first (free, reboot after).
 
-装到固定位置（`Program Files\AirPlayBridge`）。**以后升级不用重新配置** ——
-网络放行和开机自启都跟着这个位置走，换版本也不会失效。
+Download `AirPlay-Bridge-Setup-vX.Y.Z.exe` from
+[Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
+and run it.
 
-Windows 10 / 11，64 位。安装包自带运行库，不需要单独安装。
+It installs to a fixed location (`Program Files\AirPlayBridge`).
+**Upgrades need no reconfiguration** — the firewall rule and startup entry follow
+that location, so they survive version changes.
 
-> 首次运行 Windows 可能拦一次，点「更多信息」→「仍要运行」。
+Windows 10 / 11, 64-bit. The installer bundles its runtime.
 
-## 首次运行
+> Windows may block it once on first run — click **More info** → **Run anyway**.
 
-- 询问是否开机自动启动（只问一次，之后可在菜单里改）
-- 扫描局域网并连接找到的设备
-- 检查网络放行是否有效，失效时提示一键修复
+## 🚀 First run
 
-之后每次启动都直接连上次用过的设备。
+- Asks whether to start at login (once; changeable later from the menu)
+- Scans the local network and connects to what it finds
+- Checks the firewall rule and offers a one-click fix if it's missing
 
-## 声音输出
 
-连接后，声音只从 AirPlay 设备出，电脑保持安静，断开时自动还原。
+## 🔊 Audio output
 
-## 特性
+While connected, sound comes out of the AirPlay device only and the PC stays
+quiet. Both are restored on disconnect.
 
-- 自动发现局域网内的设备
-- 断线自动重连，设备换 IP 也能找回
-- 被强杀后，下次启动自动恢复音频设备
-- 延迟 / 音量 / 音质 / 静音待机 / 采集设备可调（后三项在菜单的「设备」里）
-- 无声音时待机：长时间没声音时断开让设备熄屏，一有声音立刻回来
-- 开机自启，记住上次设置
-- 「关于」里可查看版本并检查更新
-- 连接时自动静音电脑扬声器，电脑不再和 AirPlay 设备同时出声
-- 设备列表可隐藏不想看到的设备
-- 同一时间只允许运行一个，避免互相打断播放
+## ✨ Features
 
-## 使用
+- 🔎 Finds devices on the local network automatically
+- 🔄 Reconnects after a drop, even if the device changes IP
+- 🛟 Restores the audio device on next launch after being force-killed
+- 🎚 Adjustable latency / volume / quality / standby / capture device
+- 😴 Standby when silent: disconnects so the device screen turns off, and
+  reconnects the moment there's sound again
+- 🖥 Starts at login, remembers your settings
+- ℹ️ Version and update check under **About**
+- 🔇 Mutes this PC on connect, so it no longer plays alongside the AirPlay device
+- 🙈 Hide devices you don't want to see
+- 1️⃣ Only one instance at a time, so two copies can't fight over a device
 
-托盘图标左键或右键都能打开菜单。
+## 🖱 Usage
+
+Left- or right-click the tray icon to open the menu.
 
 ```
-✓ 已连接
-  <设备名>
-  <设备 IP>
+✓ Connected
+  <device name>
+  <device IP>
 ────────────────
-  断开
-  设备  ›
-     选择设备  ›
-     隐藏设备  ›
-     采集设备  ›
-  延迟  250ms  ›
-  音量  45%  ›
-  音质  至臻  ›
+  Disconnect
+  Devices  ›
+     <device name>        ← devices found are listed right here
+     Scan again
+     ──────────────
+     Hide devices  ›
+     Capture from  ›
+  Latency  250ms  ›
+  Volume  45%  ›
+  Quality  Maximum  ›
 ────────────────
-  高级设置  ›
-     连接诊断
-     无声音时待机  ›
-     静音本机输出
-     开机自启
-     日志
-  关于
+  More settings  ›
+     Connection check
+     Standby when silent  ›
+     Mute this PC
+     Run at startup
+     Logs
+  About
 ────────────────
-  退出
+  Quit
 ```
 
-网络放行正常时，点「高级设置 › 连接诊断」会直接告诉你不需要处理。
+When the firewall rule is fine, **More settings › Connection check** tells you
+there's nothing to do.
 
-## 可调项
+## 🎛 Adjustable
 
-| 项 | 范围 | 生效 |
+| Item | Range | Applies |
 |---|---|---|
-| 延迟 | 150 – 300 ms，4 档 + 滑块（滑块 120–400） | 重连后 |
-| 音量 | 5 – 100%，20% 一档 + 滑块 | 立即 |
-| 音质 | 0 – 100%，5 档 + 滑块 | 重连后 |
-| 无声音时待机 | 0 – 20 秒，4 档 + 无极滑块（0 = 关闭） | 立即 |
+| Latency | 150 – 300 ms, 4 presets + slider (slider 120–400) | on reconnect |
+| Volume | 5 – 100%, 20% steps + slider | immediately |
+| Quality | 0 – 100%, 5 presets + slider | on reconnect |
+| Standby when silent | 0 – 20 s, 4 presets + slider (0 = off) | immediately |
 
-延迟档位：150 / 200 / 250（推荐）/ 300 ms。低于 250 ms 有爆音风险。
+Latency presets: 150 / 200 / 250 (recommended) / 300 ms. Below 250 ms risks crackling.
 
-音质档位：快速 / 标准 / 高 / 极高 / 至臻（默认）。
+Quality presets: Fast / Standard / High / Very high / Maximum (default).
 
-待机档位：5 / 10 / 15 / 20 秒（5 秒默认）；滑块为 0 – 20 秒无极调节，拖到 0 即关闭。
+Standby presets: 5 / 10 / 15 / 20 s (5 s default); the slider is continuous
+0 – 20 s, and 0 turns it off.
 
-## 没声音
+## 🔇 No sound
 
-1. 托盘菜单里确认显示「已连接」
-2. 打开 Windows 的声音设置，确认默认播放设备是正确的那个
-3. 托盘菜单 → 高级设置 → 日志
+1. Confirm the tray menu shows **Connected**
+2. Open Windows sound settings and check the default playback device
+3. Tray menu → More settings → Logs
 
-日志超过 30 天或 512KB 自动清理。
 
-## 一直显示「连接中」
+## ⏳ Stuck on "Connecting"
 
-接收端需要从局域网回连本机做时钟同步，本程序必须在 Windows 防火墙里有入站放行。
+The receiver has to call back into this PC over the local network for clock
+sync, so this app needs an inbound firewall rule on Windows.
 
-程序启动时会自己检测这一项。缺放行时：
+The app checks this at startup. If the rule is missing:
 
-| 步骤 | 操作 |
+| Step | Action |
 |---|---|
-| 1 | 托盘菜单 → 高级设置 → 连接诊断 |
-| 2 | 同意弹出的管理员请求 |
+| 1 | Tray menu → More settings → Connection check |
+| 2 | Approve the admin prompt |
 
-也可以手动补上：
+By hand: Windows Security → **Firewall & network protection** →
+**Allow an app through firewall** → find AirPlay Bridge → tick **Private**.
+Not listed? **Change settings** → **Allow another app** → **Browse**.
 
-| 步骤 | 操作 |
-|---|---|
-| 1 | 打开「Windows 安全中心」 |
-| 2 | 进入「防火墙和网络保护」 |
-| 3 | 点「允许应用通过防火墙」 |
-| 4 | 在列表里找到 AirPlay Bridge，勾选「专用网络」 |
+## ⚠️ Known limitations
 
-列表里没有 AirPlay Bridge 时，点「更改设置」→「允许其他应用」→「浏览」，
-选中本程序加入列表后再勾选「专用网络」。
+- Without a virtual audio cable, system audio still goes to this PC's output
+  device (with speakers connected, both play)
+- Changing latency or quality requires one reconnect
+- Windows only
+- A few seconds of silence after a drop, then it recovers automatically
 
-## 已知限制
+## 🔗 Related
 
-- 未安装虚拟声卡时，系统声音仍会送往电脑的输出设备（接了音箱就会同时出声）
-- 延迟和音质改档需要重连一次
-- 仅支持 Windows
-- 断连后有数秒静音，随后自动恢复
+- Report a problem → [Issues](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/issues)
+- Change log → [CHANGELOG.md](CHANGELOG.md)
+- Development docs → [AGENTS.md](AGENTS.md) · [docs/](docs/)
 
-## 相关
+## 🙏 Credits
 
-- 问题反馈 → [Issues](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/issues)
-- 变更记录 → [CHANGELOG.md](CHANGELOG.md)
-- 开发文档 → [AGENTS.md](AGENTS.md) · [docs/](docs/)
+- [airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp) — AirPlay 2 protocol (Apache-2.0)
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — cryptography
+- [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) — virtual audio device
 
-## 致谢
-
-- [airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp) — AirPlay 2 协议实现（Apache-2.0）
-- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) — 加密
-- [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) — 虚拟声卡
-
-## 许可证
+## 📄 License
 
 Apache-2.0

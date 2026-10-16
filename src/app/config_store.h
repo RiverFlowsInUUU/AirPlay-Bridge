@@ -63,6 +63,9 @@ struct BridgeConfig {
     // （退出兜底没跑到），下次启动也能看出「上次我们把端点静音了、
     // 但没来得及恢复」并把它还回去。否则用户会以为电脑没声音了。
     bool        localMutedByUs = false;
+    // 界面语言："en" / "zh"。默认英文 —— 仓库面向英文用户。
+    // 未知值一律按 "en" 处理（见 i18n::fromConfigValue）。
+    std::string language = "en";
 };
 
 // 静音待机是否真的启用。

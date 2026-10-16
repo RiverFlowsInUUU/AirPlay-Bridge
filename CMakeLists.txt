@@ -20,7 +20,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
 # 版本号唯一来源 —— 发版只改这一行（PROJECT_VERSION）。
 # 它通过下面的 target_compile_definitions(APP_VERSION=...) 注入到代码里，
 # 托盘菜单「关于」自动跟着走，不会再出现"忘了改源码里的版本号"。
-project(airplay_bridge VERSION 1.4.2 LANGUAGES CXX)
+project(airplay_bridge VERSION 1.4.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,6 +56,7 @@ add_executable(airplay_bridge WIN32
     # 主程序与配置
     src/app/airplay_bridge.cpp
     src/app/config_store.cpp
+    src/app/i18n.cpp
     # 音频：系统声音采集、音量与设备切换
     src/audio/wasapi_capture.cpp
     src/audio/sysvolume.cpp

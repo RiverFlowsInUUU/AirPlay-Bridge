@@ -273,11 +273,32 @@ README 是唯一人类入口。**只陈述，不解释。**
 
 **判断标准**：读者扫一遍就知道「这是什么、怎么跑起来、去哪深入」。想解释的冲动全部让给 docs/。
 
+### 双语（2026-10-16 起）
+
+- **`README.md` 是英文**（默认，面向英文用户）
+- **`README.zh-CN.md` 是中文**
+- **两份顶部互相链接**（`**English** · [中文](README.zh-CN.md)` / 反向）
+- **改一份必须同时改另一份** —— 结构、小节、表格都要对应
+- **行数各自控制在 150 以内**（不是两份加起来）
+
+### Emoji（允许，但只限句首）
+
+章节标题、特性条目的**开头**可以加一个 emoji：
+
+```
+## 📦 安装
+- 🔎 自动发现局域网内的设备
+```
+
+**句首之外不许加** —— 句子中间、结尾、正文段落里的 emoji 一律不要。
+作用只是让长页面好扫，不是装饰。
+
 ## 文档地图
 
 | 文件 | 内容 |
 |---|---|
-| [README.md](README.md) | 人类入口 |
+| [README.md](README.md) | 人类入口（英文） |
+| [README.zh-CN.md](README.zh-CN.md) | 人类入口（中文） |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、模块表、数据流、不变量、实测数据 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境、构建、测试、调试、发布 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 关键决策与理由、被否决的方案 |

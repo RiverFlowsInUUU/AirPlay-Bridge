@@ -22,6 +22,7 @@
 
 #include "discovery.h"
 #include "config_store.h"
+#include "i18n.h"
 #include "wasapi_capture.h"
 #include "resampler.h"
 #include "tray.h"
@@ -181,7 +182,6 @@ enum : int {
     MENU_STATUS    = 100,   // 状态（禁用项，只显示）
     MENU_TOGGLE    = 101,   // 连接 / 断开
     MENU_RESCAN    = 102,   // 重新扫描并选择设备
-    MENU_DEVICES   = 112,   // 选择设备（子菜单）
     MENU_RESCAN_SUB = 113,  // 子菜单里的"重新扫描"
     MENU_AUTOSTART = 103,   // 开机自启开关
     MENU_LATENCY   = 105,   // 延迟档位（子菜单）
@@ -199,7 +199,10 @@ enum : int {
     MENU_HIDE_DEVICE = 120,     // 隐藏设备（子菜单）
     MENU_CAPTURE_DEVICE = 121,  // 采集哪一个音频端点（子菜单）
     MENU_DEVICE_GROUP = 122,    // 设备（一级子菜单，含 选择/隐藏/采集 三项）
-    MENU_ADVANCED = 123,        // 高级设置（一级子菜单，含诊断/待机/静音/自启/日志）
+    MENU_ADVANCED = 123,        // 更多设置（一级子菜单，含诊断/待机/静音/自启/日志）
+    MENU_LANGUAGE = 124,        // 语言（子菜单）
+    MENU_LANGUAGE_EN = 125,
+    MENU_LANGUAGE_ZH = 126,
     MENU_ABOUT     = 117,   // 关于（版本 + 项目主页）
     MENU_QUIT      = 104,   // 退出
 };
@@ -563,7 +566,7 @@ bool anotherInstanceIsRunning() {
 }
 
 // ============================================================
-// 防火墙入站规则的修复（托盘菜单「高级设置 › 连接诊断」）
+// 防火墙入站规则的修复（托盘菜单「更多设置 › 连接诊断」）
 // ============================================================
 // 背景见下面「握手超时的防火墙诊断」。结论是：缺的就是一条入站 UDP
 // 放行规则，加规则必须管理员权限 —— 所以这条路径是：托盘菜单提权拉起
@@ -1146,7 +1149,7 @@ void checkFirewallRuleAtStartup() {
         tip += kNLw;
         tip += L"点「是」立即修复（需要管理员权限）。";
         tip += kNLw; tip += kNLw;
-        tip += L"也可以稍后从托盘菜单点「高级设置 › 连接诊断」。";
+        tip += L"也可以稍后从托盘菜单点「更多设置 › 连接诊断」。";
     } else {
         tip += kNLw;
         tip += L"点「是」清理，点「否」跳过。";
@@ -1523,7 +1526,7 @@ void maybeLogFirewallHint() {
     msg += char(10);
     // 上面那条命令是给老用户 / 远程排查用的。真正的用户路径是菜单：
     // 没人会去敲命令 —— 所以必须给出菜单里的入口。
-    msg += "也可在托盘菜单点「高级设置 › 连接诊断」一键添加规则。";
+    msg += "也可在托盘菜单点「更多设置 › 连接诊断」一键添加规则。";
     logLine(msg);
 }
 
@@ -1738,6 +1741,37 @@ bool autoStartDisabledBySystem() {
 //
 // 用系统的 MessageBox 而不是自绘窗口：这里只要一个二选一，
 // 没必要再写一个窗口，也不会显得像来路不明的弹窗。
+// 首次运行时问一次界面语言。只问一次，之后在「更多设置 › 语言」里改。
+//
+// 这个弹窗**不能用 tr()** —— 问的时候语言还没定。
+// 所以正文里中英并列，用户自己挑。系统按钮是「是/否」，
+// 正文里写清哪个对应哪个，不依赖按钮文字。
+void askLanguageOnFirstRun(BridgeConfig& cfg, const std::string& cfgPath) {
+    std::string msg;
+    msg += "Choose the interface language.";
+    msg += char(10);
+    msg += "选择界面语言。";
+    msg += char(10); msg += char(10);
+    msg += "Yes / 是  ->  中文";
+    msg += char(10);
+    msg += "No  / 否  ->  English";
+    msg += char(10); msg += char(10);
+    msg += "You can change it later under \"More settings > Language\".";
+    msg += char(10);
+    msg += "之后可以在托盘菜单的「更多设置 › 语言」里随时更改。";
+
+    const int need = MultiByteToWideChar(CP_UTF8, 0, msg.c_str(), -1, nullptr, 0);
+    std::wstring w(need > 1 ? static_cast<size_t>(need) : 0, 0);
+    if (need > 1)
+        MultiByteToWideChar(CP_UTF8, 0, msg.c_str(), -1, w.data(), need);
+
+    const int r = promptUser(w.c_str(), L"AirPlay Bridge",
+                             MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+    cfg.language = (r == IDYES) ? "zh" : "en";
+    logLine("首次运行：界面语言选择为 " + cfg.language);
+    if (!cfgPath.empty()) saveConfig(cfgPath, cfg);
+}
+
 void askAutoStartOnFirstRun() {
     const wchar_t kNLw = static_cast<wchar_t>(10);
     std::wstring tip;
@@ -2542,7 +2576,7 @@ int main(int argc, char** argv) {
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    // ---- 防火墙修复（提权拉起的那一份，见托盘菜单「高级设置 › 连接诊断」）----
+    // ---- 防火墙修复（提权拉起的那一份，见托盘菜单「更多设置 › 连接诊断」）----
     // 放在最前面：这一份只做一件事 —— 加规则、弹提示、退出。
     // 不读配置、不起托盘图标、不跑主循环。走 COM 的函数自己管
     // CoInitialize，所以这里先放掉 main 开头那次初始化。
@@ -2636,6 +2670,18 @@ int main(int argc, char** argv) {
     // 枚举可选采集端点，供托盘菜单使用。
     // 只做一次 —— 菜单树必须在弹出前建好，展开时才去枚举 COM 会卡。
     // 插拔设备后要刷新的话，重启程序即可（这类操作极罕见）。
+    // 应用界面语言（默认英文）。首装引导里改过语言后会再应用一次。
+    i18n::setLang(i18n::fromConfigValue(cfg.language));
+    {
+        // 漏翻自检：加了新界面文案却忘了补英文时，这里会报出来。
+        // （查不到译文时 tr() 原样返回中文，界面不会空 ——
+        //   但英文用户会看到一句中文，所以还是要知道。）
+        int tr_ = 0, tot_ = 0;
+        i18n::coverage(&tr_, &tot_);
+        logLine("界面语言: " + std::string(i18n::toConfigValue(i18n::current())) +
+                "（词条 " + std::to_string(tr_) + "/" + std::to_string(tot_) + "）");
+    }
+
     g_captureDeviceId = cfg.captureDeviceId;
 
     // 「连接时静音电脑扬声器」的崩溃恢复 ——
@@ -2764,7 +2810,8 @@ int main(int argc, char** argv) {
         // 首次连上弹一次。托盘图标只有 16px，颜色变化不明显，
         // 新用户需要一个明确的"连上了"信号。
         tray.notify("AirPlay Bridge",
-                    dev.empty() ? "已连接" : ("已连接: " + dev));
+                    dev.empty() ? std::string(i18n::tr("已连接"))
+                                : (std::string(i18n::tr("已连接: ")) + dev));
     };
     sess.onStatus = [&tray, &sess](const std::string& s) {
         std::string tip = "AirPlay Bridge - " + s;
@@ -2890,8 +2937,9 @@ int main(int argc, char** argv) {
         if (resolveDevice(sess, cfg, discovered, lastScanMs, forceScan)) {
             std::string err;
             if (!sess.start(err)) {
-                tray.setTooltip("AirPlay Bridge - 启动失败");
-                tray.notify("AirPlay Bridge", "启动失败: " + err);
+                tray.setTooltip(i18n::tr("AirPlay Bridge - 启动失败"));
+                tray.notify("AirPlay Bridge",
+                                std::string(i18n::tr("启动失败: ")) + err);
             } else {
                 cfg.lastHost = sess.host;
                 if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
@@ -2899,14 +2947,14 @@ int main(int argc, char** argv) {
                 saveConfig(cfgPath, cfg);
             }
         } else {
-            tray.setTooltip("AirPlay Bridge - 未找到设备");
+            tray.setTooltip(i18n::tr("AirPlay Bridge - 未找到设备"));
             // 首次运行那一次额外给个气泡 —— 否则用户看到的就是
             // 一个灰图标 + 菜单里「尚未扫描到设备」，无从判断是坏了
             // 还是没配好。exchange 消费掉，重连循环里不会再弹。
             if (g_notifyIfNoDevice.exchange(false)) {
-                tray.notify("AirPlay Bridge",
-                            "没找到 AirPlay 设备。请确认音箱已通电，"
-                            "并且和这台电脑在同一个网络下。");
+                tray.notify("AirPlay Bridge", i18n::tr(
+                                "没找到 AirPlay 设备。请确认音箱已通电，"
+                                "并且和这台电脑在同一个网络下。"));
             }
         }
     };
@@ -2953,6 +3001,10 @@ int main(int argc, char** argv) {
     // 用户不会看到一个"没有来处"的对话框。
     if (wantTray && !wantLast && !cfg.askedAutoStart) {
         g_notifyIfNoDevice.store(true);   // 这次没扫到设备就提示一下
+        // 先问界面语言 —— 必须排在「问自启」之前，
+        // 这样后面那个弹窗出来时已经是用户选的语言了。
+        askLanguageOnFirstRun(cfg, cfgPath);
+        i18n::setLang(i18n::fromConfigValue(cfg.language));
         cfg.askedAutoStart = true;
         saveConfig(cfgPath, cfg);         // 先落盘，之后再崩也不会重复问
         askAutoStartOnFirstRun();
@@ -3030,7 +3082,7 @@ int main(int argc, char** argv) {
                 if (!line3.empty()) menu.push_back({line3, MENU_STATUS, false, false, false});
             }
             menu.push_back({"", 0, true, true, false});   // 分隔线
-            menu.push_back({sess.running.load() ? "断开" : "连接", MENU_TOGGLE});
+            menu.push_back({i18n::tr(sess.running.load() ? "断开" : "连接"), MENU_TOGGLE});
 
             // 防火墙修复入口：**只在需要时才出现**。
             //
@@ -3052,15 +3104,14 @@ int main(int argc, char** argv) {
             // 不存在频繁切换。所以多两级展开可以接受，换来的是一级菜单更短。
             TrayMenuItem devGroup;
             devGroup.id = MENU_DEVICE_GROUP;
-            devGroup.label = "设备";
+            devGroup.label = i18n::tr("设备");
+            // 设备列表**直接**挂在「设备 ›」下 ——
+            // 不再套一层「选择设备」：在叫「设备」的组里点「选择设备」是重复的，
+            // 而且换设备要多展开一层。
             {
-                TrayMenuItem devItem;
-                devItem.id = MENU_DEVICES;
-                devItem.label = "选择设备";
-
                 if (discovered.empty()) {
                     // 缓存是空的（还没扫过，或者上次啥也没找到）
-                    devItem.children.push_back({"尚未扫描到设备", 0, false, false, false});
+                    devGroup.children.push_back({i18n::tr("尚未扫描到设备"), 0, false, false, false});
                 } else {
                     for (size_t i = 0; i < discovered.size(); ++i) {
                         TrayMenuItem d;
@@ -3070,12 +3121,13 @@ int main(int argc, char** argv) {
                         d.checked = sess.connected.load() &&
                                     !discovered[i].host.empty() &&
                                     discovered[i].host == sess.host;
-                        devItem.children.push_back(std::move(d));
+                        devGroup.children.push_back(std::move(d));
                     }
                 }
-                devItem.children.push_back({"", 0, true, true, false});
-                devItem.children.push_back({"重新扫描", MENU_RESCAN_SUB, true, false, false});
-                devGroup.children.push_back(std::move(devItem));
+                devGroup.children.push_back({"", 0, true, true, false});
+                devGroup.children.push_back({i18n::tr("重新扫描"), MENU_RESCAN_SUB, true, false, false});
+                // 设备列表和下面两项设置之间也隔一条线
+                devGroup.children.push_back({"", 0, true, true, false});
             }
 
             // 「隐藏设备」子菜单 —— 列出**全部**扫到的设备，勾选 = 显示。
@@ -3086,7 +3138,7 @@ int main(int argc, char** argv) {
             {
                 TrayMenuItem hideItem;
                 hideItem.id = MENU_HIDE_DEVICE;
-                hideItem.label = "隐藏设备";
+                hideItem.label = i18n::tr("隐藏设备");
                 std::vector<AirPlayDevice> all;
                 {
                     std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
@@ -3121,8 +3173,8 @@ int main(int argc, char** argv) {
             {
                 TrayMenuItem capItem;
                 capItem.id = MENU_CAPTURE_DEVICE;
-                capItem.label = "采集设备";
-                capItem.children.push_back({"跟随系统默认",
+                capItem.label = i18n::tr("采集设备");
+                capItem.children.push_back({i18n::tr("跟随系统默认"),
                                            MENU_CAPTURE_DEVICE + 1000,
                                            true, false,
                                            cfg.captureDeviceId.empty()});
@@ -3152,7 +3204,7 @@ int main(int argc, char** argv) {
             {
                 TrayMenuItem it;
                 it.id = MENU_LATENCY;   // 父项本身不可点，但保留 id 便于识别
-                it.label = "延迟  " + std::to_string(cfg.latencyMs) + "ms";
+                it.label = std::string(i18n::tr("延迟")) + "  " + std::to_string(cfg.latencyMs) + "ms";
                 for (int i = 0; i < kLatencyLevelCount; ++i) {
                     it.children.push_back({kLatencyLevels[i].label,
                                            kLatencyMenuBase + i,
@@ -3165,7 +3217,7 @@ int main(int argc, char** argv) {
                 bool latencyCustom = true;
                 for (int i = 0; i < kLatencyLevelCount; ++i)
                     if (cfg.latencyMs == kLatencyLevels[i].ms) latencyCustom = false;
-                it.children.push_back({"自定义（滑块）...", MENU_LATENCY_CUSTOM,
+                it.children.push_back({i18n::tr("自定义（滑块）..."), MENU_LATENCY_CUSTOM,
                                        true, false, latencyCustom});
                 menu.push_back(std::move(it));
             }
@@ -3174,7 +3226,7 @@ int main(int argc, char** argv) {
             {
                 TrayMenuItem it;
                 it.id = MENU_VOLUME;
-                it.label = "音量  " + std::to_string(cfg.volume) + "%";
+                it.label = std::string(i18n::tr("音量")) + "  " + std::to_string(cfg.volume) + "%";
                 for (int i = 0; i < kVolumeLevelCount; ++i) {
                     it.children.push_back({kVolumeLevels[i].label,
                                            kVolumeMenuBase + i,
@@ -3187,7 +3239,7 @@ int main(int argc, char** argv) {
                 bool volumeCustom = true;
                 for (int i = 0; i < kVolumeLevelCount; ++i)
                     if (cfg.volume == kVolumeLevels[i].pct) volumeCustom = false;
-                it.children.push_back({"自定义（滑块）...", MENU_VOLUME_CUSTOM,
+                it.children.push_back({i18n::tr("自定义（滑块）..."), MENU_VOLUME_CUSTOM,
                                        true, false, volumeCustom});
                 menu.push_back(std::move(it));
             }
@@ -3209,20 +3261,23 @@ int main(int argc, char** argv) {
                 bool qualityCustom = true;
                 for (int i = 0; i < kQualityLevelCount; ++i)
                     if (cfg.qualityLevel == kQualityLevels[i].value) qualityCustom = false;
-                it.children.push_back({"自定义（滑块）...", MENU_QUALITY_CUSTOM,
+                it.children.push_back({i18n::tr("自定义（滑块）..."), MENU_QUALITY_CUSTOM,
                                        true, false, qualityCustom});
                 menu.push_back(std::move(it));
             }
             menu.push_back({"", 0, true, true, false});
-            // 高级设置 —— 平时不需要动的那些收在这里。
+            // 更多设置 —— 平时不需要动的那些收在这里。
             // 命名照 Apple 系统设置的习惯：短名词短语、不放动词、不塞解释。
             {
                 TrayMenuItem adv;
                 adv.id = MENU_ADVANCED;
-                adv.label = "高级设置";
+                // 叫「更多设置」而不是「高级设置」：里面五项都是常规设置，
+                // 没有一项是"改了会出问题"的那种。用「高级」会让用户连不上时
+                // 犹豫「高级的我不该碰」—— 恰好挡住最需要它的场景。
+                adv.label = i18n::tr("更多设置");
 
                 // 连接诊断：检查并修复网络放行（原来叫「修复连接问题」，动词开头太长）
-                adv.children.push_back({"连接诊断", MENU_FIX_FIREWALL});
+                adv.children.push_back({i18n::tr("连接诊断"), MENU_FIX_FIREWALL});
 
                 // 无声音时待机：原来叫「静音自动待机」——
                 // 「静音」和「待机」两个概念粘在一起，容易被读成「静音就待机」。
@@ -3244,34 +3299,50 @@ int main(int argc, char** argv) {
                 it.children.push_back({"", 0, true, true, false});
                 // 值不等于任何档位时勾打在「自定义（滑块）」上 —— 光比档位
                 // 会让滑块调出来的 7.5 秒一个勾都没有。
-                it.children.push_back({"自定义（滑块）...", MENU_STANDBY_CUSTOM,
+                it.children.push_back({i18n::tr("自定义（滑块）..."), MENU_STANDBY_CUSTOM,
                                        true, false, standbyCustom});
                 it.children.push_back({"", 0, true, true, false});
                 // 时长为 0 也走这一项 —— 0 在语义上就是关闭。
-                it.children.push_back({"关闭（不自动待机）", MENU_STANDBY + 1000,
+                it.children.push_back({i18n::tr("关闭（不自动待机）"), MENU_STANDBY + 1000,
                                        true, false, !sbOn});
                 adv.children.push_back(std::move(it));
 
                 // 静音本机输出：原来叫「连接时静音电脑扬声器」——
                 // 一句话塞进菜单，Apple 不会这么写。
-                adv.children.push_back({"静音本机输出", MENU_MUTE_LOCAL,
+                adv.children.push_back({i18n::tr("静音本机输出"), MENU_MUTE_LOCAL,
                                         true, false, cfg.muteLocalOnConnect});
 
                 // 开机自启：这里**不用** macOS 的「登录时打开」——
                 // 参考系统设置的措辞是为了更好懂，而中文 Windows 用户对
                 // 「开机自启」远比直译过来的说法熟。参考不等于照搬。
-                adv.children.push_back({"开机自启", MENU_AUTOSTART,
+                adv.children.push_back({i18n::tr("开机自启"), MENU_AUTOSTART,
                                         true, false, isAutoStartEnabled()});
 
-                adv.children.push_back({"日志", MENU_OPEN_LOG});
+                adv.children.push_back({i18n::tr("日志"), MENU_OPEN_LOG});
+
+                // 语言：用各语言自己的写法作项名 —— 中文用户找「中文」、
+                // 英文用户找「English」，都不需要先看懂另一种语言。
+                {
+                    TrayMenuItem lang;
+                    lang.id = MENU_LANGUAGE;
+                    lang.label = i18n::tr("语言");
+                    const i18n::Lang cur = i18n::current();
+                    lang.children.push_back({i18n::nativeName(i18n::Lang::Zh),
+                                             MENU_LANGUAGE_ZH, true, false,
+                                             cur == i18n::Lang::Zh});
+                    lang.children.push_back({i18n::nativeName(i18n::Lang::En),
+                                             MENU_LANGUAGE_EN, true, false,
+                                             cur == i18n::Lang::En});
+                    adv.children.push_back(std::move(lang));
+                }
 
                 menu.push_back(std::move(adv));
             }
             // 关于 —— 检查更新并进来了：点开就是版本信息，有新版本再告诉用户。
             // 版本号不放在菜单标题里（那是「关于」弹窗该说的）。
-            menu.push_back({"关于", MENU_ABOUT});
+            menu.push_back({i18n::tr("关于"), MENU_ABOUT});
             menu.push_back({"", 0, true, true, false});
-            menu.push_back({"退出", MENU_QUIT});
+            menu.push_back({i18n::tr("退出"), MENU_QUIT});
 
             // 打点：TrackPopupMenu 跑的是模态消息循环，主循环在里面停摆。
             // 这一步卡住的话用户看到的就是"点托盘没反应"。
@@ -3344,7 +3415,8 @@ int main(int argc, char** argv) {
                     if (!sess.start(err)) {
                         logLine("启动失败: " + err);
                         tray.setTooltip("AirPlay Bridge - 启动失败");
-                        tray.notify("AirPlay Bridge", "启动失败: " + err);
+                        tray.notify("AirPlay Bridge",
+                                std::string(i18n::tr("启动失败: ")) + err);
                     } else {
                         cfg.lastHost = sess.host;
                         if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
@@ -3360,8 +3432,9 @@ int main(int argc, char** argv) {
                     saveConfig(cfgPath, cfg);
                     logLine("延迟切换为 " + std::to_string(cfg.latencyMs) + "ms，重连生效");
                     tray.notify("AirPlay Bridge",
-                                "延迟已设为 " + std::to_string(cfg.latencyMs) +
-                                "ms，正在重连…");
+                                    std::string(i18n::tr("延迟已设为 ")) +
+                                    std::to_string(cfg.latencyMs) +
+                                    std::string("ms") + i18n::tr("，正在重连…"));
                     // 延迟写在握手参数里，必须重连才生效
                     if (sess.running.load()) {
                         sess.teardown();
@@ -3376,8 +3449,9 @@ int main(int argc, char** argv) {
                         saveConfig(cfgPath, cfg);
                         logLine("延迟改为 " + std::to_string(picked) + "ms，重连生效");
                         tray.notify("AirPlay Bridge",
-                                    "延迟已设为 " + std::to_string(picked) +
-                                    "ms，正在重连…");
+                                        std::string(i18n::tr("延迟已设为 ")) +
+                                        std::to_string(picked) +
+                                        std::string("ms") + i18n::tr("，正在重连…"));
                         if (sess.running.load()) {
                             sess.teardown();
                             tryConnect();
@@ -3412,7 +3486,7 @@ int main(int argc, char** argv) {
                     cfg.qualityLevel = kQualityLevels[id - kQualityMenuBase].value;
                     saveConfig(cfgPath, cfg);
                     logLine("音质档位改为 " + std::to_string(cfg.qualityLevel) + "，重连生效");
-                    tray.notify("AirPlay Bridge", "音质已调整，正在重连…");
+                    tray.notify("AirPlay Bridge", i18n::tr("音质已调整，正在重连…"));
                     // 重采样器在会话建立时初始化，要重连才生效
                     if (sess.running.load()) {
                         sess.teardown();
@@ -3426,7 +3500,7 @@ int main(int argc, char** argv) {
                         cfg.qualityLevel = q;
                         saveConfig(cfgPath, cfg);
                         logLine("音质档位改为 " + std::to_string(q) + "，重连生效");
-                        tray.notify("AirPlay Bridge", "音质已调整，正在重连…");
+                        tray.notify("AirPlay Bridge", i18n::tr("音质已调整，正在重连…"));
                         if (sess.running.load()) {
                             sess.teardown();
                             tryConnect();
@@ -3472,6 +3546,15 @@ int main(int argc, char** argv) {
                 }
                 if (id == MENU_STANDBY) return;   // 父项，展开用，点它本身不做事
 
+                if (id == MENU_LANGUAGE_EN || id == MENU_LANGUAGE_ZH) {
+                    cfg.language = (id == MENU_LANGUAGE_ZH) ? "zh" : "en";
+                    i18n::setLang(i18n::fromConfigValue(cfg.language));
+                    saveConfig(cfgPath, cfg);
+                    logLine("界面语言切换为 " + cfg.language);
+                    // 菜单是每次弹出时重建的，下次打开就是新语言 —— 不用重连。
+                    return;
+                }
+
                 if (id == MENU_MUTE_LOCAL) {
                     cfg.muteLocalOnConnect = !cfg.muteLocalOnConnect;
                     saveConfig(cfgPath, cfg);
@@ -3492,7 +3575,7 @@ int main(int argc, char** argv) {
                             userDisconnected = true;
                             sess.teardown();
                             tray.setConnected(false);
-                            tray.setTooltip("AirPlay Bridge - 已断开（手动）");
+                            tray.setTooltip(i18n::tr("AirPlay Bridge - 已断开（手动）"));
                             logLine("用户手动断开，暂停自动重连");
                         } else {
                             // 用户手动连接：清掉标记，恢复正常
@@ -3505,11 +3588,11 @@ int main(int argc, char** argv) {
                         sess.teardown();
                         cfg.lastDeviceId.clear();   // 强制重新选择
                         tray.setConnected(false);
-                        tray.setTooltip("AirPlay Bridge - 扫描中");
+                        tray.setTooltip(i18n::tr("AirPlay Bridge - 扫描中"));
 
                         // 先给个反馈再扫。扫描要一两秒，期间主循环是卡住的，
                         // 没有这句话用户会以为点击没生效。
-                        tray.notify("AirPlay Bridge", "正在扫描局域网设备…");
+                        tray.notify("AirPlay Bridge", i18n::tr("正在扫描局域网设备…"));
                         // 用户点重新扫描就是要刷新 —— 必须真扫，不能被缓存挡住。
                         setPhase(PHASE_SCAN);
                         discovered = filterDevices(discoverAirPlayDevices(2000), cfg);
@@ -3561,7 +3644,8 @@ int main(int argc, char** argv) {
                             if (!sess.start(err)) {
                                 logLine("启动失败: " + err);
                                 tray.setTooltip("AirPlay Bridge - 启动失败");
-                                tray.notify("AirPlay Bridge", "启动失败: " + err);
+                                tray.notify("AirPlay Bridge",
+                                std::string(i18n::tr("启动失败: ")) + err);
                             } else {
                                 cfg.lastHost = sess.host;
                                 if (!sess.deviceId.empty()) cfg.lastDeviceId = sess.deviceId;
