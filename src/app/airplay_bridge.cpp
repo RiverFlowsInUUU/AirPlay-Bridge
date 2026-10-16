@@ -50,6 +50,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <algorithm>
 #include <string>
 #include <thread>
 #include <mutex>
@@ -783,6 +784,61 @@ std::vector<std::wstring> findStaleFirewallRules() {
     return stale;
 }
 
+// 找「指向**另一份确实还存在**的副本」的放行规则，返回那些副本的完整路径。
+//
+// 为什么需要它：放行规则按 exe 完整路径记录，一台机器上只能有一份生效。
+// 用户同时留着安装版和免安装版时，两份会互相顶掉对方的设置 —— 谁点一次
+// 「修复」就把另一份顶掉，于是两份轮流提示、永远修不好，而且其中一份真的连不上。
+//
+// 光说「未被放行」会让人一头雾水（「我明明配过」）。所以要把另一份的**路径**
+// 直接摆出来，用户才能动手删。
+//
+// ⚠️ 只在**文件确实还在**时才算 —— 指向已删除文件的规则是纯粹的陈旧垃圾，
+//    由 findStaleFirewallRules() 那条路清理，不该在这里冒充「另一份副本」。
+std::vector<std::wstring> findOtherCopies() {
+    std::vector<std::wstring> out;
+
+    std::wstring curExe;
+    {
+        const std::string p8 = exePath();
+        const int need = MultiByteToWideChar(CP_ACP, 0, p8.c_str(), -1, nullptr, 0);
+        if (need > 1) {
+            curExe.resize(static_cast<size_t>(need - 1));
+            MultiByteToWideChar(CP_ACP, 0, p8.c_str(), -1, curExe.data(), need);
+        }
+    }
+    if (curExe.empty()) return out;
+
+    const std::wstring prefix(
+        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR name = nullptr;
+        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+            const std::wstring wide(name);
+            if (wide.size() >= prefix.size() &&
+                wide.compare(0, prefix.size(), prefix) == 0) {
+                BSTR appPath = nullptr;
+                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) && appPath) {
+                    const std::wstring other(appPath);
+                    const bool isOther =
+                        (_wcsicmp(other.c_str(), curExe.c_str()) != 0);
+                    const bool exists =
+                        (GetFileAttributesW(other.c_str()) != INVALID_FILE_ATTRIBUTES);
+                    if (isOther && exists &&
+                        std::find(out.begin(), out.end(), other) == out.end()) {
+                        out.push_back(other);
+                    }
+                }
+                if (appPath) SysFreeString(appPath);
+            }
+        }
+        if (name) SysFreeString(name);
+        return true;
+    });
+    return out;
+}
+
 // 删掉一条指定名字的放行规则（**只能删我们自己的名字** ——
 // 传进来的名字必须先确认过前缀，调用方负责）。
 //
@@ -889,13 +945,32 @@ void checkFirewallRuleAtStartup() {
         // 放行规则按 exe 完整路径记，两份副本会互相顶掉对方的设置：
         // 谁点一次修复就把另一份的规则覆盖掉，于是两份轮流提示。
         if (staleCount > 0) {
-            tip += kNLw; tip += kNLw;
+            // 把「另一份到底在哪」直接摆出来 —— 只说「建议只保留一份」，
+            // 用户根本不知道该删哪个文件。
+            const std::vector<std::wstring> others = findOtherCopies();
             logLine("启动检查: 检测到另一份副本占用了放行设置（两份会互相顶）");
-            tip += L"本机已有另一份 AirPlay Bridge 占用了放行设置。";
-            tip += kNLw;
-            tip += L"（安装版和免安装版同时留着就会这样，两份互相顶。）";
-            tip += kNLw;
-            tip += L"建议只保留一份，再点下面的修复。";
+            tip += kNLw; tip += kNLw;
+            if (!others.empty()) {
+                tip += L"本机还有另一份 AirPlay Bridge，占着网络放行设置：";
+                tip += kNLw;
+                for (size_t i = 0; i < others.size() && i < 2; ++i) {
+                    tip += L"    ";
+                    tip += others[i];
+                    tip += kNLw;
+                }
+                tip += kNLw;
+                tip += L"两个文件不能同时用（放行设置只能指向一个），";
+                tip += kNLw;
+                tip += L"而且会互相顶掉，所以每次打开都提示。";
+                tip += kNLw;
+                tip += L"请删掉上面那个不用的，再用你常用的这个打开。";
+            } else {
+                tip += L"本机已有另一份 AirPlay Bridge 占用了放行设置。";
+                tip += kNLw;
+                tip += L"（安装版和免安装版同时留着就会这样，两份互相顶。）";
+                tip += kNLw;
+                tip += L"建议只保留一份，再点下面的修复。";
+            }
         }
         wantFixOnYes = true;
     }

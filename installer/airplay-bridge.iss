@@ -42,8 +42,14 @@ UninstallDisplayIcon={app}\{#ExeName}
 ; 注意：程序**运行**时不需要管理员 —— 配置和日志都在 %LOCALAPPDATA%，
 ; 只有加防火墙规则那一步会自己单独提权。
 PrivilegesRequired=admin
-; 升级或卸载时自动关掉正在跑的实例
-CloseApplications=yes
+; 单实例互斥体名 —— 必须和程序里 kMutexName 完全一致。
+; Inno 靠它识别「是哪个程序占着文件」。
+AppMutex=Global\AirPlayBridge_SingleInstance
+; 不劳烦 Inno 的自动关闭：本程序是托盘程序、**没有主窗口**，
+; 它靠窗口找进程，找不到 → 只弹一个「请关闭 X」的提示；
+; 用户点了「确定」文件依然被占用，安装就卡在那儿过不去。
+; 改为在 PrepareToInstall 里主动结束（见 [Code]）。
+CloseApplications=no
 RestartApplications=no
 
 [Languages]
@@ -95,6 +101,32 @@ Type: filesandordirs; Name: "{app}"
 //
 // 放在 InitializeUninstall（卸载最开头，文件都还在）里，
 // 用 ewWaitUntilTerminated 明确等它结束。
+// 开始复制文件之前，主动结束还在跑的旧实例。
+//
+// 为什么必须主动做：本程序是托盘程序，**没有主窗口** —— Inno 的
+// CloseApplications / Restart Manager 依赖窗口来定位进程，找不到它，
+// 于是只弹一句「请关闭 AirPlay Bridge」。用户点了「确定」，文件依然被占用，
+// 安装就卡在那里过不去 —— 结果是装到一半停住、放行规则没配上、
+// 装完连不上，还每次启动都提示防火墙（用户实际踩到）。
+//
+// 两个进程名都要处理：安装版叫 AirPlayBridge.exe，
+// 而旧的免安装版叫 AirPlay Bridge.exe。两者共用同一个全局互斥体，
+// 任意一个在跑都会挡住安装。
+procedure KillOldInstance(const AN: String);
+var
+  R: Integer;
+begin
+  Exec('taskkill.exe', '/F /IM "' + AN + '"', '', SW_HIDE, ewWaitUntilTerminated, R);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  KillOldInstance('AirPlayBridge.exe');
+  KillOldInstance('AirPlay Bridge.exe');
+  Sleep(1000);
+end;
+
 function InitializeUninstall(): Boolean;
 var
   ResultCode: Integer;
