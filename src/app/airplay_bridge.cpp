@@ -445,7 +445,40 @@ int promptUser(const wchar_t* text, const wchar_t* title, UINT flags) {
     return r;
 }
 
+// 安装程序调用的一次性工具参数 —— 必须豁免单实例检测。
+//
+// 为什么：安装的最后一步（以及卸载清理）会拉起本程序跑这些参数，
+// 而那时用户机器上**很可能正开着程序**（开机自启），于是被单实例检测
+// 当成「重复启动」静默退出 —— 结果是放行规则没配上。
+//
+// 用户看到的就是「装了新版还是连不上，而且每次打开都提示未被防火墙放行」。
+// （实测复现：装完版本正确，但放行规则 0 条。）
+//
+// 这些参数只做一次性动作，不起托盘、不进主循环、不碰接收端，
+// 与「同时跑两个实例会互相抢接收端」是两回事。
+// ⚠️ 不要往里加 --last 或任何正常启动参数。
+bool isOneShotToolArg() {
+    const wchar_t* cmd = GetCommandLineW();
+    if (!cmd) return false;
+    static const wchar_t* kTools[] = {
+        L"--fix-firewall",
+        L"--clean-firewall-rules",
+        L"--uninstall-cleanup",
+        L"--audio-devices",
+        L"--console",
+    };
+    for (const wchar_t* t : kTools) {
+        if (wcsstr(cmd, t)) {
+            logLine("单实例检测: 一次性工具调用，豁免检测");
+            return true;
+        }
+    }
+    return false;
+}
+
 bool anotherInstanceIsRunning() {
+    if (isOneShotToolArg()) return false;
+
     constexpr const wchar_t* kMutexName = L"Global\\AirPlayBridge_SingleInstance";
     g_singleInstanceMutex = CreateMutexW(nullptr, TRUE, kMutexName);
     if (!g_singleInstanceMutex) {
