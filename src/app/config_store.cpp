@@ -142,6 +142,10 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbySecs", 5)) * 10;
     }
     // 50-100 之外的都是脏数据或老配置的越界值，钳回区间。
+    // 首次运行引导有没有做过。
+    // 走 jsonGetBool，不手写带转义的 key 字面量。
+    out.askedAutoStart = jsonGetBool(j, "askedAutoStart", out.askedAutoStart);
+
     if (out.standbyTenths < 50)  out.standbyTenths = 50;
     if (out.standbyTenths > 100) out.standbyTenths = 100;
 
@@ -191,6 +195,8 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
           << (cfg.standbyEnabled ? "true" : "false") << "," << char(10);
         f << "  " << QC << "standbyTenths" << QC << ": "
           << cfg.standbyTenths << "," << char(10);
+        f << "  " << QC << "askedAutoStart" << QC << ": "
+          << (cfg.askedAutoStart ? "true" : "false") << "," << char(10);
     }
     f << "  \"ignoredDeviceIds\": [";
     for (size_t i = 0; i < cfg.ignoredDeviceIds.size(); ++i) {

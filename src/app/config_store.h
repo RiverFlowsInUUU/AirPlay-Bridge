@@ -43,6 +43,9 @@ struct BridgeConfig {
     // 所以整档砍掉，范围固定在 5.0-10.0 秒之间细调。
     int         standbyTenths = 50;
     std::vector<std::string> ignoredDeviceIds;   // 用户手动忽略的设备
+    // 首次运行引导是否已经做过。
+    // 只做一次 —— 每次启动都问用户"要不要开机自启"是骚扰。
+    bool        askedAutoStart = false;
 };
 
 // 运行时数据目录（%LOCALAPPDATA%\\AirPlayBridge\\），不存在则创建。

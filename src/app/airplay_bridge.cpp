@@ -412,6 +412,24 @@ std::wstring screenText(const std::string& s) {
 HANDLE g_singleInstanceMutex = nullptr;
 
 // 已经有实例在跑时弹提示。文案用 wstring + static_cast<wchar_t>(10) 拼换行。
+// 正在弹窗等用户回答。
+//
+// MessageBox 是**模态**的 —— 主线程在等用户作答，这是预期行为，不是卡住。
+// 看门狗看到主循环不转就会每分钟写一条"主线程无响应"，
+// 首次运行连着问两个框就能把日志刷满，真出问题时反而被淹掉。
+std::atomic<bool> g_inUserPrompt{false};
+
+// 统一的弹窗入口：期间给看门狗打豁免。
+// 所有 MessageBox 都要走这里，别直接调 —— 漏一个就漏一个误报源。
+int promptUser(const wchar_t* text, const wchar_t* title, UINT flags) {
+    g_inUserPrompt.store(true);
+    // 这里必须调真正的 MessageBoxW —— 注意别被"把所有弹窗换成 promptUser"
+    // 的批量替换误伤成自己（那样会无限递归，而且**编译照样通过**）。
+    const int r = MessageBoxW(nullptr, text, title, flags);
+    g_inUserPrompt.store(false);
+    return r;
+}
+
 bool anotherInstanceIsRunning() {
     constexpr const wchar_t* kMutexName = L"Global\\AirPlayBridge_SingleInstance";
     g_singleInstanceMutex = CreateMutexW(nullptr, TRUE, kMutexName);
@@ -436,7 +454,7 @@ bool anotherInstanceIsRunning() {
 
     // MB_SETFOREGROUND：托盘程序是后台进程，不加的话弹窗可能被压在
     // 别的窗口后面，用户只看到进程一闪而过，完全不知道发生了什么。
-    MessageBoxW(nullptr, msg.c_str(), title.c_str(),
+    promptUser(msg.c_str(), title.c_str(),
                 MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
     return true;
 }
@@ -881,7 +899,7 @@ void checkFirewallRuleAtStartup() {
 
     // MB_SETFOREGROUND：托盘程序没有前台窗口，不加的话弹窗可能被压在别的
     // 窗口后面，用户只看到进程一闪而过。
-    const int r = MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
+    const int r = promptUser(tip.c_str(), L"AirPlay Bridge",
                               MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND);
     if (r != IDYES) {
         if (staleCount > 0) logLine("用户选择跳过陈旧防火墙规则清理");
@@ -959,7 +977,7 @@ int runFixFirewall() {
             MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
         return w;
     };
-    MessageBoxW(nullptr, toWide(msg).c_str(), toWide(title).c_str(),
+    promptUser(toWide(msg).c_str(), toWide(title).c_str(),
                 MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
     return exitCode;
 }
@@ -992,7 +1010,7 @@ int runCleanFirewallRules() {
         msg += "请确认在弹出的用户账户控制窗口中选择了「是」。";
     }
 
-    MessageBoxW(nullptr, screenText(msg).c_str(), L"AirPlay Bridge",
+    promptUser(screenText(msg).c_str(), L"AirPlay Bridge",
                 MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
     // 提示框不是失败信号 —— 与 --fix-firewall 那里不同，这里没有"失败"的
     // 概念（没东西可删也是正常结束）。
@@ -1124,6 +1142,14 @@ std::atomic<bool> g_firewallHintShown{false};
 std::atomic<bool> g_fixFirewallOffered{false};
 // 提示的触发阈值。低于它不提示 —— 偶发一次超时很常见（接收端忙、
 // 网络抖一下），先别让用户去翻防火墙。
+// 这次启动如果没扫到设备，要不要给个气泡提示。
+//
+// 只在**首次运行**那一次置起：那时用户面对的是灰图标 + 菜单里
+//「尚未扫描到设备」，完全不知道发生了什么，需要一句话说明。
+// 之后就靠 tooltip 静态提示即可 —— 重连循环里反复弹气泡是骚扰。
+// 用 atomic：主循环消费，启动阶段写入。
+std::atomic<bool> g_notifyIfNoDevice{false};
+
 constexpr int kFirewallHintAfterFails = 3;
 
 // 如果本机已经有一条覆盖本程序的入站放行规则，就说明防火墙大概率
@@ -1251,6 +1277,9 @@ void watchdogLoop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         if (g_stop.load()) break;
 
+        // 正在等用户回答弹窗：主线程在等是正常的，不算卡住。
+        if (g_inUserPrompt.load()) { stalled = false; continue; }
+
         const long long now = steadyNowMs();
         const long long tick = g_mainTick.load();
         // 主线程还没跑起来（启动阶段）时不做判断
@@ -1375,6 +1404,32 @@ bool autoStartDisabledBySystem() {
 // 用户报「开机没有自启」时，光看代码猜不出是哪种 ——
 // 可能是从没开过、可能是路径失效、也可能是被系统在「启动应用」里禁用了。
 // 启动时记一笔，三种情况一眼可分。
+// 首次运行时问一次「要不要开机自启」。
+//
+// 只在这个时机问：用户刚装好、第一次手动打开。开机自启启动的那一份
+// （带 --last）绝不会走到这里 —— 每次开机都被问一遍是骚扰。
+//
+// 用系统的 MessageBox 而不是自绘窗口：这里只要一个二选一，
+// 没必要再写一个窗口，也不会显得像来路不明的弹窗。
+void askAutoStartOnFirstRun() {
+    const wchar_t kNLw = static_cast<wchar_t>(10);
+    std::wstring tip;
+    tip += L"要不要让 AirPlay Bridge 开机时自动启动？";
+    tip += kNLw; tip += kNLw;
+    tip += L"选「是」之后，开机会自动运行并连上上次用过的音箱。";
+    tip += kNLw;
+    tip += L"以后随时可以在托盘菜单里改。";
+
+    const int r = promptUser(tip.c_str(), L"AirPlay Bridge",
+                              MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+    if (r == IDYES) {
+        setAutoStart(true);
+        logLine("首次运行：用户选择开机自启");
+    } else {
+        logLine("首次运行：用户暂不开启开机自启");
+    }
+}
+
 void logAutoStartStatus() {
     const std::string registered = autoStartExePath();
     if (registered.empty()) {
@@ -2386,6 +2441,14 @@ int main(int argc, char** argv) {
             }
         } else {
             tray.setTooltip("AirPlay Bridge - 未找到设备");
+            // 首次运行那一次额外给个气泡 —— 否则用户看到的就是
+            // 一个灰图标 + 菜单里「尚未扫描到设备」，无从判断是坏了
+            // 还是没配好。exchange 消费掉，重连循环里不会再弹。
+            if (g_notifyIfNoDevice.exchange(false)) {
+                tray.notify("AirPlay Bridge",
+                            "没找到 AirPlay 设备。请确认音箱已通电，"
+                            "并且和这台电脑在同一个网络下。");
+            }
         }
     };
 
@@ -2421,10 +2484,28 @@ int main(int argc, char** argv) {
     g_mainTick.store(steadyNowMs());
     std::thread watchdog(watchdogLoop);
 
-    // 首次扫描
-    if (wantLast || !cfg.lastHost.empty()) {
-        tryConnect();
+    // ---- 首次运行引导 ----
+    //
+    // 只在「用户手动打开托盘模式」时做，而且只做一次。
+    // 绝不能在开机自启启动时做（那是 --last）—— 用户每次开机都被问
+    // 一遍会非常烦。
+    //
+    // 放在这里而不是更早：托盘图标刚创建好，弹窗时图标已经在了，
+    // 用户不会看到一个"没有来处"的对话框。
+    if (wantTray && !wantLast && !cfg.askedAutoStart) {
+        g_notifyIfNoDevice.store(true);   // 这次没扫到设备就提示一下
+        cfg.askedAutoStart = true;
+        saveConfig(cfgPath, cfg);         // 先落盘，之后再崩也不会重复问
+        askAutoStartOnFirstRun();
     }
+
+    // 立即尝试连接。
+    //
+    // 以前这里是 if (wantLast || !cfg.lastHost.empty()) —— 只有"连过"
+    // 才立即连。于是**首次运行**要干等一个重连退避周期（5 秒）才轮到它，
+    // 而那 5 秒里菜单显示"尚未扫描到设备"，用户以为程序坏了。
+    // 既然迟早都会连（重连分支一定会触发），不如立刻开始。
+    tryConnect();
 
     // 主循环：同时 pump 托盘消息和网络
     auto lastCheck = std::chrono::steady_clock::now();
@@ -2888,7 +2969,7 @@ int main(int argc, char** argv) {
                             tip += L"本机已有本程序的放行规则，无需重复添加。";
                             tip += kNLw; tip += kNLw;
                             tip += L"若仍连不上，请确认接收端与本程序在同一网络下。";
-                            MessageBoxW(nullptr, tip.c_str(),
+                            promptUser(tip.c_str(),
                                         L"AirPlay Bridge", MB_OK | MB_ICONINFORMATION);
                             break;
                         }
@@ -2973,7 +3054,7 @@ int main(int argc, char** argv) {
                 tip += L"（当前 v"; tip += cur; tip += L"）。";
                 tip += kNLw; tip += kNLw; tip += L"是否前往下载？";
                 logLine("发现新版本 " + r.tag + "（当前 " + std::string(kAppVersion) + "）");
-                const int r2 = MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
+                const int r2 = promptUser(tip.c_str(), L"AirPlay Bridge",
                                            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND);
                 if (r2 == IDYES && !r.url.empty()) {
                     ShellExecuteA(nullptr, "open", r.url.c_str(),
@@ -2982,7 +3063,7 @@ int main(int argc, char** argv) {
                 tip.clear();
             }
             if (!tip.empty()) {
-                MessageBoxW(nullptr, tip.c_str(), L"AirPlay Bridge",
+                promptUser(tip.c_str(), L"AirPlay Bridge",
                             MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
                 logLine(r.state == UpdateState::Failed
                             ? std::string("检查更新失败（网络不可用或接口异常）")
