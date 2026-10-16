@@ -1607,8 +1607,27 @@ void watchdogLoop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         if (g_stop.load()) break;
 
-        // 正在等用户回答弹窗：主线程在等是正常的，不算卡住。
-        if (g_inUserPrompt.load()) { stalled = false; continue; }
+        // 正在等用户回答弹窗：主循环停着是正常的，不算「卡住」。
+        //
+        // 但**音频还指着心跳定时器活**：弹窗的模态消息循环会把 WM_TIMER
+        // 派发到托盘窗口，心跳里调 pumpNonBlocking() 推 RTP。
+        // 心跳一停，用户听到的就是「点一下菜单里的东西，声音没了」——
+        // 所以这里不能无条件放过，得单独盯心跳还在不在跳。
+        // （已实测：MessageBox 模态期间 50ms 定时器照常触发，2.5 秒跳了 40 次。）
+        if (g_inUserPrompt.load()) {
+            const long long now2 = steadyNowMs();
+            const long long tick2 = g_mainTick.load();
+            if (tick2 != 0 && now2 - tick2 > kStallMs) {
+                if (now2 - lastReported >= kReportMs || lastReported == 0) {
+                    lastReported = now2;
+                    logLine("弹窗期间音频心跳停了 " + msToSecsText(now2 - tick2) +
+                            " 秒 —— 声音会断，检查菜单心跳定时器是否被提前 KillTimer");
+                }
+            } else {
+                stalled = false;
+            }
+            continue;
+        }
 
         const long long now = steadyNowMs();
         const long long tick = g_mainTick.load();

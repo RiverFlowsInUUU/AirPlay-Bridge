@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.4.8] - 2026-10-16
+
+**中文**
+
+### 修复
+
+- 修复点击托盘菜单里的「关于」「连接诊断」等项时，声音会短暂中断的问题。
+  滑块窗口（延迟 / 音量 / 音质 / 待机时长）同样受影响，一并修好。
+
+**English**
+
+### Fixed
+
+- Fixed audio briefly dropping out when opening About, Connection check,
+  or any slider window from the tray menu.
+
 ## [1.4.6] - 2026-10-16
 
 **中文**
