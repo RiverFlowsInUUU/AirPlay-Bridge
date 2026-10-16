@@ -51,13 +51,16 @@ UninstallDisplayIcon={app}\{#ExeName}
 ; 注意：程序**运行**时不需要管理员 —— 配置和日志都在 %LOCALAPPDATA%，
 ; 只有加防火墙规则那一步会自己单独提权。
 PrivilegesRequired=admin
-; 单实例互斥体名 —— 必须和程序里 kMutexName 完全一致。
-; Inno 靠它识别「是哪个程序占着文件」。
-AppMutex=Global\AirPlayBridge_SingleInstance
-; 不劳烦 Inno 的自动关闭：本程序是托盘程序、**没有主窗口**，
-; 它靠窗口找进程，找不到 → 只弹一个「请关闭 X」的提示；
-; 用户点了「确定」文件依然被占用，安装就卡在那儿过不去。
-; 改为在 PrepareToInstall 里主动结束（见 [Code]）。
+; ⚠️ 这里**故意不设 AppMutex**。
+;
+; AppMutex 表面上是「让 Inno 知道该关哪个程序」，实际会**挡住安装**：
+; Inno 在安装流程的**最开头**就检查它，而那时我们自己的「结束旧实例」
+; 还没机会跑（那在 PrepareToInstall，属于后面一步）。于是只要程序正在运行，
+; 安装就在这一步被中止 —— 静默安装下更是**一声不响地什么都没做**，
+; 用户看到的就是「装了新版，打开还是旧版」。实测踩到。
+;
+; 结束旧实例我们自己在 [Code] 里做（见 KillOldInstance），不需要 Inno 帮忙；
+; 而本程序是托盘程序、没有主窗口，Inno 的自动关闭机制本来也关不掉它。
 CloseApplications=no
 RestartApplications=no
 
@@ -124,8 +127,16 @@ Type: filesandordirs; Name: "{app}"
 procedure KillOldInstance(const AN: String);
 var
   R: Integer;
+  Tool: String;
 begin
-  Exec('taskkill.exe', '/F /IM "' + AN + '"', '', SW_HIDE, ewWaitUntilTerminated, R);
+  // 必须用完整路径。Inno 的 Exec 靠 PATH 找可执行文件，实测找不到
+  // taskkill —— 结果就是「旧实例没被杀掉」，而它占着 exe 文件，
+  // 安装跳过不覆盖，装完还是旧版本（表现为「装了新版还是老样子」）。
+  Tool := ExpandConstant('{sys}\\taskkill.exe');
+  if not Exec(Tool, '/F /IM "' + AN + '"', '', SW_HIDE, ewWaitUntilTerminated, R) then
+    Log('结束旧实例：无法启动 taskkill（' + Tool + '）')
+  else
+    Log('结束旧实例：' + AN + ' -> taskkill 返回 ' + IntToStr(R));
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -133,7 +144,7 @@ begin
   Result := '';
   KillOldInstance('AirPlayBridge.exe');
   KillOldInstance('AirPlay Bridge.exe');
-  Sleep(1000);
+  Sleep(2000);
 end;
 
 function InitializeUninstall(): Boolean;
