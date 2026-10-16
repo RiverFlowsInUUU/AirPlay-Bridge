@@ -1223,6 +1223,15 @@ std::atomic<bool> g_fixFirewallOffered{false};
 // 用 atomic：主循环消费，启动阶段写入。
 std::atomic<bool> g_notifyIfNoDevice{false};
 
+// 音频链路的健康计数器 —— 专门用来定位「杂音 / 爆音」。
+//
+// 为什么需要：`ring->tryPush()` 在环满时返回 false，而调用处一直忽略返回值，
+// 于是「丢帧」这条最经典的爆音线索完全看不见。
+// 丢帧 = 音频不连续 = 咔哒/爆裂声；削波 = 波形被削平 = 失真。
+// 两个都记下来，主循环每秒汇总一次（见 logAudioHealth）。
+std::atomic<uint64_t> g_ringDroppedFrames{0};   // 推不进环、被丢掉的帧数
+std::atomic<uint64_t> g_clippedSamples{0};      // 峰值触顶（可能削波）的样本数
+
 constexpr int kFirewallHintAfterFails = 3;
 
 // 如果本机已经有一条覆盖本程序的入站放行规则，就说明防火墙大概率
@@ -1862,6 +1871,15 @@ struct Session {
 
         sender = std::make_unique<RaopSender>(*loop, std::move(ev), std::move(log));
         sender->attachRing(ring.get());
+        // 音频链路一句话记清楚 —— 排查「杂音/爆音」时，
+        // 第一件要确认的就是「采集多少 Hz、有没有转、引擎收到多少 Hz」。
+        logLine("音频链路: 采集 " + std::to_string(inputRate) + " Hz -> 引擎 " +
+                std::to_string(engineInputRate) + " Hz" +
+                (needResample ? ("（本机重采样，品质 " +
+                                  std::string(qualityLevelName(cfg ? cfg->qualityLevel : 0)) +
+                                  "）")
+                              : std::string("（直通）")));
+
         sender->setInputFormat(engineInputRate);
         sender->setIdentity({"AirPlay Bridge", g_deviceId, "MacBookPro18,3"});
         sender->setAuth(RaopDeviceInfo::Auth::HapTransient, true, "", "", "");
@@ -1879,6 +1897,10 @@ struct Session {
                     const int v = d[i] < 0 ? -static_cast<int>(d[i]) : d[i];
                     if (v > peak) peak = v;
                 }
+                // 峰值触顶 = 波形可能已经被削平（系统混音过载）。
+                // 这跟静音判定无关，单独计数，主循环汇总。
+                if (peak >= 32700) g_clippedSamples.fetch_add(1);
+
                 if (peak >= kSilencePeak) {
                     lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
@@ -1886,15 +1908,18 @@ struct Session {
                 }
                 if (!needResample) {
                     // 设备本来就是 44.1k，直接送
-                    ring->tryPush(std::span<const int16_t>(d, n * 2));
+                    if (!ring->tryPush(std::span<const int16_t>(d, n * 2)))
+                        g_ringDroppedFrames.fetch_add(n * 2);
                     return;
                 }
                 // 转到 44.1k 再送。resampleBuf 复用，避免每回调都分配。
                 resampleBuf.clear();
                 resampler.process(d, n, resampleBuf);
-                if (!resampleBuf.empty())
-                    ring->tryPush(std::span<const int16_t>(resampleBuf.data(),
-                                                           resampleBuf.size()));
+                if (!resampleBuf.empty()) {
+                    if (!ring->tryPush(std::span<const int16_t>(resampleBuf.data(),
+                                                       resampleBuf.size())))
+                        g_ringDroppedFrames.fetch_add(resampleBuf.size());
+                }
             });
         });
 
@@ -3162,6 +3187,32 @@ int main(int argc, char** argv) {
                 logLine(r.state == UpdateState::Failed
                             ? std::string("检查更新失败（网络不可用或接口异常）")
                             : ("检查更新：已是最新版本 " + std::string(kAppVersion)));
+            }
+        }
+
+        // ---- 音频链路健康度汇总 ----
+        // 每 5 秒看一次两个计数器，**只在有变化时**记一条 ——
+        // 正常播放时一条都不写，出问题时能直接指出是「丢帧」还是「削波」。
+        {
+            static uint64_t lastDropped = 0;
+            static uint64_t lastClipped = 0;
+            static long long lastHealthCheck = 0;
+            const long long nowH = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (nowH - lastHealthCheck >= 5000) {
+                lastHealthCheck = nowH;
+                const uint64_t dNow = g_ringDroppedFrames.load();
+                const uint64_t cNow = g_clippedSamples.load();
+                if (dNow != lastDropped) {
+                    logLine("音频丢帧：累计 " + std::to_string(dNow) +
+                            " 帧推不进缓冲环（音频不连续，会造成爆音）");
+                    lastDropped = dNow;
+                }
+                if (cNow != lastClipped) {
+                    logLine("音频削波：累计 " + std::to_string(cNow) +
+                            " 次峰值触顶（系统混音可能过载，会产生失真）");
+                    lastClipped = cNow;
+                }
             }
         }
 

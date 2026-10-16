@@ -3,6 +3,12 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.2.51] - 2026-10-16
+
+### Added
+
+- 日志会记录音频链路的关键指标（采样率、丢帧、削波），便于定位杂音与爆音。
+
 ## [1.2.50] - 2026-10-16
 
 ### Changed
