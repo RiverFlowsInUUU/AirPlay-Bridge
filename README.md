@@ -28,6 +28,7 @@ Windows 10 / 11, 64-bit. The installer bundles its runtime.
 
 ## 🚀 First run
 
+- Asks which interface language to use (once; changeable later from the menu)
 - Asks whether to start at login (once; changeable later from the menu)
 - Scans the local network and connects to what it finds
 - Checks the firewall rule and offers a one-click fix if it's missing
@@ -43,6 +44,7 @@ quiet. Both are restored on disconnect.
 - 🔎 Finds devices on the local network automatically
 - 🔄 Reconnects after a drop, even if the device changes IP
 - 🛟 Restores the audio device on next launch after being force-killed
+- 🌐 Interface in English or Chinese
 - 🎚 Adjustable latency / volume / quality / standby / capture device
 - 😴 Standby when silent: disconnects so the device screen turns off, and
   reconnects the moment there's sound again
@@ -77,14 +79,14 @@ Left- or right-click the tray icon to open the menu.
      Standby when silent  ›
      Mute this PC
      Run at startup
+     Language  ›
      Logs
   About
 ────────────────
   Quit
 ```
 
-When the firewall rule is fine, **More settings › Connection check** tells you
-there's nothing to do.
+When the rule is fine, **More settings › Connection check** says so.
 
 ## 🎛 Adjustable
 
@@ -108,11 +110,10 @@ Standby presets: 5 / 10 / 15 / 20 s (5 s default); the slider is continuous
 2. Open Windows sound settings and check the default playback device
 3. Tray menu → More settings → Logs
 
-
 ## ⏳ Stuck on "Connecting"
 
-The receiver has to call back into this PC over the local network for clock
-sync, so this app needs an inbound firewall rule on Windows.
+The receiver calls back into this PC for clock sync, so this app needs an
+inbound firewall rule on Windows.
 
 The app checks this at startup. If the rule is missing:
 
@@ -127,11 +128,10 @@ Not listed? **Change settings** → **Allow another app** → **Browse**.
 
 ## ⚠️ Known limitations
 
-- Without a virtual audio cable, system audio still goes to this PC's output
-  device (with speakers connected, both play)
+- Without a virtual audio cable, sound also goes to this PC's output device
 - Changing latency or quality requires one reconnect
 - Windows only
-- A few seconds of silence after a drop, then it recovers automatically
+- A few seconds of silence after a drop
 
 ## 🔗 Related
 

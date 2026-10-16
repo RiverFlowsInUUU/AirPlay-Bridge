@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.4.7] - 2026-10-16
+
+**中文**
+
+### 修改
+
+- README 补上界面语言相关的说明：菜单示意图里的「语言」项、首次运行会询问语言、
+  以及界面支持中英两种语言。
+
+**English**
+
+### Changed
+
+- README now documents the interface language: the Language entry in the menu,
+  the first-run language question, and bilingual UI support.
+
 ## [1.4.6] - 2026-10-16
 
 **中文**
