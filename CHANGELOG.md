@@ -3,6 +3,25 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.14] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复设备短暂连上又被断开后，重连间隔固定在 5 秒、反复重试的问题。
+  此前一旦出现这种情况，程序会一直重连但始终连不上，直到设备自己释放会话
+  （实测约需 90 秒）。现在会逐步拉长重试间隔，让设备有机会恢复。
+
+**English**
+
+### Fixed
+
+- Fixed the reconnect loop getting stuck at a fixed 5-second interval after the
+  device accepted a session and then dropped it. The app used to retry forever
+  without ever succeeding until the device released the session on its own
+  (about 90 seconds in testing). Retries now back off progressively.
+
 ## [1.5.13] - 2026-10-17
 
 **中文**

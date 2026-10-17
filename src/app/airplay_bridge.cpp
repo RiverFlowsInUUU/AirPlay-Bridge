@@ -3224,6 +3224,10 @@ int main(int argc, char** argv) {
     auto lastCheck = std::chrono::steady_clock::now();
     // 重连退避：连续失败时逐次翻倍，避免每 5 秒猛扫一次
     int retryBackoffSec = 5;
+    // 连接持续这么久才认为「真的连上了」，把重连退避复位回 5 秒。
+    // 取值依据：HomePod 踢掉会话前通常能撑 3~8 秒，10 秒足以区分
+    // 「短暂连上就被踢」和「稳定在用」。
+    constexpr int kBackoffResetSec = 10;
     // 用户主动断开标记。
     // true = 用户自己点的"断开"，不要自动重连；
     // false = 正常状态（网络断线仍然自动重连）。
@@ -4050,8 +4054,22 @@ int main(int argc, char** argv) {
         //
         // 之前这段被绑在「后台扫描是否回来」上，是错的：直连成功那条路
         // 根本不启动扫描，退避就永远不会复位。
+        //
+        // ★ 但「连上」这个判据太弱：HomePod 只允许一个活动会话，被踢之后
+        //   如果我们 5 秒就重连，它往往还没释放上一个会话，于是又被踢。
+        //   而每次被踢前都短暂 connected 过 —— 退避在那一瞬间被复位成 5，
+        //   于是永远是「5 秒一次、连上、被踢」的死循环，直到设备自己冷却
+        //   （实测要 90 秒），期间用户完全连不上。
+        //   因此改成：连接持续存活满 kBackoffResetSec 秒才算「真的连上了」。
+        static std::chrono::steady_clock::time_point connSince{};
+        static bool wasConnected = false;
         if (sess.connected.load()) {
-            retryBackoffSec = 5;
+            if (!wasConnected) { connSince = now; wasConnected = true; }
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - connSince).count()
+                    >= kBackoffResetSec)
+                retryBackoffSec = 5;
+        } else {
+            wasConnected = false;
         }
 
         // ---- 无声音时待机 ----
