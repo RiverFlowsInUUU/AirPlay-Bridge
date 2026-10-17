@@ -146,7 +146,22 @@ constexpr int kStandbyMenuBase = 1500;   // 静音待机档位菜单 id = base +
 // 为什么用全局而不是 Session 成员：Session::start() 每次重连都会被调用，
 // 而它的调用点分散在 main 的多个 lambda 里，逐个传参会牵动一大片。
 // 配置本身也是全局唯一的，放这里语义上并不别扭。
+// 采集端点（UTF-8，空 = 跟随系统默认输出设备）。
+//
+// ★ 用锁保护：main 线程在「菜单切换采集设备」时写它，而 Session::start()
+// （主循环线程）在别处读 c_str() 转宽字符。std::string 赋值会释放旧缓冲，
+// 读到的指针就悬空了 —— 而「切设备」和「重连」完全可能同时发生。
+static std::mutex g_captureDeviceIdMutex;
 std::string g_captureDeviceId;
+
+std::string getCaptureDeviceId() {
+    std::lock_guard<std::mutex> lk(g_captureDeviceIdMutex);
+    return g_captureDeviceId;
+}
+void setCaptureDeviceId(const std::string& v) {
+    std::lock_guard<std::mutex> lk(g_captureDeviceIdMutex);
+    g_captureDeviceId = v;
+}
 
 // 当前是否处于「虚拟声卡接管」状态。
 //
@@ -461,9 +476,12 @@ std::string exePath() {
 //   这里是给启动检查用的，不碰它，避免动到 v1.2.29-37 的那块逻辑。）
 std::wstring screenText(const std::string& s) {
     const int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(need > 1 ? static_cast<size_t>(need - 1) : 0, 0);
-    if (need > 1)
-        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+    // need 含结尾 NUL 且函数会写入 need 个字符 —— 必须按 need 分配，
+    // 否则每次调用都越界写 2 字节（v1.3.1 修过同类 4 处，这里漏了）。
+    if (need <= 1) return std::wstring();
+    std::wstring w(static_cast<size_t>(need), 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+    w.resize(static_cast<size_t>(need - 1));   // 去掉结尾 NUL
     return w;
 }
 
@@ -1270,9 +1288,10 @@ int runFixFirewall(bool quiet = false) {
     // 走 A 版会按系统代码页解码，这里显式转）。
     auto toWide = [](const std::string& s) {
         int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-        std::wstring w(need > 1 ? static_cast<size_t>(need - 1) : 0, 0);
-        if (need > 1)
-            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+        if (need <= 1) return std::wstring();
+        std::wstring w(static_cast<size_t>(need), 0);   // need 含 NUL，见 screenText
+        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+        w.resize(static_cast<size_t>(need - 1));
         return w;
     };
     if (!quiet) {
@@ -2092,12 +2111,14 @@ struct Session {
             // 用户指定了采集端点就用它（空 = 跟随系统默认输出设备）。
             // 配置里存的是 UTF-8，COM 需要宽字符。
             // 接管中一律跟随默认设备（见 g_takeoverActive 的说明）。
-            if (!g_takeoverActive.load() && !g_captureDeviceId.empty()) {
+            // 先取一份带锁的副本：不能直接 .c_str() —— 主线程可能同时改它。
+            const std::string wantDev = getCaptureDeviceId();
+            if (!g_takeoverActive.load() && !wantDev.empty()) {
                 const int need = MultiByteToWideChar(
-                    CP_UTF8, 0, g_captureDeviceId.c_str(), -1, nullptr, 0);
+                    CP_UTF8, 0, wantDev.c_str(), -1, nullptr, 0);
                 if (need > 1) {
                     wcfg.deviceId.resize(static_cast<size_t>(need));
-                    MultiByteToWideChar(CP_UTF8, 0, g_captureDeviceId.c_str(),
+                    MultiByteToWideChar(CP_UTF8, 0, wantDev.c_str(),
                                         -1, wcfg.deviceId.data(), need);
                 }
             }
@@ -2857,7 +2878,7 @@ int main(int argc, char** argv) {
                 "（词条 " + std::to_string(tr_) + "/" + std::to_string(tot_) + "）");
     }
 
-    g_captureDeviceId = cfg.captureDeviceId;
+    setCaptureDeviceId(cfg.captureDeviceId);
 
     // 「连接时静音电脑扬声器」的崩溃恢复 ——
     // 和 preCaptureDevice 同一个模式：正常退出会清掉这个标记，
@@ -3560,7 +3581,7 @@ int main(int argc, char** argv) {
                 // 「采集设备」子菜单的点击 —— 选中即保存并重连生效。
                 if (id == MENU_CAPTURE_DEVICE + 1000) {
                     cfg.captureDeviceId.clear();
-                    g_captureDeviceId.clear();
+                    setCaptureDeviceId(std::string());
                     saveConfig(cfgPath, cfg);
                     logLine("采集设备改为跟随系统默认，重连生效");
                     if (sess.running.load()) {
@@ -3574,7 +3595,7 @@ int main(int argc, char** argv) {
                         static_cast<size_t>(id - kCaptureDeviceMenuBase);
                     if (ci < g_captureDevices.size()) {
                         cfg.captureDeviceId = g_captureDevices[ci].first;
-                        g_captureDeviceId = cfg.captureDeviceId;
+                        setCaptureDeviceId(cfg.captureDeviceId);
                         saveConfig(cfgPath, cfg);
                         logLine("采集设备改为: " + g_captureDevices[ci].second +
                                 "，重连生效");

@@ -70,7 +70,7 @@ Left- or right-click the tray icon to open the menu.
      ──────────────
      Hide devices  ›
      Capture from  ›
-  Latency  250ms  ›
+  Latency  200ms  ›
   Volume  45%  ›
   Quality  Maximum  ›
 ────────────────
@@ -92,12 +92,14 @@ When the rule is fine, **More settings › Connection check** says so.
 
 | Item | Range | Applies |
 |---|---|---|
-| Latency | 150 – 300 ms, 4 presets + slider (slider 120–400) | on reconnect |
-| Volume | 5 – 100%, 20% steps + slider | immediately |
+| Latency | 130 – 300 ms, 5 presets + continuous slider (100–300) | on reconnect |
+| Volume | 0 – 100%, Off + 30% steps + continuous slider | immediately |
 | Quality | 0 – 100%, 5 presets + slider | on reconnect |
 | Standby when silent | 0 – 20 s, 4 presets + slider (0 = off) | immediately |
 
-Latency presets: 150 / 200 / 250 (recommended) / 300 ms. Below 250 ms risks crackling.
+Latency presets: 130 / 150 / 200 / 250 (recommended) / 300 ms. Below 250 ms risks crackling; 130 ms is experimental.
+
+Volume presets: Off / 30% / 50% / 70% / 100%.
 
 Quality presets: Fast / Standard / High / Very high / Maximum (default).
 

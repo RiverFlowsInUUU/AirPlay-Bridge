@@ -3,6 +3,28 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.13] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复界面文字转换时的缓冲区越界写入。每次刷新菜单、提示或弹窗都会多写 2 字节，
+  可能破坏相邻内存，表现为难以复现的随机异常。
+- 修复切换采集设备与重连同时发生时，读取设备名可能访问已释放内存的问题。
+- 修复配置文件里的音量和延迟超出范围时，菜单显示与实际不符的问题。
+
+**English**
+
+### Fixed
+
+- Fixed an out-of-bounds write when converting interface strings. Every menu refresh,
+  tooltip or dialog wrote 2 bytes past the buffer, potentially corrupting adjacent
+  memory and causing intermittent, hard-to-reproduce faults.
+- Fixed a use-after-free when the capture device was changed while reconnecting.
+- Fixed the menu showing an out-of-range volume or latency value that did not match
+  what was actually applied.
+
 ## [1.5.12] - 2026-10-17
 
 **中文**

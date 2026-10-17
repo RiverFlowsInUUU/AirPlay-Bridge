@@ -112,6 +112,14 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     out.lastHost       = jsonGetString(j, "lastHost");
     out.volume         = static_cast<int>(jsonGetInt(j, "volume", out.volume));
     out.latencyMs      = static_cast<int>(jsonGetInt(j, "latencyMs", out.latencyMs));
+    // 读进来就钳到可用范围。
+    // 上游 setVolume/setLatencyMs 各自也会钳，但菜单标题显示的是这里的原值 ——
+    // 不钳的话会出现「菜单写着 9999ms、实际按 1000ms 播」，显示和实际不一致。
+    // 范围与菜单里可选的一致（音量 0-100，延迟 100-1000）。
+    if (out.volume < 0)      out.volume = 0;
+    if (out.volume > 100)    out.volume = 100;
+    if (out.latencyMs < 100) out.latencyMs = 100;
+    if (out.latencyMs > 1000) out.latencyMs = 1000;
     // 新的连续品质字段
     if (j.find("\"qualityLevel\"") != std::string::npos) {
         out.qualityLevel = static_cast<int>(jsonGetInt(j, "qualityLevel", 100));

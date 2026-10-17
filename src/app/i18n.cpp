@@ -249,8 +249,12 @@ int Utf8ToWide(const char* s, std::wstring& out) {
     if (!s) return 0;
     const int need = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
     if (need <= 1) { out.clear(); return 0; }
-    out.resize(static_cast<size_t>(need - 1));
+    // need 含结尾 NUL 且函数会写入 need 个 wchar_t —— 必须按 need 分配。
+    // tr()/trw() 每次都走这里，按 need-1 分配等于每次都越界写 2 字节，
+    // 破坏相邻的堆对象（v1.3.1 修过同类 4 处，这处漏了）。
+    out.resize(static_cast<size_t>(need));
     MultiByteToWideChar(CP_UTF8, 0, s, -1, out.data(), need);
+    out.resize(static_cast<size_t>(need - 1));   // 去掉结尾 NUL
     return need - 1;
 }
 
