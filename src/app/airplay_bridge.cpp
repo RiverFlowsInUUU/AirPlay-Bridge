@@ -2229,19 +2229,34 @@ struct Session {
                                          .count());
                 }
                 if (!needResample) {
-                    // 设备本来就是 44.1k，直接送
-                    if (!ring->tryPush(std::span<const int16_t>(d, n * 2))) {
-                        if (pushing) g_ringDroppedFrames.fetch_add(n * 2);
+                    // 设备本来就是 44.1k，直接送。
+                    // ★ 只在已连接时才推 —— 见下方 resampler 分支的说明。
+                    if (pushing) {
+                        if (!ring->tryPush(std::span<const int16_t>(d, n * 2)))
+                            g_ringDroppedFrames.fetch_add(n * 2);
                     }
                     return;
                 }
                 // 转到 44.1k 再送。resampleBuf 复用，避免每回调都分配。
                 resampleBuf.clear();
                 resampler.process(d, n, resampleBuf);
-                if (!resampleBuf.empty()) {
+                // ★ 只在已连接时才推。
+                //
+                // 连接建立要几秒（发现 + 握手 + SETUP），期间采集照跑。
+                // 原来无论连没连都往 ring 灌 —— 等发送启动时 ring 里已经积压了
+                // 近满仓的音频（实测 8 秒内灌到 99%，掉 3528 帧）。
+                //
+                // 而 pacer 按「自 clockStart_ 以来的墙钟」发，只会补时间轴上的量，
+                // 不会去排空已积压的部分 —— 于是那批积压永久留在 ring 里，
+                // 水位稳定在 87%（余量仅 48ms）。之后任何一次超过 48ms 的发送停顿
+                // （实测尖峰 56~89ms）都会再次溢出，听感就是「偶尔爆音」。
+                //
+                // 连上之前的音频本来就不该进缓冲：用户没在听，接收端也来不及播。
+                // 断开时 teardown() 会 ring.reset()，所以重连一律从空 ring 开始。
+                if (pushing && !resampleBuf.empty()) {
                     if (!ring->tryPush(std::span<const int16_t>(resampleBuf.data(),
                                                        resampleBuf.size()))) {
-                        if (pushing) g_ringDroppedFrames.fetch_add(resampleBuf.size());
+                        g_ringDroppedFrames.fetch_add(resampleBuf.size());
                     }
                 }
             });

@@ -3,6 +3,24 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.2] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复长时间播放时偶发的声音卡顿（爆音）。
+  原因是连接建立期间采集已经开始缓冲，导致本地缓冲长期接近满仓，
+  只剩很少余量；任何一次网络抖动都会把它顶出去。
+
+**English**
+
+### Fixed
+
+- Fixed occasional audio glitches during long playback. Audio captured while
+  the connection was still being established filled the local buffer, leaving
+  almost no headroom for network jitter.
+
 ## [1.5.1] - 2026-10-17
 
 **中文**
