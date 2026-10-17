@@ -1134,9 +1134,19 @@ void checkFirewallRuleAtStartup() {
         static_cast<int>(findStaleFirewallRules().size());
 
 
-    // 两件都没问题：完全静默。绝大多数启动都走这条路 ——
-    // 不能每次开机都弹个框烦人。
-    if (ruleOk && staleCount == 0) return;
+    // ★ 还要单独查「本机有没有另一份副本」——不能挂在 staleCount 上。
+    //
+    // findStaleFirewallRules() 会把「指向另一份**仍存在**副本」的规则判为
+    // keep=true（那是刻意的：活着的另一份是条合法放行），所以两份并存时
+    // staleCount 恰好是 0。原来这里直接 return，于是「另一份在哪」的提示
+    // 永远不会出现 —— 而那正是它唯一该出现的场景。
+    //
+    // findOtherCopies() 会做 COM 枚举，比 firewallRuleExists() 贵；
+    // 但一次启动只调一次，且它本来就在同一个函数里被调用，成本可接受。
+    const std::vector<std::wstring> others = findOtherCopies();
+
+    // 三件都没问题才静默。绝大多数启动走这条路 —— 不能每次开机都弹框烦人。
+    if (ruleOk && staleCount == 0 && others.empty()) return;
 
     const wchar_t kNLw = static_cast<wchar_t>(10);
     std::wstring tip;
@@ -1153,10 +1163,9 @@ void checkFirewallRuleAtStartup() {
         // 否则用户会疑惑「我明明配好了，怎么还提示」。
         // 放行规则按 exe 完整路径记，两份副本会互相顶掉对方的设置：
         // 谁点一次修复就把另一份的规则覆盖掉，于是两份轮流提示。
-        if (staleCount > 0) {
+        if (!others.empty()) {
             // 把「另一份到底在哪」直接摆出来 —— 只说「建议只保留一份」，
             // 用户根本不知道该删哪个文件。
-            const std::vector<std::wstring> others = findOtherCopies();
             logLine("启动检查: 检测到另一份副本占用了放行设置（两份会互相顶）");
             tip += kNLw; tip += kNLw;
             if (!others.empty()) {

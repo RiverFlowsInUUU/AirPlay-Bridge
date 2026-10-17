@@ -132,9 +132,12 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
     // 收集一段时间的应答，直到拿到 SRV（含端口）和 TXT（含 model）
     bool gotSrv = false, gotTxt = false, gotInstance = false;
     std::string instance;
-    DWORD deadline = GetTickCount() + waitMs;
+    // GetTickCount() 是 32 位毫秒、约 49.7 天回绕 —— 回绕瞬间
+    // `GetTickCount() + waitMs` 溢出成小值，循环一次都不执行，静默返回空结果。
+    // 托盘程序「开机数周不重启」是常态，所以用 64 位版本。
+    const ULONGLONG deadline = GetTickCount64() + waitMs;
 
-    while (GetTickCount() < deadline) {
+    while (GetTickCount64() < deadline) {
         fd_set rd;
         FD_ZERO(&rd);
         FD_SET(s, &rd);
@@ -326,10 +329,26 @@ std::vector<AirPlayDevice> discoverAirPlayDevices(uint32_t timeoutMs) {
         local.sin_port = htons(0);   // 单播不需要绑 5353
         bind(s, reinterpret_cast<sockaddr*>(&local), sizeof(local));
 
-        uint32_t per = timeoutMs / (candidates.empty() ? 1 : static_cast<uint32_t>(candidates.size()));
-        if (per < 600) per = 600;
+        // ★ timeoutMs 是「总预算」，必须当硬性截止时间用。
+        //
+        // 原来把它除以候选数、再抬到最少 600ms —— 候选一多总耗时就不受控：
+        //   10 个候选 → 6.0 秒，20 个 → 12.0 秒（传进去的是 2500）
+        // 而这段跑在主线程上，项目自己的约束写着「任何让主循环停摆的东西
+        // 都会掐断声音」。所以不能这么算。
+        //
+        // 现在按「剩余预算」反推每个候选能等多久，用完就停。
+        const DWORD scanStart = GetTickCount64();
+        const DWORD totalBudget = timeoutMs;
 
         for (auto& ip : candidates) {
+            const DWORD used = static_cast<DWORD>(GetTickCount64() - scanStart);
+            if (used >= totalBudget) break;              // 预算用尽
+            const DWORD left = totalBudget - used;
+            const DWORD remain = static_cast<DWORD>(&candidates.back() - &ip) + 1;
+            uint32_t per = left / (remain ? remain : 1);
+            if (per < 150) per = 150;                    // 太少会查不到，留个下限
+            if (per > left) per = left;
+
             AirPlayDevice d;
             if (queryOne(s, ip, d, per))
                 result.push_back(std::move(d));

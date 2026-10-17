@@ -3,6 +3,32 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.18] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复同网段设备较多时，搜索设备可能长时间无响应的问题。
+  此前候选设备越多等得越久（实测 254 个候选时最坏超过 2 分钟），
+  期间界面和播放都会卡住；现在无论有多少候选，总耗时不超出既定上限。
+- 修复同时安装两份副本时，「另一份在哪」的提示永远不出现的问题。
+- 修复诊断日志在首次写入失败后永久静默的问题。
+- 修复设备搜索在开机多周后可能返回空结果的问题。
+
+**English**
+
+### Fixed
+
+- Fixed long freezes when scanning a busy network with many candidate devices.
+  The scan used to scale with the candidate count (worst case over two minutes at
+  254 candidates), blocking the interface and playback; total time is now capped.
+- Fixed the "where is the other copy" hint never appearing when two copies are
+  installed side by side.
+- Fixed diagnostic logging going permanently silent after one failed write.
+- Fixed device discovery returning nothing after the machine has been running for
+  several weeks.
+
 ## [1.5.17] - 2026-10-17
 
 **中文**

@@ -177,6 +177,10 @@ static HMENU buildMenuTree(const std::vector<TrayMenuItem>& menu,
 
         if (!item.children.empty()) {
             HMENU hsub = buildMenuTree(item.children, dotGreen, dotGray);
+            // CreatePopupMenu 失败时返回 nullptr（递归入口已经检查过一次）。
+            // 不判空就会把一个空句柄当 HMENU 挂上去 —— 该项无法展开，
+            // 严重时整个菜单行为异常。跳过这一项更安全。
+            if (!hsub) continue;   // 注意：不 ++posIndex，避免位图索引错位
             UINT flags = MF_POPUP | MF_STRING;
             if (!item.enabled) flags |= MF_GRAYED;
             AppendMenuW(hmenu, flags, reinterpret_cast<UINT_PTR>(hsub), wbuf);

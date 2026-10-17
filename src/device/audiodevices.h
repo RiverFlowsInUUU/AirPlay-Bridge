@@ -21,6 +21,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <mutex>
 #include <string>
 
 #include <wrl/client.h>
@@ -46,13 +47,25 @@ inline void audioOut(const char* fmt, ...) {
     va_end(ap);
     std::fflush(stdout);
 
-    static FILE* lf = std::fopen(audioDevLogPath().c_str(), "w");
-    if (lf) {
-        va_list ap2;
-        va_start(ap2, fmt);
-        std::vfprintf(lf, fmt, ap2);
-        va_end(ap2);
-        std::fflush(lf);
+    // ★ 不要用「函数内静态 FILE*」缓存句柄。
+    //
+    // 静态变量只初始化一次：首次调用若恰好碰上磁盘满、路径无权限、杀软锁文件，
+    // 句柄永久为 nullptr，此后所有诊断输出静默消失 —— 而这正是用户排查
+    // 「串流没声音」时要看的东西。
+    //
+    // 改为每次打开/追加/关闭。诊断输出不是热路径，这点开销无所谓。
+    // 同时加锁：对比 logLine 是加了的，这里原来没有，多线程会交错写。
+    {
+        static std::mutex am;
+        std::lock_guard<std::mutex> lk(am);
+        FILE* lf = std::fopen(audioDevLogPath().c_str(), "a");
+        if (lf) {
+            va_list ap2;
+            va_start(ap2, fmt);
+            std::vfprintf(lf, fmt, ap2);
+            va_end(ap2);
+            std::fclose(lf);
+        }
     }
 }
 
