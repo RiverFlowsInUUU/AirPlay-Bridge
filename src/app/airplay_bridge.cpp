@@ -83,18 +83,21 @@ struct LatencyLevel { int ms; const char* label; };
 // 此前默认 150ms、还提供 120ms 档 —— 都在下限以下。实测 120ms 爆音明显、
 // 150ms 有间歇性爆音，调到 250ms 以上才干净。
 // 档位按实测的可靠程度排（维护者耳朵验的）：
-//   105ms  零星爆音      —— 能到的最低值
+//   105ms  零星爆音      —— 实测能接受的底线
 //   110ms  基本不爆      —— 低延迟可用区间的起点
-//   120ms  零星爆音
 //   150ms  完全流畅
-//   200ms  很难听到爆音   —— 推荐值
-// 低于 110ms 会零星爆音，105 是实测能接受的底线；再低就不在档位里给了。
+//   200ms  很难听到爆音
+//   250ms  AP2 的现实下限（shairport-sync 作者给出的约 250ms）—— 推荐值
+//
+// 当前档位 130/150/200/250/300 是维护者定的：从 130 起步（低于实测 110 的
+// 安全区仍有距离，标「可能爆音」），到 300 更稳。滑块允许 100-300 无极，
+// 给愿意试更低值的用户留口子，但档位表不再主动推荐 110 以下。
 const LatencyLevel kLatencyLevels[] = {
-    { 105,  "105ms（最低）" },
-    { 110,  "110ms（低延迟）" },
-    { 120,  "120ms（较快）" },
-    { 150,  "150ms（平衡）" },
-    { 200,  "200ms（推荐）" },
+    { 130,  "130ms（最低）" },
+    { 150,  "150ms（低延迟）" },
+    { 200,  "200ms（平衡）" },
+    { 250,  "250ms（推荐）" },
+    { 300,  "300ms（更稳）" },
 };
 constexpr int kLatencyLevelCount = sizeof(kLatencyLevels) / sizeof(kLatencyLevels[0]);
 
@@ -102,10 +105,9 @@ constexpr int kLatencyLevelCount = sizeof(kLatencyLevels) / sizeof(kLatencyLevel
 struct VolumeLevel { int pct; const char* label; };
 const VolumeLevel kVolumeLevels[] = {
     {  0,   "静音" },
-    { 20,  "20%" },
-    { 40,  "40%" },
-    { 60,  "60%" },
-    { 80,  "80%" },
+    { 30,  "30%" },
+    { 50,  "50%" },
+    { 70,  "70%" },
     { 100, "100%" },
 };
 constexpr int kVolumeLevelCount = sizeof(kVolumeLevels) / sizeof(kVolumeLevels[0]);
@@ -496,6 +498,7 @@ HANDLE g_singleInstanceMutex = nullptr;
 // 看门狗看到主循环不转就会每分钟写一条"主线程无响应"，
 // 首次运行连着问两个框就能把日志刷满，真出问题时反而被淹掉。
 std::atomic<bool> g_inUserPrompt{false};
+
 
 // 统一的弹窗入口：期间给看门狗打豁免。
 // 所有 MessageBox 都要走这里，别直接调 —— 漏一个就漏一个误报源。

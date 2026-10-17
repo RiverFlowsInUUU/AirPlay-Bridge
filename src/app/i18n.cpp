@@ -68,11 +68,11 @@ const Entry kEntries[] = {
     {"退出", "Quit"},
 
     // ── 延迟档位 ──
-    {"105ms（最低）", "105 ms (lowest)"},
-    {"110ms（低延迟）", "110 ms (low latency)"},
-    {"120ms（较快）", "120 ms (fast)"},
-    {"150ms（平衡）", "150 ms (balanced)"},
-    {"200ms（推荐）", "200 ms (recommended)"},
+    {"130ms（最低）", "130 ms (lowest)"},
+    {"150ms（低延迟）", "150 ms (low latency)"},
+    {"200ms（平衡）", "200 ms (balanced)"},
+    {"250ms（推荐）", "250 ms (recommended)"},
+    {"300ms（更稳）", "300 ms (most stable)"},
 
     // ── 音质档位 ──
     {"快速", "Fast"},

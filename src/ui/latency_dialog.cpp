@@ -574,9 +574,11 @@ namespace {
 const char* latencyGrade(int ms) {
     // 分界依维护者的实测：
     //   105ms 零星爆音 / 110ms 基本不爆 / 150ms 完全流畅 / 200ms 很难听到
-    if (ms < 110) return i18n::tr("可能爆音");
-    if (ms < 150) return i18n::tr("偶有爆音");
-    if (ms < 200) return i18n::tr("稳定");
+    // 档位调整到 130/150/200/250/300 后，分界随之对齐：
+    //   130 是新的最低档（离 110 的"基本不爆"仍有距离）
+    if (ms < 150) return i18n::tr("可能爆音");
+    if (ms < 200) return i18n::tr("偶有爆音");
+    if (ms < 250) return i18n::tr("稳定");
     return i18n::tr("推荐");
 }
 const char* volumeGrade(int pct) {
@@ -606,7 +608,7 @@ int showLatencyDialog(int currentMs) {
     // 那是「推荐值」，滑块是「实验区间」，两者职责不同），
     // 高端给到 400ms 以容纳网络条件差、需要更大缓冲的场景。
     spec.minValue = 100;
-    spec.maxValue = 250;
+    spec.maxValue = 300;
     spec.tickFreq = 0;
     spec.unit = "ms";
     spec.grade = latencyGrade;

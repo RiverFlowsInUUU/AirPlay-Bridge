@@ -3,6 +3,24 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.12] - 2026-10-17
+
+**中文**
+
+### 修改
+
+- 延迟档位调整为 130 / 150 / 200 / 250 / 300 ms，250 ms 标为推荐值。
+- 延迟滑块改为 100 – 300 ms 无极调节。
+- 音量档位调整为 静音 / 30% / 50% / 70% / 100%。
+
+**English**
+
+### Changed
+
+- Latency presets are now 130 / 150 / 200 / 250 / 300 ms, with 250 ms marked as recommended.
+- The latency slider now adjusts freely from 100 to 300 ms.
+- Volume presets are now Mute / 30% / 50% / 70% / 100%.
+
 ## [1.5.11] - 2026-10-17
 
 **中文**
