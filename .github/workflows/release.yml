@@ -26,12 +26,61 @@ jobs:
         with:
           submodules: recursive
 
-      - name: 打上游补丁
+      # ★ 自检必须在本工作流内，不能依赖 check-patch.yml。
+      #
+      # 2026-10-17 踩过：tag 推上去时 `检查上游补丁` 是 failure，而本工作流的
+      # `发布` job 照样 success —— 两个 workflow 相互独立，一个挂了不拦另一个。
+      # 那次是我肉眼看到 failure 才删 tag 重发；下次未必有人盯着，就会直接
+      # 打出一个装着废弃值的包。
+      #
+      # 所以把「LF 行尾 / 能 apply / 覆盖 4 个文件 / 防陈旧」都放进这里，
+      # 让「tag → 包」这条路自己自洽。
+      - name: 校验补丁（自检在构建前，失败即中止）
         shell: bash
         run: |
+          P=patches/upstream-airplay2-sender-cpp.patch
+
+          echo "── 行尾必须是 LF ──"
+          if file "$P" | grep -q CRLF; then
+            echo "::error::补丁是 CRLF 行尾，git apply 会失败。检查 .gitattributes"
+            exit 1
+          fi
+
+          echo "── 防陈旧：补丁里必须含有工作区当前实现的标志行 ──"
+          fail=0
+          while IFS= read -r want; do
+            [ -z "$want" ] && continue
+            if ! grep -qF -- "$want" "$P"; then
+              echo "::error::补丁里缺少片段：$want —— patches/ 已陈旧，与 third_party/ 工作区不一致"
+              fail=1
+            fi
+          done <<'MARKERS'
+               stream.emplace_back("latencyMax", Value::integer(88200));
+               stream.emplace_back("latencyMin", Value::integer(11025));
+          +    void setLatencyMs(int ms) {
+          +        ap2_->eventIn  = hkdfSha512("Events-Salt",
+          MARKERS
+          if [ "$fail" -ne 0 ]; then
+            echo "重新生成：cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch"
+            exit 1
+          fi
+
+          echo "── 能干净应用到上游 ──"
           cd third_party/airplay2-sender-cpp
-          git apply ../../patches/upstream-airplay2-sender-cpp.patch
-          echo "补丁已应用"
+          if ! git apply --check "../../$P"; then
+            echo "::error::补丁打不上。上游可能改动了相关文件，需要重新生成补丁。"
+            exit 1
+          fi
+          git apply "../../$P"
+
+          echo "── 覆盖了预期的 4 个文件 ──"
+          for f in CMakeLists.txt src/raop_sender.cpp src/raop_sender.h test/core_tests.cpp; do
+            if ! git diff --name-only | grep -q "^$f$"; then
+              echo "::error::补丁没有覆盖 $f —— 补丁可能不完整"
+              exit 1
+            fi
+          done
+          echo "补丁校验通过（4 个文件）"
 
       - name: 读版本号
         id: ver
