@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.5] - 2026-10-17
+
+**中文**
+
+### 修改
+
+- 延迟滑块的下限从 120ms 放宽到 60ms，便于在低延迟下试验；
+  菜单里的档位（150 / 200 / 250 / 300ms）保持不变。
+
+**English**
+
+### Changed
+
+- Lowered the latency slider minimum from 120 ms to 60 ms for
+  experimentation. The presets in the menu are unchanged.
+
 ## [1.5.4] - 2026-10-17
 
 **中文**

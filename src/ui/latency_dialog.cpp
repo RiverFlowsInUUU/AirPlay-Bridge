@@ -601,9 +601,10 @@ int showLatencyDialog(int currentMs) {
     spec.hint = i18n::tr(
         "拖到不爆音的最低位置就是最优解。低于 250ms 有爆音风险，越低延迟越小，"
         "但接收端缓冲不足会爆音或卡顿。");
-    // 范围比档位宽：低端保留到 120ms 让用户自己探边界，高端给到 400ms
-    // 以容纳网络条件差、需要更大缓冲的场景。
-    spec.minValue = 120;
+    // 范围比档位宽：低端放到 60ms 让用户自己探边界（档位表最低仍是 150ms ——
+    // 那是「推荐值」，滑块是「实验区间」，两者职责不同），
+    // 高端给到 400ms 以容纳网络条件差、需要更大缓冲的场景。
+    spec.minValue = 60;
     spec.maxValue = 400;
     spec.tickFreq = 0;
     spec.unit = "ms";
