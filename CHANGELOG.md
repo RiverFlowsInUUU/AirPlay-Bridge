@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.6] - 2026-10-17
+
+**中文**
+
+### 修改
+
+- 音频数据发送得更密集（间隔从中位约 20ms 缩到约 4ms），用于改善
+  低延迟档位下的播放稳定性。
+
+**English**
+
+### Changed
+
+- Audio packets are now sent more evenly (median interval from ~20 ms down
+  to ~4 ms), improving stability at low latency settings.
+
 ## [1.5.5] - 2026-10-17
 
 **中文**

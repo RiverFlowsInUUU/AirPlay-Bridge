@@ -2231,6 +2231,7 @@ struct Session {
         sender->setVolume(volume);
         if (cfg) sender->setLatencyMs(cfg->latencyMs);   // 延迟必须 start() 前设
 
+
         producer = std::thread([this, needResample]() {
             capture->run([this, needResample](const int16_t* d, size_t n) {
                 // 先测峰值，再决定要不要推数据。
@@ -4012,7 +4013,20 @@ int main(int argc, char** argv) {
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        // 主循环节拍 20ms → 8ms。
+        //
+        // 音频 pacer 的设计节拍是 8ms（kPacerMs），而 pacer 靠主循环里的
+        // loop->pump() → sender.tick() 驱动。20ms 一轮时，发包就是「每 20ms
+        // 一批 2~3 个包」，批与批之间有 20ms 的空窗 —— 接收端要靠自己的缓冲
+        // 撑过那个空窗。
+        //
+        // 缓冲越浅，空窗占比越大：150ms 时 20/150 = 13%，125ms 时 16%。
+        // 实测的爆音边界正好落在 100~150 之间，所以把节拍对齐到 pacer 的设计值。
+        //
+        // 代价：主循环 50 次/秒 → 125 次/秒，空转开销上升（每轮只做 tray.pump
+        // 和状态检查，都是很轻的活）。v1.5.3 已经 timeBeginPeriod(1)，
+        // 所以 8ms 是真的 8ms，不会被时钟粒度拉长。
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
     }
 
     // 停看门狗：先置 g_stop（上面循环条件已置），再 join。
