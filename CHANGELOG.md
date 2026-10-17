@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.1] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复开机自动启动时弹出一个黑色命令行窗口的问题。
+  那个窗口关不掉也等不到，关掉它程序就会退出 —— 现在自启动完全静默。
+
+**English**
+
+### Fixed
+
+- Fixed a stray console window appearing when the app starts at login.
+  Closing that window would also close the app; startup is now silent.
+
 ## [1.5.0] - 2026-10-16
 
 **中文**

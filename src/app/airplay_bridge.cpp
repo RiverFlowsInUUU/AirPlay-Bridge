@@ -2538,17 +2538,36 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 int main(int argc, char** argv) {
 
 
-    // WIN32 子系统默认没有控制台。命令行模式下要把输出送到终端，
-    // 得先 AttachConsole 接上父进程的控制台，再重绑 stdout/stderr。
-    // （直接 printf 是没有地方去的 —— 所以这里是必须的。）
-    // 命令行参数存在时说明用户是在终端里用的，把输出接出去。
-    // 先试 AttachConsole（复用当前终端），失败再 AllocConsole（新开一个窗口）。
-    bool hasArgs = argc > 1;
-    bool hasConsole = false;
-    if (hasArgs) {
-        hasConsole = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
-        if (!hasConsole) hasConsole = AllocConsole() != 0;
+    // WIN32 子系统默认没有控制台。命令行模式要把输出送到终端，
+    // 得先 AttachConsole 接上父进程的控制台，再重绑 stdout/stderr
+    // （直接 printf 没地方去 —— 所以这里是必须的）。
+    //
+    // ★ AllocConsole 只在 --console 时用。
+    //
+    // 它给进程**新建**一个控制台窗口。而绝大多数带参数启动的场景是
+    // **无人值守**的，没有父终端，AttachConsole 必然失败：
+    //
+    //   开机自启   AirPlayBridge.exe --last
+    //   安装程序   AirPlayBridge.exe --fix-firewall --quiet
+    //   卸载清理   AirPlayBridge.exe --uninstall-cleanup
+    //
+    // 这些场景下 AllocConsole 会**凭空弹出一个黑色控制台窗口**，
+    // 而且它不会自己消失 —— 用户把它关掉，等于关掉程序本身
+    // （那个窗口就是进程的控制台，关窗即结束进程）。
+    //
+    // 所以：有终端就复用，没有就算了 —— 输出走日志文件
+    // （见 audioOut()，C8 要求诊断类输出必须落盘）。
+    bool wantsConsoleWindow = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--console") == 0) { wantsConsoleWindow = true; break; }
     }
+
+    bool hasConsole = false;
+    if (argc > 1) {
+        hasConsole = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
+        if (!hasConsole && wantsConsoleWindow) hasConsole = AllocConsole() != 0;
+    }
+
     if (hasConsole) {
         FILE* f = nullptr;
         freopen_s(&f, "CONOUT$", "w", stdout);
