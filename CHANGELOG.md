@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.10] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复切换延迟档位后音量被重置的问题。掉线重连、从待机唤醒时同样会重置，
+  一并修好。
+
+**English**
+
+### Fixed
+
+- Fixed the volume being reset after changing the latency preset, after a
+  reconnect, or when waking from standby.
+
 ## [1.5.9] - 2026-10-17
 
 **中文**

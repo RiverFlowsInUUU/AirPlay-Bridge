@@ -1971,7 +1971,6 @@ struct Session {
     std::string   host;
     std::string   deviceId;
     std::string   deviceName;
-    int           volume = 45;
 
     std::unique_ptr<RingBuffer<int16_t>> ring;
     std::unique_ptr<RaopLoop>            loop;
@@ -2313,7 +2312,16 @@ struct Session {
         //
         // 这时调是安全的：会话还没进入 Streaming，setVolume 只把它存进
         // pending，等 startStreaming_ 一并推给接收端。
-        sender->setVolume(volume);
+        // ★ 取 cfg 的实时值，不要用 sess.volume 那个缓存。
+        //
+        // sess.volume 只在启动时被赋一次值，之后用户在菜单里改音量只更新了
+        // cfg.volume（并直接 setVolume 到当前会话），**没有回写 sess.volume**。
+        // 于是一旦重连（改延迟 / 掉线 / 待机唤醒 / 手动断开再连），
+        // 这里就会用回启动时的旧值 —— 用户感受是「调完延迟，音量被重置了」。
+        //
+        // cfg 是指向 main 里那个 BridgeConfig 的指针，任何时刻读都是最新值。
+
+        sender->setVolume(cfg->volume);
 
         // 注意：sender->start() 是异步的 —— 它发完握手请求就返回，
         // 真正的结果要等后续 pump() 里才出来（launched 回调）。
@@ -2894,7 +2902,6 @@ int main(int argc, char** argv) {
         Session sess;
         sess.cfg = &cfg;
         sess.host = host;
-        sess.volume = volume;
         sess.onStatus = [](const std::string& s) {
             std::printf(">> %s\n", s.c_str());
             std::fflush(stdout);
@@ -2926,7 +2933,6 @@ int main(int argc, char** argv) {
 
     Session sess;
     sess.cfg = &cfg;
-    sess.volume = volume;
     sess.cfgPath = cfgPath;   // 崩溃保护要用
     sess.onFirstConnect = [&tray](const std::string& dev) {
         // 首次连上弹一次。托盘图标只有 16px，颜色变化不明显，
