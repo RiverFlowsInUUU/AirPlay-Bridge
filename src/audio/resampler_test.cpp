@@ -139,63 +139,131 @@ int main() {
     // 历史教训（2026-10-17）：修前「一口气喂完」与「分 480 帧喂」逐样点
     // 最大差 3582（满量程 32767 的 10.9%），80% 的样点差异 > 1000。
     // 根因是历史缓冲长度随分块塌缩（67 -> 1），抽头大量落在窗口外。
-    {
+{
         std::printf("\n3. 分块不变性（同一条输入，不同分块必须完全一致）\n");
 
-        const uint32_t inRate = 48000, outRate = 44100;
-        const int N = 48000;
-        std::vector<int16_t> in(static_cast<size_t>(N) * 2);
-        for (int i = 0; i < N; ++i) {
-            // 用带谐波的信号，单频测不出相位错误
-            const double t = 2.0 * 3.14159265358979 * i / inRate;
-            const double v = 0.5 * std::sin(t * 440.0) +
-                             0.25 * std::sin(t * 3000.0) +
-                             0.1  * std::sin(t * 12000.0);
-            in[i * 2] = in[i * 2 + 1] = static_cast<int16_t>(std::lround(v * 32767));
-        }
-
-        auto runChunked = [&](int chunk, std::vector<int16_t>& out) {
-            Resampler r;
-            r.configure(inRate, outRate, 100);
-            for (int off = 0; off < N; off += chunk)
-                r.process(in.data() + static_cast<size_t>(off) * 2,
-                          static_cast<size_t>(std::min(chunk, N - off)), out);
+        // ★ 必须遍历多组采样率，不能只测产品当前默认的那一组。
+        //
+        // 曾经这里硬编码 48000 -> 44100（唯一的生产路径），于是上采样方向
+        // 完全没被覆盖 —— 而 taps_ 为偶数时 window_[k + half] 会越界读 1 个元素，
+        // 恰好只在「上采样 + taps_ 为偶数」时发生。
+        //
+        // 教训：测试要覆盖被测对象的全部方向与量程，不能只测当前配置走的那条路。
+        struct RateCase { uint32_t in, out; const char* dir; };
+        const RateCase rates[] = {
+            {48000,  44100, "下采样"},
+            {96000,  44100, "下采样"},
+            {192000, 44100, "下采样"},
+            {44100,  48000, "上采样"},
+            {22050,  44100, "上采样"},
+            {16000,  44100, "上采样"},
+            {8000,   44100, "上采样"},
+            {32000,  44100, "上采样"},
         };
 
-        std::vector<int16_t> ref;
-        runChunked(N, ref);                    // 基准：一口气喂完
-
-        std::printf("   基准帧数 %zu\n", ref.size() / 2);
-        std::printf("   分块      帧数    最大差异\n");
-
-        int failures = 0;
         const int chunks[] = {1, 2, 7, 64, 480, 882, 1024, 4096};
-        for (int c : chunks) {
-            std::vector<int16_t> got;
-            runChunked(c, got);
+        int failures = 0;
+        int combos = 0;
 
-            long maxDiff = 0;
-            if (got.size() != ref.size()) {
-                maxDiff = 999999;
-            } else {
-                for (size_t i = 0; i < ref.size(); ++i) {
-                    const long d = std::labs(static_cast<long>(ref[i]) -
-                                             static_cast<long>(got[i]));
-                    if (d > maxDiff) maxDiff = d;
+        for (const auto& rc : rates) {
+            const uint32_t inRate = rc.in, outRate = rc.out;
+            const int N = static_cast<int>(inRate);   // 各喂 1 秒
+
+            std::vector<int16_t> in(static_cast<size_t>(N) * 2);
+            for (int i = 0; i < N; ++i) {
+                // 用带谐波的信号，单频测不出相位错误
+                const double t = 2.0 * 3.14159265358979 * i / inRate;
+                const double v = 0.5 * std::sin(t * 440.0) +
+                                 0.25 * std::sin(t * 3000.0) +
+                                 0.1  * std::sin(t * 12000.0);
+                in[i * 2] = in[i * 2 + 1] = static_cast<int16_t>(std::lround(v * 32767));
+            }
+
+            auto runChunked = [&](int chunk, std::vector<int16_t>& out) {
+                Resampler r;
+                r.configure(inRate, outRate, 100);
+                for (int off = 0; off < N; off += chunk)
+                    r.process(in.data() + static_cast<size_t>(off) * 2,
+                              static_cast<size_t>(std::min(chunk, N - off)), out);
+            };
+
+            std::vector<int16_t> ref;
+            runChunked(N, ref);                    // 基准：一口气喂完
+
+            std::printf("   %6u -> %-6u (%s)  基准帧数 %zu\n",
+                        rc.in, rc.out, rc.dir, ref.size() / 2);
+
+            for (int c : chunks) {
+                std::vector<int16_t> got;
+                runChunked(c, got);
+
+                long maxDiff = 0;
+                if (got.size() != ref.size()) {
+                    maxDiff = 999999;
+                } else {
+                    for (size_t i = 0; i < ref.size(); ++i) {
+                        const long d = std::labs(static_cast<long>(ref[i]) -
+                                                 static_cast<long>(got[i]));
+                        if (d > maxDiff) maxDiff = d;
+                    }
+                }
+                ++combos;
+                if (maxDiff != 0) {
+                    ++failures;
+                    std::printf("      分块 %-6d 帧数 %-7zu 差异 %ld  FAIL\n",
+                                c, got.size() / 2, maxDiff);
                 }
             }
-            const bool ok = (maxDiff == 0);
-            if (!ok) ++failures;
-            std::printf("   %-8d %-7zu %8ld  %s\n",
-                        c, got.size() / 2, maxDiff, ok ? "OK" : "FAIL");
+            std::printf("      %s\n", failures ? "有分块不一致" : "全部一致");
         }
 
         if (failures) {
-            std::printf("   %d 个分块大小结果不一致 —— 重采样器会随回调帧数变音质\n",
-                        failures);
+            std::printf("   %d/%d 个组合结果不一致 —— 重采样器会随分块/采样率变音质\n",
+                        failures, combos);
             return 1;
         }
-        std::printf("   全部一致\n");
+        std::printf("   全部一致（%d 个组合）\n", combos);
+    }
+
+    // ---- 4. 窗口索引范围（越界读的显式检查）----
+    //
+    // 为什么「分块不变性」查不出这个：越界读的是 window_[taps_]，
+    // 那块内存在两种分块下是同一块堆内存、内容恰好相同，
+    // 所以逐样点对比会显示"完全一致"—— 但值本身是垃圾。
+    //
+    // 唯一可靠的判据是直接检查索引范围：
+    //   抽头循环 k = -half..+half，窗口索引 k+half，最大值 2*half
+    //   而 window_ 的大小是 taps_，必须 2*half <= taps_-1，即 taps_ 为奇数。
+    //
+    // 历史：configure() 的奇偶修正曾只放在下采样分支里，
+    // 上采样时 taps_ 为偶数 → 每次读 window_[taps_] → 越界 1 个 float。
+    // 默认 qualityLevel=100 时 base=32（偶数），必然触发。
+    {
+        std::printf("\n4. 窗口索引范围（2*(taps/2) 必须 <= taps-1）\n");
+
+        int bad = 0;
+        for (uint32_t in : {8000u, 16000u, 22050u, 32000u, 44100u, 48000u, 96000u, 192000u}) {
+            for (uint32_t out : {44100u, 48000u}) {
+                if (in == out) continue;
+                for (int q : {1, 10, 25, 50, 75, 100}) {
+                    Resampler r;
+                    r.configure(in, out, q);
+                    const int taps = r.taps();
+                    if (taps <= 0) continue;
+                    const int maxWinIdx = 2 * (taps / 2);
+                    if (maxWinIdx > taps - 1) {
+                        ++bad;
+                        std::printf("   %6u -> %-6u q=%-3d taps=%-4d 最大窗口索引=%d > %d  OVERFLOW\n",
+                                    in, out, q, taps, maxWinIdx, taps - 1);
+                    }
+                }
+            }
+        }
+        if (bad) {
+            std::printf("   %d 个组合会越界读 window_\n", bad);
+            return 1;
+        }
+        std::printf("   全部安全\n");
     }
 
     return 0;

@@ -77,10 +77,26 @@ public:
         if (base > 0 && ratio_ < 1.0) {
             // 下采样：抽头数除以比例，保证过渡带够窄
             taps_ = static_cast<int>(base / ratio_) + base;
-            if (taps_ % 2 == 0) ++taps_;   // 用奇数，中心对称
         } else {
             taps_ = base;
         }
+        // ★ 奇偶修正必须对所有路径生效，不能只放在下采样分支里。
+        //
+        // 抽头循环是 k = -half .. +half，窗口索引取 k + half，最大值
+        // 是 2*half。而 window_ 的大小是 taps_。
+        //   taps_ 为奇数：half = (taps_-1)/2，2*half = taps_-1  ≤ taps_-1  ✓
+        //   taps_ 为偶数：half = taps_/2，   2*half = taps_    >  taps_-1  ✗
+        //   → 每次都读 window_[taps_]，越界 1 个 float。
+        //
+        // 下采样时 taps_ = base/ratio + base，48k->44.1k 恰好是 66（偶数）→
+        // 被这里原本的修正救下；而上采样走 else 分支、完全没有修正，
+        // 于是 44100->48000 / 22050->44100 / 8000->44100 …… 全部越界。
+        // 默认配置 qualityLevel=100 时 base=32（偶数），必然触发。
+        //
+        // 越界读到的是 vector size() 之外的内存（未初始化值或堆元数据），
+        // 每个输出样点都会掺入一个不确定的抽头 → 高频失真；极端情况可能崩。
+        // 这是读越界，不写坏内存，所以从未表现为崩溃、一直没被发现。
+        if (taps_ > 1 && (taps_ % 2) == 0) ++taps_;
         if (taps_ > 1) {
             // 为了下采样时的抗混叠，截止频率取两者采样率的较小值
             cutoff_ = (ratio_ < 1.0) ? ratio_ : 1.0;
@@ -102,6 +118,13 @@ public:
     }
 
     bool enabled() const { return taps_ > 0 && ratio_ != 1.0; }
+
+    // 供测试检查窗口索引是否越界（见 resampler_test 的「窗口索引范围」一节）。
+    // 抽头循环取 k = -half..+half、窗口索引 k+half，最大值 2*half；
+    // window_ 的大小是 taps_。所以必须满足 2*(taps_/2) <= taps_-1，
+    // 等价于 taps_ 为奇数。这个不变量只靠"听感"或"分块对比"都测不出来，
+    // 必须显式检查（越界读到的内存内容在不同分块下可能恰好相同）。
+    int taps() const { return taps_; }
 
     // 处理一帧数据（交错立体声 s16）。输出追加到 out。
     // inFrames 是输入帧数；返回输出帧数。

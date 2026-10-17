@@ -3,6 +3,32 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.17] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复采集设备采样率低于 44100 Hz 时的音质异常。此前 16 kHz、22.05 kHz、
+  32 kHz、8 kHz 等设备（蓝牙免提模式、低端 USB 声卡、部分虚拟声卡）会读到
+  无效数据，表现为高频失真。
+
+- 上一版音质提升的实际幅度更大：按实际播放条件（分块送入）测量，
+  19.9 kHz 处信噪比从 27.6 dB 提升到 41.7 dB。
+
+**English**
+
+### Fixed
+
+- Fixed distorted audio when the capture device runs below 44100 Hz. Devices at
+  16 kHz, 22.05 kHz, 32 kHz or 8 kHz (Bluetooth hands-free mode, low-end USB
+  audio, some virtual devices) could pick up invalid data, heard as high-frequency
+  distortion.
+
+- The previous release improved audio more than stated: measured under real
+  playback conditions (chunked input), signal-to-noise at 19.9 kHz rose from
+  27.6 dB to 41.7 dB.
+
 ## [1.5.16] - 2026-10-17
 
 **中文**
