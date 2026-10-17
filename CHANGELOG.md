@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.20] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复低延迟档位下可能出现的零星爆音。此前送往设备的缓冲范围上限会随延迟设置
+  等比缩小，最低档位下压缩得过紧；现在改用协议标准范围。
+
+**English**
+
+### Fixed
+
+- Fixed occasional crackling at the low-latency presets. The buffer range sent to
+  the device used to shrink along with the latency setting and became too tight at
+  the lowest presets; the standard protocol range is now used.
+
 ## [1.5.19] - 2026-10-17
 
 **中文**

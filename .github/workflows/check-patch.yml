@@ -58,6 +58,36 @@ jobs:
           git apply ../../patches/upstream-airplay2-sender-cpp.patch
           echo "补丁应用成功"
 
+      # ★ 「补丁能打上」不等于「补丁是最新的」。
+      #
+      # 2026-10-17 踩过：patch 文件停在很久以前的版本，而 third_party/ 工作区
+      # 被直接改动过（本地编译看到的是新值，CI 打出来的包却是旧值）。
+      # check-patch 一直绿 —— 因为它只验证「旧补丁能 apply」。
+      # 结果：整整十几个版本，发布包里的 latencyMin 都是早已废弃的 latency_/3。
+      #
+      # 断言：补丁里必须含有「工作区当前实现」的标志性行。
+      # 改补丁里的关键实现时，同步更新下面这份清单。
+      - name: 确认补丁内容与工作区一致（防陈旧）
+        run: |
+          fail=0
+          while IFS= read -r want; do
+            [ -z "$want" ] && continue
+            if ! grep -qF -- "$want" patches/upstream-airplay2-sender-cpp.patch; then
+              echo "::error::补丁里缺少片段：$want —— patches/ 已陈旧，与 third_party/ 工作区不一致"
+              fail=1
+            fi
+          done <<'MARKERS'
+               stream.emplace_back("latencyMax", Value::integer(88200));
+               stream.emplace_back("latencyMin", Value::integer(11025));
+          +    void setLatencyMs(int ms) {
+          +        ap2_->eventIn  = hkdfSha512("Events-Salt",
+          MARKERS
+          if [ "$fail" -ne 0 ]; then
+            echo "重新生成：cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch"
+            exit 1
+          fi
+          echo "补丁内容与工作区一致"
+
       - name: 确认补丁覆盖了预期的文件
         run: |
           cd third_party/airplay2-sender-cpp

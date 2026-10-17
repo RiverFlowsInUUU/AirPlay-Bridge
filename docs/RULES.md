@@ -167,6 +167,30 @@ git diff > ../../patches/upstream-airplay2-sender-cpp.patch
 
 **反例（可以排期）**：设备发现最坏 3.4 秒卡顿 —— 低频、但用户看得见（界面卡住），
 会来报，所以我们知道。
+
+### C13 — 改了 `third_party/` 必须同步 `patches/`
+
+**本地编译用的是 `third_party/` 的工作区，CI 打出来的包用的是 `patches/`。**
+两者不一致时，**我测的和用户装的不是同一份代码**。
+
+2026-10-17 踩过：`latencyMin` 早在 v1.5.8 就从 `latency_/3` 改成了固定 11025，
+但 `patches/upstream-airplay2-sender-cpp.patch` 一直没重新生成 ——
+**十几个发布包里跑的都是那个早已废弃、我明确记录过「必然爆音」的 `/3` 值。**
+
+**为什么一直没被发现**：`check-patch.yml` 只验证「补丁能 apply」，
+旧补丁当然能 apply —— 它检查的是**有效**，不是**新鲜**。
+
+**规矩**：
+- 动 `third_party/` 里任何文件之后，**立刻**重新生成补丁：
+  ```bash
+  cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch
+  ```
+- **验证方式不能是「CI 绿了」** —— 要在一份干净的 `git archive HEAD` 上
+  `git apply` 一遍，再 grep 关键实现值，确认打出来的和你本地的一样。
+- `check-patch.yml` 里有一份「标志性行」清单做防陈旧检查；
+  **新增关键实现时同步更新那份清单**。
+
+**判据一句话**：**你测的二进制和用户装的二进制，是不是同一份代码编出来的？**
 ## 禁止事项
 
 **都是实际踩过的，别重试。** 按主题分组，不是按发生时间。
