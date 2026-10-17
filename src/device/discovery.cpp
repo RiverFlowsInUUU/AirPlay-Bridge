@@ -337,17 +337,25 @@ std::vector<AirPlayDevice> discoverAirPlayDevices(uint32_t timeoutMs) {
         // 都会掐断声音」。所以不能这么算。
         //
         // 现在按「剩余预算」反推每个候选能等多久，用完就停。
-        const DWORD scanStart = GetTickCount64();
-        const DWORD totalBudget = timeoutMs;
+        // ★ 全程用 ULONGLONG（64 位），不要截断进 DWORD。
+        //
+        // 曾经写成 `const DWORD scanStart = GetTickCount64();` 再
+        // `static_cast<DWORD>(GetTickCount64() - scanStart)` —— 靠"外层 cast
+        // 把内层截断抵消掉"来得到正确结果（数学上确实对），但那是脆弱的写法：
+        // 谁删掉外层 cast、或者把 scanStart 升成 64 位混算，就会造出
+        // 「开机 49.7 天后设备搜索永远返回空」这种新 bug，而且极难复现。
+        // 直接把比对和差值都放在 64 位里，语义就无需解释。
+        const ULONGLONG scanStart = GetTickCount64();
+        const ULONGLONG totalBudget = timeoutMs;
 
         for (auto& ip : candidates) {
-            const DWORD used = static_cast<DWORD>(GetTickCount64() - scanStart);
+            const ULONGLONG used = GetTickCount64() - scanStart;
             if (used >= totalBudget) break;              // 预算用尽
-            const DWORD left = totalBudget - used;
-            const DWORD remain = static_cast<DWORD>(&candidates.back() - &ip) + 1;
-            uint32_t per = left / (remain ? remain : 1);
+            const ULONGLONG left = totalBudget - used;
+            const ULONGLONG remain = static_cast<ULONGLONG>(&candidates.back() - &ip) + 1;
+            uint32_t per = static_cast<uint32_t>(left / (remain ? remain : 1));
             if (per < 150) per = 150;                    // 太少会查不到，留个下限
-            if (per > left) per = left;
+            if (per > left) per = static_cast<uint32_t>(left);
 
             AirPlayDevice d;
             if (queryOne(s, ip, d, per))

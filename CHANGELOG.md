@@ -3,6 +3,35 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.19] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复设备搜索计时在长时间开机后可能失去准确性的隐患。
+  改用 64 位计时，不再依赖截断后的数值恰好抵消。
+
+- 诊断日志超过 256 KB 时在启动时轮转一份，避免长期追加无限增长。
+
+### 修改
+
+- 移除一段不会执行到的提示分支，界面文案不变。
+
+**English**
+
+### Fixed
+
+- Fixed a latent timing inaccuracy in device discovery on machines that stay
+  powered on for a long time. Timing now uses 64-bit values instead of relying on
+  truncation cancelling out.
+
+- The diagnostics log now rotates at 256 KB on startup instead of growing forever.
+
+### Changed
+
+- Removed an unreachable message branch. On-screen wording is unchanged.
+
 ## [1.5.18] - 2026-10-17
 
 **中文**

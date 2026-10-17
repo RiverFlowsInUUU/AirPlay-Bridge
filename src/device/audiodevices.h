@@ -55,9 +55,33 @@ inline void audioOut(const char* fmt, ...) {
     //
     // 改为每次打开/追加/关闭。诊断输出不是热路径，这点开销无所谓。
     // 同时加锁：对比 logLine 是加了的，这里原来没有，多线程会交错写。
+    //
+    // 用 "a" 而不是 "w"：每次启动截断会把上一次的诊断抹掉，
+    // 而用户往往是「出了问题才打开日志看」—— 那时上一次的可能正是线索。
+    // 但纯追加会让文件无限增长，所以启动时轮转一次（只留一份 .old），
+    // 与主日志的清理策略保持一致。
     {
         static std::mutex am;
         std::lock_guard<std::mutex> lk(am);
+        static bool rotated = false;
+        if (!rotated) {
+            rotated = true;
+            const std::string path = audioDevLogPath();
+            const std::string old = path + ".old";
+            const DWORD attr = GetFileAttributesA(path.c_str());
+            if (attr != INVALID_FILE_ATTRIBUTES
+                && (attr & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                WIN32_FILE_ATTRIBUTE_DATA fad{};
+                if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) {
+                    const ULONGLONG size =
+                        (ULONGLONG(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+                    if (size > 256 * 1024) {         // 超过 256KB 才轮转
+                        DeleteFileA(old.c_str());
+                        MoveFileA(path.c_str(), old.c_str());
+                    }
+                }
+            }
+        }
         FILE* lf = std::fopen(audioDevLogPath().c_str(), "a");
         if (lf) {
             va_list ap2;

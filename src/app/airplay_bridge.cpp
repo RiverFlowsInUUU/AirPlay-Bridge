@@ -1168,27 +1168,21 @@ void checkFirewallRuleAtStartup() {
             // 用户根本不知道该删哪个文件。
             logLine("启动检查: 检测到另一份副本占用了放行设置（两份会互相顶）");
             tip += kNLw; tip += kNLw;
-            if (!others.empty()) {
-                tip += i18n::trw("本机还有另一份 AirPlay Bridge，占着网络放行设置：");
+            // 外层已经判过 !others.empty()（见上面），这里不必再判一次 ——
+            // 原来这里嵌了一层同条件的 if，内层恒真、else 分支不可达。
+            tip += i18n::trw("本机还有另一份 AirPlay Bridge，占着网络放行设置：");
+            tip += kNLw;
+            for (size_t i = 0; i < others.size() && i < 2; ++i) {
+                tip += L"    ";
+                tip += others[i];
                 tip += kNLw;
-                for (size_t i = 0; i < others.size() && i < 2; ++i) {
-                    tip += L"    ";
-                    tip += others[i];
-                    tip += kNLw;
-                }
-                tip += kNLw;
-                tip += i18n::trw("两个文件不能同时用（放行设置只能指向一个），");
-                tip += kNLw;
-                tip += i18n::trw("而且会互相顶掉，所以每次打开都提示。");
-                tip += kNLw;
-                tip += i18n::trw("请删掉上面那个不用的，再用你常用的这个打开。");
-            } else {
-                tip += i18n::trw("本机已有另一份 AirPlay Bridge 占用了放行设置。");
-                tip += kNLw;
-                tip += i18n::trw("（安装版和免安装版同时留着就会这样，两份互相顶。）");
-                tip += kNLw;
-                tip += i18n::trw("建议只保留一份，再点下面的修复。");
             }
+            tip += kNLw;
+            tip += i18n::trw("两个文件不能同时用（放行设置只能指向一个），");
+            tip += kNLw;
+            tip += i18n::trw("而且会互相顶掉，所以每次打开都提示。");
+            tip += kNLw;
+            tip += i18n::trw("请删掉上面那个不用的，再用你常用的这个打开。");
         }
         wantFixOnYes = true;
     }
