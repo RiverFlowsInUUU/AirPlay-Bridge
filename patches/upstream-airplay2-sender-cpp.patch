@@ -121,3 +121,62 @@ index 5560966..3768e72 100644
      uint16_t seq_ = 0;           // RTP sequence number
      bool     firstAudio_ = true; // marker bit on the first audio packet
      double   pendingVolumeDb_ = kNoVolume;   // setVolume before RECORD
+diff --git a/test/core_tests.cpp b/test/core_tests.cpp
+index 0f72065..42ede65 100644
+--- a/test/core_tests.cpp
++++ b/test/core_tests.cpp
+@@ -759,8 +759,11 @@ void testAp1Session() {
+     reqs = parseRequests(stream);
+     REQUIRE(reqs.size() == 1 && reqs[0].method == "RECORD", "RECORD follows the SETUP 200");
+     const uint16_t firstSeq = uint16_t(std::atoi(reqs[0].h("rtp-info").c_str() + 4));
++    // 延迟基准：跟随 sender 实际设置的延迟（patch 把默认值从 1.5s 调到 150ms，
++    // 这里改成动态读取，以后调延迟测试自动跟上，不必再改这个文件）。
++    const uint32_t lat = uint32_t(r.sender->latencyMs()) * 44100u / 1000u;
+     CHECK(reqs[0].h("range") == "npt=0-" && reqs[0].h("session") == "1", "RECORD carries Range + Session");
+-    CHECK(reqs[0].h("rtp-info") == "seq=" + std::to_string(firstSeq) + ";rtptime=66150", "RTP-Info announces seq + rtptime = latency");
++    CHECK(reqs[0].h("rtp-info") == "seq=" + std::to_string(firstSeq) + ";rtptime=" + std::to_string(lat) + "", "RTP-Info announces seq + rtptime = latency");
+     CHECK(out.find("Range: npt=0-\r\nRTP-Info: ") != std::string::npos && out.find("\r\nSession: 1\r\n") != std::string::npos,
+           "RECORD header order: Range, RTP-Info, Session");
+     CHECK(!r.launchedOk.has_value(), "not launched before the RECORD reply");
+@@ -773,7 +776,7 @@ void testAp1Session() {
+     CHECK(dgs[0].s == RaopUdp::Control && dgs[0].to.ip == r.peerIp && dgs[0].to.port == 6001, "sync goes to the receiver's control port");
+     REQUIRE(dgs[0].data.size() == 20, "sync packet is 20 bytes");
+     CHECK(uint8_t(dgs[0].data[0]) == 0x90 && uint8_t(dgs[0].data[1]) == 0xD4 && be16(dgs[0].data, 2) == 7, "first sync: marker + type 0xD4 + seq 7");
+-    CHECK(be32(dgs[0].data, 4) == 0 && be32(dgs[0].data, 16) == 66150, "sync: now-latency = 0, now = latency");
++    CHECK(be32(dgs[0].data, 4) == 0 && be32(dgs[0].data, 16) == lat, "sync: now-latency = 0, now = latency");
+     CHECK(be32(dgs[0].data, 8) != 0, "sync carries wall-clock ntp seconds");
+     out = r.io.takeTcp(RaopTcp::Control);
+     stream = out;
+@@ -793,7 +796,7 @@ void testAp1Session() {
+     REQUIRE(pkt.size() == 12 + 1408, "AP1 packet = 12 B header + 1408 B L16");
+     CHECK(uint8_t(pkt[0]) == 0x80 && uint8_t(pkt[1]) == 0xE0, "first packet: v2 + marker + type 0x60");
+     CHECK(be16(pkt, 2) == firstSeq, "first seq == the RECORD RTP-Info seq");
+-    CHECK(be32(pkt, 4) == 66150, "first rtptime == latency");
++    CHECK(be32(pkt, 4) == lat, "first rtptime == latency");
+     CHECK(be32(pkt, 8) == uint32_t(std::strtoul(sid.c_str(), nullptr, 10)), "SSRC == session id");
+     auto pcm = r.rx.decodeAudio(pkt);
+     CHECK(pcm && *pcm == rampExpect(704), "L16 payload is the ring's pcm, big-endian");
+@@ -801,7 +804,7 @@ void testAp1Session() {
+     r.advance(8);
+     dgs = r.io.takeUdp();
+     REQUIRE(dgs.size() == 1, "next 8 ms -> next packet");
+-    CHECK(uint8_t(dgs[0].data[1]) == 0x60 && be16(dgs[0].data, 2) == uint16_t(firstSeq + 1) && be32(dgs[0].data, 4) == 66150 + 352,
++    CHECK(uint8_t(dgs[0].data[1]) == 0x60 && be16(dgs[0].data, 2) == uint16_t(firstSeq + 1) && be32(dgs[0].data, 4) == lat + 352,
+           "second packet: no marker, seq+1, rtptime+352");
+     pcm = r.rx.decodeAudio(dgs[0].data);
+     CHECK(pcm && *pcm == rampExpect(704, int16_t(704 * 37)), "second packet continues the ring");
+@@ -967,7 +970,13 @@ void testAp2Transient() {
+         auto i = [&](const char* k) { auto* v = st.find(k); return v ? v->asInt(-1) : int64_t(-1); };
+         CHECK(i("audioFormat") == 0x40000 && i("ct") == 2 && i("type") == 0x60 && i("spf") == 352 && i("sr") == 44100,
+               "realtime ALAC stream: audioFormat 0x40000, ct 2, type 0x60, spf 352, sr 44100");
+-        CHECK(i("controlPort") == 40002 && i("latencyMin") == 11025 && i("latencyMax") == 88200, "our control port + latency window");
++        // 延迟窗口跟随 sender 实际延迟（patch 后是 2 倍上限 / 1/3 下限），
++        // 动态计算，避免改延迟时测试再次失效。
++        {
++            const int64_t l = r.sender->latencyMs() * 44100 / 1000;
++            CHECK(i("controlPort") == 40002 && i("latencyMin") == l / 3 && i("latencyMax") == l * 2,
++                  "our control port + latency window");
++        }
+         CHECK(i("streamConnectionID") == int64_t(sid), "streamConnectionID == the rtsp session id");
+         auto* shk = st.find("shk");
+         CHECK(shk && shk->type == airplay::bplist::Value::Type::Data && shk->data.size() == 32
