@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.7] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复启动后设备音量不跟随设置的问题 —— 此前每次启动都会以最大音量播放，
+  只有在菜单里手动调一次才生效。
+
+**English**
+
+### Fixed
+
+- Fixed the device volume not following your setting after a restart: playback
+  started at full volume unless the volume was changed from the menu.
+
 ## [1.5.6] - 2026-10-17
 
 **中文**

@@ -2228,7 +2228,6 @@ struct Session {
         sender->setInputFormat(engineInputRate);
         sender->setIdentity({"AirPlay Bridge", g_deviceId, "MacBookPro18,3"});
         sender->setAuth(RaopDeviceInfo::Auth::HapTransient, true, "", "", "");
-        sender->setVolume(volume);
         if (cfg) sender->setLatencyMs(cfg->latencyMs);   // 延迟必须 start() 前设
 
 
@@ -2294,6 +2293,19 @@ struct Session {
 
         setPhase(PHASE_CONNECT);   // 打点：握手全在这一步里跑
         sender->start(host, 7000, "AirPlay Bridge");
+
+        // ★ 音量必须在 start() **之后**设。
+        //
+        // start() 内部会 `pendingVolumeDb_ = kNoVolume`（-1000，注释写着
+        //「never carry volume between devices」）—— 它把会话开始前的音量设置
+        // 当成上一台设备的残留清掉。所以 start() 之前调 setVolume 会被无声覆盖，
+        // 之后 startStreaming_ 判定「用户没设过音量」→ 推 0 dB = 完全不衰减，
+        // 也就是每次启动都是最大音量。
+        // 实测：配置里写 35%，发出的却是 volume: 0.000000。
+        //
+        // 这时调是安全的：会话还没进入 Streaming，setVolume 只把它存进
+        // pending，等 startStreaming_ 一并推给接收端。
+        sender->setVolume(volume);
 
         // 注意：sender->start() 是异步的 —— 它发完握手请求就返回，
         // 真正的结果要等后续 pump() 里才出来（launched 回调）。
