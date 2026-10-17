@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.15] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复注销或关机时没有把默认播放设备切回去的问题。此前这类退出后，
+  下次开机电脑可能没有声音（音频仍送往虚拟声卡）。
+
+**English**
+
+### Fixed
+
+- Fixed the default playback device not being restored on sign-out or shutdown.
+  After such an exit the computer could come back silent, with audio still routed
+  to the virtual cable.
+
 ## [1.5.14] - 2026-10-17
 
 **中文**

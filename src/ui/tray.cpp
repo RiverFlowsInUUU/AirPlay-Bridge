@@ -255,6 +255,22 @@ struct TrayIcon::Impl {
             return 0;   // 不销毁窗口，退出由主循环统一收尾
         }
 
+        // 注销 / 关机 / 重启：系统会在几秒内结束本进程。
+        // 必须在这里就请求收尾 —— 否则 stop() 里「把默认播放设备切回去」
+        // 那段永远不执行，用户下次开机时电脑是没声音的（设备卡在虚拟声卡上）。
+        //
+        // 注意覆盖面：这条只处理「系统给了机会」的退出路径。
+        // 任务管理器强杀 / 崩溃 / 断电不会给任何通知，进程没有一个字节能执行到 ——
+        // 那种情况靠启动时的恢复逻辑兜底。
+        if (msg == WM_QUERYENDSESSION) {
+            if (g_quitRequest) g_quitRequest();
+            return TRUE;    // 同意结束会话
+        }
+        if (msg == WM_ENDSESSION) {
+            if (wp && g_quitRequest) g_quitRequest();
+            return 0;
+        }
+
         // 菜单开着时继续驱动音频 IO，否则接收端会饿死
         if (msg == WM_TIMER && wp == kMenuPumpTimer) {
             if (g_menuPump) g_menuPump();
