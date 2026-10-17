@@ -130,5 +130,73 @@ int main() {
         prev = snr;
     }
 
+    // ---- 3. 分块不变性（本测试的核心）----
+    //
+    // 同一条输入流，无论按多大的块喂进来，输出必须逐样点完全相同。
+    // 这是流式重采样器最基本的正确性要求 —— 而线上 WASAPI 回调的帧数
+    // 本来就不固定（常见 480 帧），所以这不只是理论要求。
+    //
+    // 历史教训（2026-10-17）：修前「一口气喂完」与「分 480 帧喂」逐样点
+    // 最大差 3582（满量程 32767 的 10.9%），80% 的样点差异 > 1000。
+    // 根因是历史缓冲长度随分块塌缩（67 -> 1），抽头大量落在窗口外。
+    {
+        std::printf("\n3. 分块不变性（同一条输入，不同分块必须完全一致）\n");
+
+        const uint32_t inRate = 48000, outRate = 44100;
+        const int N = 48000;
+        std::vector<int16_t> in(static_cast<size_t>(N) * 2);
+        for (int i = 0; i < N; ++i) {
+            // 用带谐波的信号，单频测不出相位错误
+            const double t = 2.0 * 3.14159265358979 * i / inRate;
+            const double v = 0.5 * std::sin(t * 440.0) +
+                             0.25 * std::sin(t * 3000.0) +
+                             0.1  * std::sin(t * 12000.0);
+            in[i * 2] = in[i * 2 + 1] = static_cast<int16_t>(std::lround(v * 32767));
+        }
+
+        auto runChunked = [&](int chunk, std::vector<int16_t>& out) {
+            Resampler r;
+            r.configure(inRate, outRate, 100);
+            for (int off = 0; off < N; off += chunk)
+                r.process(in.data() + static_cast<size_t>(off) * 2,
+                          static_cast<size_t>(std::min(chunk, N - off)), out);
+        };
+
+        std::vector<int16_t> ref;
+        runChunked(N, ref);                    // 基准：一口气喂完
+
+        std::printf("   基准帧数 %zu\n", ref.size() / 2);
+        std::printf("   分块      帧数    最大差异\n");
+
+        int failures = 0;
+        const int chunks[] = {1, 2, 7, 64, 480, 882, 1024, 4096};
+        for (int c : chunks) {
+            std::vector<int16_t> got;
+            runChunked(c, got);
+
+            long maxDiff = 0;
+            if (got.size() != ref.size()) {
+                maxDiff = 999999;
+            } else {
+                for (size_t i = 0; i < ref.size(); ++i) {
+                    const long d = std::labs(static_cast<long>(ref[i]) -
+                                             static_cast<long>(got[i]));
+                    if (d > maxDiff) maxDiff = d;
+                }
+            }
+            const bool ok = (maxDiff == 0);
+            if (!ok) ++failures;
+            std::printf("   %-8d %-7zu %8ld  %s\n",
+                        c, got.size() / 2, maxDiff, ok ? "OK" : "FAIL");
+        }
+
+        if (failures) {
+            std::printf("   %d 个分块大小结果不一致 —— 重采样器会随回调帧数变音质\n",
+                        failures);
+            return 1;
+        }
+        std::printf("   全部一致\n");
+    }
+
     return 0;
 }

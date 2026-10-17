@@ -86,97 +86,108 @@ public:
             cutoff_ = (ratio_ < 1.0) ? ratio_ : 1.0;
             buildWindow();
         }
+        // ★ reset() 必须在这里再调一次 —— 上面第一次调时 taps_ 还是旧值（0），
+        //   历史预填长度会按 half=0 算，之后 taps_ 变大就永远凑不够左邻，
+        //   表现为「一个样点都产不出」。
+        reset();
     }
 
     void reset() {
-        histL_.assign(static_cast<size_t>(taps_ > 0 ? taps_ : 1), 0.0f);
-        histR_.assign(static_cast<size_t>(taps_ > 0 ? taps_ : 1), 0.0f);
-        pos_ = 0.0;
+        // 预填 half 个零代表「开始之前的静音」，这样第一个样点就有完整左邻。
+        const int half = taps_ / 2;
+        histL_.assign(static_cast<size_t>(half > 0 ? half : 1), 0.0f);
+        histR_.assign(static_cast<size_t>(half > 0 ? half : 1), 0.0f);
+        histBaseAbs_ = -(static_cast<long long>(histL_.size()));   // 绝对位置：-half..-1
+        posAbs_ = 0.0;
     }
 
     bool enabled() const { return taps_ > 0 && ratio_ != 1.0; }
 
     // 处理一帧数据（交错立体声 s16）。输出追加到 out。
     // inFrames 是输入帧数；返回输出帧数。
+    //
+    // ★ 不变量：同一条输入流，无论在哪个位置切成多少块，输出必须完全相同。
+    //
+    // 为此这里不用「滑窗 + 每次重算历史」的写法（那会随分块塌缩），
+    // 而是维护一条连续的输入历史 + 一个绝对的读取位置：
+    //   posAbs_  自会话开始以来、按输入样点计的绝对位置（可能带小数）
+    //   histL_   从 histBaseAbs_ 这个绝对位置开始的输入片段
+    // 产出条件：posAbs_ 左右各有 taps_/2 个真实样点。
+    // 不足就等（下批数据到了再算），绝不跳过抽头 —— 跳过会让幅度随分块变化。
     size_t process(const int16_t* in, size_t inFrames, std::vector<int16_t>& out) {
         if (inFrames == 0) return 0;
 
         if (!enabled()) {
-            // 直通
             const size_t before = out.size();
             out.insert(out.end(), in, in + inFrames * 2);
             return (out.size() - before) / 2;
         }
 
-        // 把新数据推进历史缓冲（每个通道一条）
-        const size_t total = histL_.size() + inFrames;
-        std::vector<float> bufL(total, 0.0f), bufR(total, 0.0f);
-        std::copy(histL_.begin(), histL_.end(), bufL.begin());
-        std::copy(histR_.begin(), histR_.end(), bufR.begin());
+        // 追加到输入历史（保持与 histBaseAbs_ 的绝对位置一致）
+        const size_t oldFrames = histL_.size();
+        histL_.resize(oldFrames + inFrames);
+        histR_.resize(oldFrames + inFrames);
         for (size_t i = 0; i < inFrames; ++i) {
-            bufL[histL_.size() + i] = in[i * 2 + 0] / 32768.0f;
-            bufR[histL_.size() + i] = in[i * 2 + 1] / 32768.0f;
+            histL_[oldFrames + i] = in[i * 2 + 0] / 32768.0f;
+            histR_[oldFrames + i] = in[i * 2 + 1] / 32768.0f;
         }
 
-        const size_t histLen = histL_.size();
         const size_t outBefore = out.size();
+        const long long availEnd = histBaseAbs_ + static_cast<long long>(histL_.size());
 
-        // 逐输出样本：在输入时间轴上取 sinc 加权和
+        const int half = taps_ / 2;
+        const double step = 1.0 / ratio_;
+
         for (;;) {
-            const double srcIdx = pos_;
-            const long center = static_cast<long>(std::floor(srcIdx));
-            if (center + 1 >= static_cast<long>(total)) break;   // 需要下一个样本才能插值
+            const long long center = static_cast<long long>(std::floor(posAbs_));
+            // 左侧要有 half 个真实样点（绝对位置 >= histBaseAbs_ - 0 即为有）
+            // 右侧要有 half+1 个（中心 + half 都在可用范围内）
+            const long long leftNeed  = center - half;
+            const long long rightNeed = center + half + 1;
+            if (leftNeed < histBaseAbs_) break;      // 左侧不够 —— 等（不该发生：下面会保留足够历史）
+            if (rightNeed > availEnd) break;         // 右侧不够 —— 等下一批数据
 
+            bool allInHist = (leftNeed >= histBaseAbs_) && (rightNeed <= availEnd);
+            if (!allInHist) break;
+
+            const double frac = posAbs_ - static_cast<double>(center);
             float accL = 0.0f, accR = 0.0f, wsum = 0.0f;
 
             if (taps_ <= 2) {
-                // 线性
-                const double frac = srcIdx - center;
-                const size_t i0 = static_cast<size_t>(center);
-                accL = static_cast<float>(bufL[i0] + (bufL[i0 + 1] - bufL[i0]) * frac);
-                accR = static_cast<float>(bufR[i0] + (bufR[i0 + 1] - bufR[i0]) * frac);
+                const size_t i0 = static_cast<size_t>(leftNeed - histBaseAbs_);
+                const float f = static_cast<float>(frac);
+                accL = histL_[i0] + (histL_[i0 + 1] - histL_[i0]) * f;
+                accR = histR_[i0] + (histR_[i0 + 1] - histR_[i0]) * f;
             } else {
-                const int half = taps_ / 2;
                 for (int k = -half; k <= half; ++k) {
-                    const long idx = center + k;
-                    if (idx < 0 || idx >= static_cast<long>(total)) continue;
-                    const double d = (srcIdx - static_cast<double>(idx)) * cutoff_;
+                    const long long idx = center + k;
+                    const size_t i = static_cast<size_t>(idx - histBaseAbs_);
+                    const double d = (posAbs_ - static_cast<double>(idx)) * cutoff_;
                     const double w = sinc(d) * window_[k + half];
-                    accL += static_cast<float>(bufL[idx] * w);
-                    accR += static_cast<float>(bufR[idx] * w);
-                    wsum  += static_cast<float>(w);
+                    accL += histL_[i] * static_cast<float>(w);
+                    accR += histR_[i] * static_cast<float>(w);
+                    wsum += static_cast<float>(w);
                 }
-                if (wsum != 0.0f) {
-                    accL /= wsum;
-                    accR /= wsum;
-                }
+                if (wsum != 0.0f) { accL /= wsum; accR /= wsum; }
             }
 
             out.push_back(clampS16(accL));
             out.push_back(clampS16(accR));
-
-            pos_ += 1.0 / ratio_;
+            posAbs_ += step;
         }
 
-        // 把已消费的部分从历史里滑出去，保留尾部供下次插值
-        const long consumed = static_cast<long>(std::floor(pos_));
-        if (consumed > 0) {
-            const size_t keep = histLen;
-            const size_t newStart = static_cast<size_t>(consumed);
-            if (newStart <= total) {
-                std::vector<float> tailL, tailR;
-                const size_t from = (std::min)(newStart, total);
-                const size_t cnt = (std::min)(keep, total - from);
-                tailL.assign(bufL.begin() + from, bufL.begin() + from + cnt);
-                tailR.assign(bufR.begin() + from, bufR.begin() + from + cnt);
-                histL_ = tailL;
-                histR_ = tailR;
-                pos_ -= static_cast<double>(consumed);
+        // 丢弃「已确定用不到」的历史：下一次产出需要的左邻是
+        // floor(posAbs_) - half，早于它的都可以删。
+        const long long keepFrom = static_cast<long long>(std::floor(posAbs_)) - half;
+        if (keepFrom > histBaseAbs_) {
+            const long long dropN = keepFrom - histBaseAbs_;
+            const size_t drop = static_cast<size_t>(
+                (std::min)(dropN, static_cast<long long>(histL_.size())));
+            if (drop > 0) {
+                histL_.erase(histL_.begin(), histL_.begin() + static_cast<long>(drop));
+                histR_.erase(histR_.begin(), histR_.begin() + static_cast<long>(drop));
+                histBaseAbs_ += static_cast<long long>(drop);
             }
-        }
-        if (histL_.empty()) {
-            histL_.assign(1, 0.0f);
-            histR_.assign(1, 0.0f);
         }
 
         return (out.size() - outBefore) / 2;
@@ -215,7 +226,8 @@ private:
 
     std::vector<float> window_;
     std::vector<float> histL_, histR_;
-    double pos_ = 0.0;
+    long long histBaseAbs_ = 0;   // histL_[0] 对应的绝对样点位置
+    double    posAbs_ = 0.0;      // 下一个输出样点在输入时间轴上的绝对位置
 };
 
 } // namespace fxchain

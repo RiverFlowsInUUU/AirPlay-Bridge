@@ -3,6 +3,25 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.16] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复音质随采集回调帧数变化的问题。此前同一段音频，换一个回调帧数就可能
+  产生 10% 量级的样点差异，表现为高频失真和电平起伏；现在任何帧数下的结果
+  完全一致，19.9 kHz 处的信噪比也从 39.5 dB 提升到 41.7 dB。
+
+**English**
+
+### Fixed
+
+- Fixed audio quality varying with the capture callback size. The same input could
+  differ by as much as 10% between callback sizes, causing high-frequency
+  distortion and level fluctuation. Output is now identical at any callback size,
+  and signal-to-noise at 19.9 kHz improved from 39.5 dB to 41.7 dB.
+
 ## [1.5.15] - 2026-10-17
 
 **中文**

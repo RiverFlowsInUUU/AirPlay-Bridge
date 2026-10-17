@@ -50,6 +50,13 @@ jobs:
       - name: 编译
         run: cmake --build build --config Release --target airplay_bridge
 
+      # 测试必须在打包之前跑 —— 分块不变性那类问题只影响音质、不影响编译，
+      # 一旦漏过去就是「装完能连上但声音不对」，比编译失败难查得多。
+      - name: 编译并运行测试
+        run: |
+          cmake --build build --config Release --target resampler_test
+          ctest --test-dir build -C Release --output-on-failure
+
       - name: 安装 Inno Setup
         run: choco install innosetup --no-progress -y
 

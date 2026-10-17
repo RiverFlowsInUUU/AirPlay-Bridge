@@ -20,7 +20,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
 # 版本号唯一来源 —— 发版只改这一行（PROJECT_VERSION）。
 # 它通过下面的 target_compile_definitions(APP_VERSION=...) 注入到代码里，
 # 托盘菜单「关于」自动跟着走，不会再出现"忘了改源码里的版本号"。
-project(airplay_bridge VERSION 1.5.15 LANGUAGES CXX)
+project(airplay_bridge VERSION 1.5.16 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -104,9 +104,19 @@ endif()
 
 
 
-# 重采样器自测（不参与发布）
+# 重采样器自测（不参与发布，但必须能一键跑）
+#
+# ★ 接入 CTest：`ctest -C Release` 就会执行它。
+#   之前只有 add_executable，既没有 enable_testing() 也没有 add_test()，
+#   等于"有测试但永远不会被跑到"—— 分块塌缩那个 bug 就是这样活下来的。
+#
+# 关键用例是「分块不变性」：同一条输入，喂不同的块大小，输出必须逐样点相同。
+# 线上 WASAPI 回调的帧数本来就不固定，所以这不只是理论要求。
 add_executable(resampler_test src/audio/resampler_test.cpp)
 target_include_directories(resampler_test PRIVATE src/audio)
 if(MSVC)
     target_compile_options(resampler_test PRIVATE /W3)
 endif()
+
+enable_testing()
+add_test(NAME resampler COMMAND resampler_test)
