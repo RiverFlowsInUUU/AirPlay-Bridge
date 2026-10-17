@@ -3,6 +3,26 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.11] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复装了虚拟声卡时，播放会周期性卡顿、断开并切回电脑扬声器的问题。
+  启用「无声音时待机」时尤其明显 —— 每几秒断一次。
+- 修复窗口被关闭时（任务管理器结束任务、或关机）程序不退出、
+  且音频设备未还原的问题。
+
+**English**
+
+### Fixed
+
+- Fixed periodic dropouts when a virtual audio cable is installed: playback
+  could cut out and fall back to the PC speakers every few seconds.
+- Fixed the app not exiting when its window was closed, leaving the audio
+  device in a switched state.
+
 ## [1.5.10] - 2026-10-17
 
 **中文**

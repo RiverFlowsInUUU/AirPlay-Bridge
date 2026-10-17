@@ -2067,6 +2067,23 @@ struct Session {
         //  另有未解决的问题，没有启用。）
         // 这样即使某个应用（比如浏览器）被单独指到了别的声卡，
         // 它的声音也能抓到，用户不用去音量合成器里改输出。
+        // ★ 接管必须发生在**打开采集之前**。
+        //
+        // 采集的 deviceId 留空时会去取「此刻的默认输出设备」并绑死在那上面
+        // （见 wasapi_capture.cpp 的 open()）。而接管（把默认设备切到 CABLE）
+        // 原本是在握手成功后的 onConnected 回调里做的 —— 那时采集早已绑在
+        // 原来的扬声器上，不会跟着切。
+        //
+        // 后果是一条自相矛盾的链：
+        //   声音送进 CABLE → 采集还在听扬声器（那儿是静的）→ peak 恒为 0
+        //   → 被判静音 → 5 秒待机 → 断开 → 恢复默认设备 → 采集又有声音 → 唤醒
+        //   → 每 6 秒循环一次。用户看到的是「卡顿、断开、声音在两边抢」。
+        //
+        // 所以把接管提到这里：先切默认设备，再打开采集 —— 采集自然落到 CABLE 上。
+        // 握手失败时会走 stop()/teardown()，那里本来就有「savedRenderDevice
+        // 非空就切回去」的兜底，所以提前接管不会把用户的设备留在 CABLE 上。
+        maybeTakeOverRenderDevice();
+
         {
             WasapiCaptureConfig wcfg;
             // 用户指定了采集端点就用它（空 = 跟随系统默认输出设备）。
@@ -2116,39 +2133,31 @@ struct Session {
             // 连上了：记住当前默认设备，然后切到虚拟声卡。
             // 这样系统声音不再走向物理音箱，而是进了虚拟声卡；
             // 我们从虚拟声卡采集推给 HomePod —— 电脑自己静悄悄。
-            if (ok && savedRenderDevice.empty()) {
-                const std::string cur = getDefaultRenderDeviceName();
-                if (!cur.empty()) {
-                    // 只在自己不是虚拟声卡时切换，避免来回切死锁
-                    if (cur.find("CABLE") == std::string::npos) {
-                        if (setDefaultRenderDevice("CABLE Input")) {
-                            savedRenderDevice = cur;
-                            g_takeoverActive.store(true);   // 见 g_takeoverActive 的说明
-                            // 落盘记录，这样即使我们崩了，下次启动也能恢复
-                            if (!cfgPath.empty()) {
-                                BridgeConfig tmp;
-                                loadConfig(cfgPath, tmp);
-                                tmp.preCaptureDevice = cur;
-                                saveConfig(cfgPath, tmp);
-                            }
-                        } else {
-                            // 切不过去（没装虚拟声卡、或名字不叫 CABLE Input）。
-                            // 这时是"监听复制"模式：系统声音**仍然**送往默认
-                            // 输出设备，程序只是复制一份推给接收端。
-                            //
-                            // 文案别写死成"两边同时出声" —— 电脑可能根本没接音箱
-                            // （老板那台就是），那样说会让人以为程序描述错了。
-                            // 准确的说法是"电脑的输出设备也会播放"：这是信号层面的
-                            // 事实；至于用户听不听得见，取决于他接没接音箱。
-                            logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
-                            // 不在这里直接发 onStatus —— 下面还会用
-                            // "已连接"覆盖一次，用户就看不到这条提示了。
-                            // 记下来，等状态文案统一发的时候带上。
-                            extraStatus = "已连接（未装虚拟声卡：电脑的输出设备也会播放）";
-                        }
-                    }
+            // 连上了：确认已经接管（把默认设备切到虚拟声卡）。
+            // 真正的切换在 start() 里、打开采集之前就做了 —— 见那边的注释，
+            // 这里只是兜底调用：如果 start 时没切成（比如当时没装虚拟声卡），
+            // 现在再试一次。函数本身幂等，切过就直接返回。
+            if (ok) {
+                maybeTakeOverRenderDevice();
+                if (g_takeoverActive.load()) {
+                    // 已接管：声音进了虚拟声卡，由我们采集后推给 HomePod，
+                    // 电脑自己不出声。
+                } else {
+                    // 切不过去（没装虚拟声卡、或名字不叫 CABLE Input）。
+                    // 这时是「监听复制」模式：系统声音仍然送往默认输出设备，
+                    // 程序只是复制一份推给接收端。
+                    //
+                    // 文案别写死成「两边同时出声」—— 电脑可能根本没接音箱，
+                    // 那样说会让人以为程序描述错了。准确的说法是
+                    // 「电脑的输出设备也会播放」：这是信号层面的事实；
+                    // 至于用户听不听得见，取决于他接没接音箱。
+                    logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
+                    // 不在这里直接发 onStatus —— 下面还会用「已连接」覆盖一次，
+                    // 用户就看不到这条提示了。攒到 extraStatus 里统一发。
+                    extraStatus = "已连接（未装虚拟声卡：电脑的输出设备也会播放）";
                 }
             }
+
             connected.store(ok);
             // 握手成功就复位防火墙提示的整套状态：
             // 计数清零、提示解禁 —— 下次真出问题时还能再提示一次。
@@ -2260,9 +2269,10 @@ struct Session {
                 if (peak > g_peakWindowMax.load()) g_peakWindowMax.store(peak);
 
                 if (peak >= kSilencePeak) {
-                    lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                    const long long tLoud = std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
-                                         .count());
+                                         .count();
+                    lastLoudMs.store(tLoud);
                 }
                 if (!needResample) {
                     // 设备本来就是 44.1k，直接送。
@@ -2357,6 +2367,38 @@ struct Session {
         loop->pump(*sender, std::chrono::milliseconds(0));
     }
 
+    // 把系统默认播放设备切到虚拟声卡（接管），让声音进 CABLE、由我们采集。
+    //
+    // **幂等**：已经切过（savedRenderDevice 非空）就直接返回。
+    // 两处调用：Session::start() 里（打开采集**之前**）和 ev.launched 里（兜底）。
+    //
+    // 为什么必须在打开采集之前切：采集的 deviceId 留空时会取「此刻的默认设备」
+    // 并绑死上去，之后系统默认设备再变它也不跟。原来接管发生在握手成功之后，
+    // 那时采集已经绑在物理扬声器上 —— 声音进了 CABLE，采集却在听一个安静的口，
+    // 结果是「采不到声音 → 判静音 → 待机 → 断开 → 恢复设备 → 又有声音」。
+    void maybeTakeOverRenderDevice() {
+        if (!savedRenderDevice.empty()) return;          // 已经接管过
+        if (g_takeoverActive.load()) return;
+        const std::string cur = getDefaultRenderDeviceName();
+        if (cur.empty()) return;
+        // 只在自己不是虚拟声卡时切换，避免来回切死锁
+        if (cur.find("CABLE") != std::string::npos) return;
+
+        if (!setDefaultRenderDevice("CABLE Input")) {
+            logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
+            return;
+        }
+        savedRenderDevice = cur;
+        g_takeoverActive.store(true);   // 见 g_takeoverActive 的说明
+        // 落盘记录，这样即使我们崩了，下次启动也能恢复
+        if (cfg && !cfgPath.empty()) {
+            BridgeConfig tmp;
+            loadConfig(cfgPath, tmp);
+            tmp.preCaptureDevice = cur;
+            saveConfig(cfgPath, tmp);
+        }
+        logLine("已接管：默认播放设备切到 CABLE Input（原为 " + cur + "）");
+    }
     void stop() {
         running.store(false);
         // 不再推流了 —— 立刻恢复系统时钟精度（不播放时不占任何时钟开销）。
@@ -3001,6 +3043,14 @@ int main(int argc, char** argv) {
     // 菜单打开期间继续推音频 IO。
     // TrackPopupMenu 自带模态消息循环，主循环在里面完全停摆 ——
     // 不在这儿接上这口气，点一下托盘声音就会断。
+    // 窗口被要求关闭（任务管理器 / 系统关机）时走和菜单「退出」同一条路 ——
+    // 设 g_stop 让主循环收尾（拆会话、恢复默认设备、删托盘图标）。
+    //
+    // 以前没有这条：DefWindowProcW 收到 WM_CLOSE 直接销毁窗口，
+    // 而主循环只认 g_stop，于是进程变成没有窗口的僵尸 ——
+    // 清理跑过了但任务管理器里还挂着，磁盘上的「接管中」标记也清不掉。
+    tray.setQuitRequest([]() { g_stop.store(true); });
+
     tray.setMenuPump([&]() {
         // 这个回调本身就跑在主线程上，所以顺手刷新主线程心跳 ——
         // 菜单开着等用户点是正常的，不该被看门狗当成卡死；

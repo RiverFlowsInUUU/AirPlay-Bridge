@@ -70,6 +70,13 @@ public:
     // 菜单的宿主窗口（也就是托盘那个隐藏窗口）。
     void setMenuPump(std::function<void()> pump);
 
+    // 窗口收到 WM_CLOSE 时回调（用户从任务管理器关它、或系统关机时）。
+    //
+    // 托盘窗口没有「关闭」按钮，DefWindowProcW 收到 WM_CLOSE 会直接销毁窗口；
+    // 而主循环是靠 g_stop 判断退出的 —— 窗口没了它不知道，进程变成没有
+    // 窗口的僵尸，清理跑过了但程序还挂在任务管理器里。
+    void setQuitRequest(std::function<void()> cb);
+
 private:
     struct Impl;
     Impl* d_ = nullptr;

@@ -27,6 +27,7 @@ constexpr UINT WM_TRAY_CALLBACK = WM_APP + 1;
 constexpr UINT_PTR kMenuPumpTimer = 0x41;
 constexpr UINT     kMenuPumpMs    = 10;
 std::function<void()> g_menuPump;
+std::function<void()> g_quitRequest;   // WM_CLOSE -> 主循环
 
 // Explorer 重启后会广播这条消息（消息号是动态的，必须运行时取）。
 // 收到它要重新 Shell_NotifyIcon(NIM_ADD)，否则托盘图标永久消失。
@@ -244,6 +245,16 @@ struct TrayIcon::Impl {
             darkmode::flushMenuThemes();
             return 0;
         }
+        // 窗口被要求关闭（任务管理器 / 系统关机 / 别处 PostMessage(WM_CLOSE)）。
+        //
+        // 不能让它落到 DefWindowProcW —— 那样窗口直接被销毁，而主循环
+        // 还在跑（它只认 g_stop），进程就变成没有窗口的僵尸：
+        // 托盘图标已经删了、清理也做完了，但任务管理器里还能看到它。
+        if (msg == WM_CLOSE) {
+            if (g_quitRequest) g_quitRequest();
+            return 0;   // 不销毁窗口，退出由主循环统一收尾
+        }
+
         // 菜单开着时继续驱动音频 IO，否则接收端会饿死
         if (msg == WM_TIMER && wp == kMenuPumpTimer) {
             if (g_menuPump) g_menuPump();
@@ -434,6 +445,10 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
 
 void TrayIcon::setMenuPump(std::function<void()> pump) {
     g_menuPump = std::move(pump);
+}
+
+void TrayIcon::setQuitRequest(std::function<void()> cb) {
+    g_quitRequest = std::move(cb);
 }
 
 void TrayIcon::pump(const TrayEventHandler& handler) {
