@@ -552,6 +552,7 @@ bool anotherInstanceIsRunning() {
 
     logLine("单实例检测: 已有 AirPlay Bridge 在运行，本进程退出");
 
+
     std::wstring title = L"AirPlay Bridge";
     std::wstring msg;
     msg += i18n::trw("已有 AirPlay Bridge 在运行。");
@@ -2697,6 +2698,21 @@ int main(int argc, char** argv) {
     //
     // 也放在读配置之前：被挡住的那一份不该产生任何副作用（不生成
     // deviceId、不写配置、不碰日志以外的状态）。
+    // ★ 尽早把界面语言定下来。
+    //
+    // 下面几处（单实例提示、--fix-firewall 的结果弹窗）都走 i18n::trw()，
+    // 而正常的「读配置 → setLang」在很后面 —— 那时语言还是默认的英文，
+    // 于是中文用户会看到一个英文的「已经有程序在运行了」。
+    //
+    // 只读一次 language 到一个临时对象：loadConfig 只读文件、不改任何
+    // 全局状态、不写盘、不生成 deviceId，所以不会破坏上面那条
+    // 「被挡掉的进程不产生副作用」的约束。
+    {
+        BridgeConfig earlyCfg;
+        loadConfig(defaultConfigPath(), earlyCfg);
+        i18n::setLang(i18n::fromConfigValue(earlyCfg.language));
+    }
+
     if (anotherInstanceIsRunning()) {
         CoUninitialize();
         return 0;
@@ -2728,22 +2744,24 @@ int main(int argc, char** argv) {
     }
     g_deviceId = cfg.deviceId;
 
-    // 延迟迁移：低于 250ms 的一律提到 250ms 并落盘。
+    // 延迟：**尊重用户存下的值，不做自动迁移。**
     //
-    // 为什么敢改用户存的值（和待机时长那次的判断**相反**）：
-    // 待机的 5 秒 / 10 秒都是**合法选择**，动了就是越权；
-    // 而 120~150ms 这些档位是**我们自己给的默认值** —— 用户什么都没选，
-    // 就带着一个必然爆音的配置，那是我们的错，不是他的偏好。
+    // 这里原来有一条「低于 250ms 一律提到 250ms 并落盘」。当时的依据是对的：
+    // 250ms 是 AP2 的现实下限，低于它有欠载爆音风险（实测 120ms 明显、
+    // 150ms 间歇性少量）；而 120~150 又恰好是我们自己给过的默认值，
+    // 用户什么都没选就带着一个会爆音的配置 —— 那是我们的错，不是他的偏好。
     //
-    // 依据见 kLatencyLevels 的说明：250ms 是 AP2 的现实下限，低于它有欠载
-    // 爆音风险（实测 120ms 明显、150ms 间歇性少量）。
+    // 但那个前提后来变了，两个修复把下限往下推了：
+    //   v1.5.2  连接期间的音频不再灌满本地缓冲（水位 87% → 12%，余量 48ms → 323ms）
+    //   v1.5.3  发包节奏回到设计值（时钟精度，主循环 30ms → 20ms）
+    // 实测 150ms 长时间播放已无爆音。
     //
-    // 菜单里随时能改回去（滑块 120-400），不锁死用户。
+    // 所以改成**只记录、不改值**：用户显式选的值就是他的偏好，必须被记住。
+    // 风险提示交给滑块窗口的档位评价（「可能爆音」/「接近下限」/「推荐」），
+    // 而不是启动时偷偷改掉他的设置。
     if (cfg.latencyMs < 250) {
         logLine("延迟 " + std::to_string(cfg.latencyMs) +
-                "ms 低于可靠下限，已调整为 250ms（可在菜单里改回）");
-        cfg.latencyMs = 250;
-        saveConfig(cfgPath, cfg);
+                "ms（低于推荐的 250ms；如遇卡顿可在菜单里调高）");
     }
 
     // 值不在档位上时不再吸附到最近档位 —— 滑块调出来的 7.5 秒会被吸成 8 秒。

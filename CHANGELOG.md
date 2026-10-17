@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.4] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 从菜单里选定的延迟档位现在会被记住，重启后不再被改回默认值。
+- 已有一个程序在运行时，再次打开弹出的提示会跟随界面语言；
+  此前在中文界面下仍显示英文。
+
+**English**
+
+### Fixed
+
+- The latency preset you pick from the menu is now remembered across restarts.
+- The "already running" message now follows the interface language.
+
 ## [1.5.3] - 2026-10-17
 
 **中文**
