@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.3] - 2026-10-17
+
+**中文**
+
+### 修改
+
+- 播放时音频发送的节奏更均匀，有助于减少低延迟档位下的偶发卡顿。
+  播放结束后自动恢复系统默认设置，空闲时不占额外开销。
+
+**English**
+
+### Changed
+
+- Smoother audio pacing while streaming, which helps reduce occasional
+  glitches at low latency settings. Restored automatically when playback stops.
+
 ## [1.5.2] - 2026-10-17
 
 **中文**
