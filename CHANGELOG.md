@@ -3,6 +3,40 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.9] - 2026-10-17
+
+**中文**
+
+### 修改
+
+- 延迟档位调整为 105 / 110 / 120 / 150 / 200 ms，默认 200 ms。
+- 滑块范围调整为 100 – 250 ms。
+- 档位评语跟随调整（可能爆音 / 偶有爆音 / 稳定 / 推荐）。
+
+**English**
+
+### Changed
+
+- Latency presets are now 105 / 110 / 120 / 150 / 200 ms, default 200 ms.
+- Slider range is now 100 - 250 ms.
+- Preset descriptions updated accordingly.
+
+## [1.5.8] - 2026-10-17
+
+**中文**
+
+### 修复
+
+- 修复低延迟档位（100 ~ 150ms）下接收端缓冲不足导致的爆音。
+  设备此前被允许用比设定值更浅的缓冲播放，现在下限与设定的延迟一致。
+
+**English**
+
+### Fixed
+
+- Fixed crackling at low latency settings (100 - 150 ms): the receiver could
+  previously buffer less than the configured latency.
+
 ## [1.5.7] - 2026-10-17
 
 **中文**

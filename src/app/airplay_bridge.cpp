@@ -82,11 +82,19 @@ struct LatencyLevel { int ms; const char* label; };
 //
 // 此前默认 150ms、还提供 120ms 档 —— 都在下限以下。实测 120ms 爆音明显、
 // 150ms 有间歇性爆音，调到 250ms 以上才干净。
+// 档位按实测的可靠程度排（维护者耳朵验的）：
+//   105ms  零星爆音      —— 能到的最低值
+//   110ms  基本不爆      —— 低延迟可用区间的起点
+//   120ms  零星爆音
+//   150ms  完全流畅
+//   200ms  很难听到爆音   —— 推荐值
+// 低于 110ms 会零星爆音，105 是实测能接受的底线；再低就不在档位里给了。
 const LatencyLevel kLatencyLevels[] = {
-    { 150,  "150ms（低延迟）" },
-    { 200,  "200ms（较平衡）" },
-    { 250,  "250ms（推荐）" },
-    { 300,  "300ms（更稳）" },
+    { 105,  "105ms（最低）" },
+    { 110,  "110ms（低延迟）" },
+    { 120,  "120ms（较快）" },
+    { 150,  "150ms（平衡）" },
+    { 200,  "200ms（推荐）" },
 };
 constexpr int kLatencyLevelCount = sizeof(kLatencyLevels) / sizeof(kLatencyLevels[0]);
 

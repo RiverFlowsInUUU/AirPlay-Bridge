@@ -22,7 +22,7 @@ struct BridgeConfig {
     int         volume = 45;
     // 端到端延迟（毫秒）。不同网络/设备能承受的最小值不同，
     // 所以做成可调档位，由用户自己找到不爆音的那一档。
-    int         latencyMs = 250;   // 见 airplay_bridge.cpp 里 kLatencyLevels 的说明：低于 250ms 容易爆音
+    int         latencyMs = 200;   // 见 airplay_bridge.cpp 里 kLatencyLevels 的说明：实测的推荐值
     // 重采样品质 0-100（0=关，1-100 连续映射到抽头数 4..32）。
     // 采集端的设备通常是 48kHz，而 AirPlay 流固定 44.1kHz ——
     // 这个值决定怎么转。默认 100（最高）。

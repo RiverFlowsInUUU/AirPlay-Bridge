@@ -68,10 +68,11 @@ const Entry kEntries[] = {
     {"退出", "Quit"},
 
     // ── 延迟档位 ──
-    {"150ms（低延迟）", "150 ms (lowest)"},
-    {"200ms（较平衡）", "200 ms (balanced)"},
-    {"250ms（推荐）", "250 ms (recommended)"},
-    {"300ms（更稳）", "300 ms (most stable)"},
+    {"105ms（最低）", "105 ms (lowest)"},
+    {"110ms（低延迟）", "110 ms (low latency)"},
+    {"120ms（较快）", "120 ms (fast)"},
+    {"150ms（平衡）", "150 ms (balanced)"},
+    {"200ms（推荐）", "200 ms (recommended)"},
 
     // ── 音质档位 ──
     {"快速", "Fast"},
@@ -216,6 +217,8 @@ const Entry kEntries[] = {
 
     // ── 滑块窗口：档位评价 ──
     {"可能爆音", "May crackle"},
+    {"偶有爆音", "Occasional crackle"},
+    {"稳定", "Stable"},
     {"接近下限", "Near the limit"},
     {"推荐", "Recommended"},
     {"更稳（延迟略高）", "Smoothest (slightly more delay)"},
@@ -228,7 +231,7 @@ const Entry kEntries[] = {
     {"最保守", "Most conservative"},
 
     // ── 滑块窗口：说明文字 ──
-    {"拖到不爆音的最低位置就是最优解。低于 250ms 有爆音风险，越低延迟越小，但接收端缓冲不足会爆音或卡顿。",
+    {"拖到不爆音的最低位置就是最优解。低于 150ms 可能出现爆音，越低延迟越小，但接收端缓冲不足会爆音或卡顿。",
      "Drag to the lowest position that doesn't crackle. Below 250 ms the receiver's buffer can run dry."},
     {"声卡通常跑 48kHz，推给设备前要先转到 44.1kHz。越往右高频越干净，CPU 也越贵。",
      "Sound cards usually run at 48 kHz and must be converted to 44.1 kHz. Further right is cleaner but costs more CPU."},

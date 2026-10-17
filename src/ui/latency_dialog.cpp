@@ -572,11 +572,12 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
 
 namespace {
 const char* latencyGrade(int ms) {
-    // 分界依 AP2 的现实下限（约 250ms）：低于它有欠载爆音的风险。
-    if (ms < 200) return i18n::tr("可能爆音");
-    if (ms < 250) return i18n::tr("接近下限");
-    if (ms < 320) return i18n::tr("推荐");
-    return i18n::tr("更稳（延迟略高）");
+    // 分界依维护者的实测：
+    //   105ms 零星爆音 / 110ms 基本不爆 / 150ms 完全流畅 / 200ms 很难听到
+    if (ms < 110) return i18n::tr("可能爆音");
+    if (ms < 150) return i18n::tr("偶有爆音");
+    if (ms < 200) return i18n::tr("稳定");
+    return i18n::tr("推荐");
 }
 const char* volumeGrade(int pct) {
     if (pct == 0)  return i18n::tr("静音");
@@ -599,13 +600,13 @@ int showLatencyDialog(int currentMs) {
     SliderDialogSpec spec;
     spec.title = i18n::tr("AirPlay Bridge — 延迟调节");
     spec.hint = i18n::tr(
-        "拖到不爆音的最低位置就是最优解。低于 250ms 有爆音风险，越低延迟越小，"
+        "拖到不爆音的最低位置就是最优解。低于 150ms 可能出现爆音，越低延迟越小，"
         "但接收端缓冲不足会爆音或卡顿。");
     // 范围比档位宽：低端放到 60ms 让用户自己探边界（档位表最低仍是 150ms ——
     // 那是「推荐值」，滑块是「实验区间」，两者职责不同），
     // 高端给到 400ms 以容纳网络条件差、需要更大缓冲的场景。
-    spec.minValue = 60;
-    spec.maxValue = 400;
+    spec.minValue = 100;
+    spec.maxValue = 250;
     spec.tickFreq = 0;
     spec.unit = "ms";
     spec.grade = latencyGrade;
