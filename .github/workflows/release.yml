@@ -113,7 +113,11 @@ jobs:
       # 一旦漏过去就是「装完能连上但声音不对」，比编译失败难查得多。
       - name: 编译并运行测试
         run: |
-          cmake --build build --config Release --target resampler_test
+          # ★ 编「默认目标」而不是点名某个测试。
+          #   点名的话，以后新增测试目标时忘了改这里，ctest 会报
+          #   「找不到可执行文件」—— 而那是在 tag 推上去之后才炸。
+          #   默认目标包含全部测试（主程序上一步已经编过，这里是空操作）。
+          cmake --build build --config Release
           ctest --test-dir build -C Release --output-on-failure
 
       - name: 安装 Inno Setup

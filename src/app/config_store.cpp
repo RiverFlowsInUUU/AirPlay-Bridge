@@ -157,8 +157,16 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         jsonGetBool(j, "muteLocalOnConnect", out.muteLocalOnConnect);
     out.captureDeviceId = jsonGetString(j, "captureDeviceId");
     out.localMutedByUs = jsonGetBool(j, "localMutedByUs", out.localMutedByUs);
-    out.language = jsonGetString(j, "language");
-    if (out.language.empty()) out.language = "en";
+    // 缺键 → 保持传入值（与上面的 volume / latencyMs 一致）；
+    // 键在但值为空 → 才回退 "en"（空语言会让界面一条词条都匹配不上）。
+    //
+    // 原来只写 jsonGetString 再判空，于是「文件里根本没有这个键」也被当成空、
+    // 一并强制成 "en" —— 同一个函数里两套语义（数值保传入值、字符串不保）。
+    // v1.5.4 那次事故就是「一个 fallback 悄悄改掉了用户存下的值」，同一类问题。
+    if (findValue(j, "language") != std::string::npos) {
+        out.language = jsonGetString(j, "language");
+        if (out.language.empty()) out.language = "en";
+    }
 
     if (out.standbyTenths < 0)   out.standbyTenths = 0;
     if (out.standbyTenths > 200) out.standbyTenths = 200;

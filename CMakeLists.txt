@@ -15,12 +15,29 @@ cmake_minimum_required(VERSION 3.16)
 # 静态链接 CRT：产物不依赖 MSVCP140.dll / VCRUNTIME140.dll，
 # 用户下载 exe 双击即用，不用先装 VC++ 运行库。
 # 必须在 project() 之前设置才生效。
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
+#
+# ★ AddressSanitizer 要求动态 CRT（/MD），和静态链接互斥 —— 所以留一个开关：
+#     cmake -S . -B build-asan -DALMA_ASAN=ON
+#   用途：把内存错误（越界读写 / use-after-free）整程序扫一遍。
+#   这个项目真踩过三次越界写（MultiByteToWideChar 的 need 含 NUL），
+#   所以这一类检查有实际价值，不是仪式。
+#   **这个开关编出来的产物不可分发**（依赖 ASan 运行库）。
+option(ALMA_ASAN "用 AddressSanitizer 构建（动态 CRT，产物不可分发）" OFF)
+if(ALMA_ASAN)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "" FORCE)
+else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "" FORCE)
+endif()
 
 # 版本号唯一来源 —— 发版只改这一行（PROJECT_VERSION）。
 # 它通过下面的 target_compile_definitions(APP_VERSION=...) 注入到代码里，
 # 托盘菜单「关于」自动跟着走，不会再出现"忘了改源码里的版本号"。
 project(airplay_bridge VERSION 1.5.22 LANGUAGES CXX)
+
+if(ALMA_ASAN)
+    add_compile_options(/fsanitize=address /Zi)
+    add_link_options(/fsanitize=address)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -120,3 +137,14 @@ endif()
 
 enable_testing()
 add_test(NAME resampler COMMAND resampler_test)
+
+# 配置读写自测：纯文件 I/O，不需要声卡/网络。
+# 为什么值这个：配置那条链坏过两次（v1.5.4 延迟被纠偏、v1.5.10 音量两份副本），
+# 而它的核心断言是「界内的值一个都不许被改」—— 出界的拉回来是保护，
+# 界内的动一下就是篡改。
+add_executable(config_store_test src/app/config_store_test.cpp src/app/config_store.cpp)
+target_include_directories(config_store_test PRIVATE src/app)
+if(MSVC)
+    target_compile_options(config_store_test PRIVATE /W3)
+endif()
+add_test(NAME config_store COMMAND config_store_test)
