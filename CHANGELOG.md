@@ -3,6 +3,35 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.27] - 2026-10-19
+
+**中文**
+
+### 修复
+
+- 修复播放中拔掉声卡、或在系统里禁用当前输出设备后，程序仍显示「已连接」
+  但完全没有声音、也不会自动恢复的问题。
+- 修复关闭「连接时静音电脑扬声器」开关后，若当时恢复失败就不会再重试的问题。
+
+### 安全
+
+- 接收端发来畸形的长度字段时，现在会直接断开事件通道，而不是忽略它继续。
+
+**English**
+
+### Fixed
+
+- Fixed the app continuing to show "Connected" with no audio, and never recovering,
+  after the sound card was unplugged or the current output device was disabled
+  while playing.
+- Fixed the speaker mute not being retried after turning off "Mute computer
+  speakers on connect" when that restore failed.
+
+### Security
+
+- A malformed length field from the receiver now closes the event channel instead
+  of being ignored.
+
 ## [1.5.26] - 2026-10-18
 
 **中文**
