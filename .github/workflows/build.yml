@@ -23,7 +23,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: 取出代码（含子模块）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 

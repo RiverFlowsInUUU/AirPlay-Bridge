@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: 取出代码（含子模块）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
@@ -100,6 +100,15 @@ jobs:
         run: |
           V=$(sed -n 's/.*project(airplay_bridge VERSION \([0-9][0-9.]*\).*/\1/p' CMakeLists.txt | head -1)
           if [ -z "$V" ]; then echo "::error::没能从 CMakeLists.txt 读出版本号"; exit 1; fi
+          # ★ tag 必须和 CMakeLists 的版本号一致。
+          #   不一致会发出一个「文件名/内容与 tag 对不上」的包，
+          #   而用户看到的是 tag —— 等于告诉他一个假的版本号。
+          #   最常发生在「改完代码忘了升版」的时候（2026-10-18 审查 P3-7）。
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$V" ]; then
+            echo "::error::tag 是 $GITHUB_REF_NAME，而 CMakeLists.txt 的版本是 $V ——"
+            echo "::error::两者必须一致。要么改 tag，要么先升版本号再打 tag。"
+            exit 1
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "版本号：$V"
 
@@ -138,7 +147,8 @@ jobs:
           ctest --test-dir tbuild -C Release --output-on-failure
 
       - name: 安装 Inno Setup
-        run: choco install innosetup --no-progress -y
+        run: choco install innosetup --no-progress -y --version=6.7.1   # 固定版本：打包器行为变化会直接影响产物。
+        # 6.7.1 = 2026-10-18 那次 CI 实际装上的版本（日志可查），不是猜的。
 
       # 只发布安装版 —— 不再出免安装的裸 exe。
       #
@@ -201,7 +211,7 @@ jobs:
 
       - name: 建 release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           body_path: release-notes.md
           files: |
@@ -209,7 +219,7 @@ jobs:
 
       - name: 手动触发时留存产物
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: AirPlay-Bridge-v${{ steps.ver.outputs.version }}
           path: |
