@@ -1,0 +1,40 @@
+# 核对「文档里的声明」与「代码里的真值」是否一致。
+#
+# 为什么单独一个 workflow：它只跑一个 Python 脚本（几秒），不需要编译。
+# 放在 push 上是为了「改完立刻知道」，而不是等到发版才发现 README 的档位表过时了。
+#
+# 判据都在 tools/check_docs.py 里，这个文件只负责触发。
+# 规矩本身见 docs/RULES.md 的 C14。
+name: 检查文档
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - 'AGENTS.md'
+      - 'README*.md'
+      - 'src/**'                 # 代码是真值来源（档位表、滑块范围都在 src 里）
+      - 'tools/**'
+      - 'patches/**'
+      - '.github/workflows/check-docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'AGENTS.md'
+      - 'README*.md'
+      - 'src/**'
+      - 'tools/**'
+      - 'patches/**'
+  workflow_dispatch:
+
+jobs:
+  check-docs:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 核对文档声明与代码真值
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python tools/check_docs.py

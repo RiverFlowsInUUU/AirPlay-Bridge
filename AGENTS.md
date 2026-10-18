@@ -53,6 +53,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 写第三方库相关代码 | **先读那个库的 README 和源码注释**，别只读代码 |
 | **改了 `third_party/` 里任何文件** | **必须同步重新生成 `patches/`** —— [docs/RULES.md](docs/RULES.md) 的 **C13**。不同步 = 你测的和用户装的不是同一份代码 |
 | 判断某个 bug 要不要修 | [docs/RULES.md](docs/RULES.md) 的 **C12**（低频 + 静默 = 按高频处理） |
+| **改了会变的事实**（档位 / 范围 / 编号 / 条数） | [docs/RULES.md](docs/RULES.md) 的 **C14** —— 能机械核对的钉进 `tools/check_docs.py`（CI 会跑） |
 | 提交 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「提交」 |
 | 发版 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「发布」+ [docs/RULES.md](docs/RULES.md) 的发布纪律 |
 | 写 README / 发布说明 | [docs/STYLE.md](docs/STYLE.md) |
@@ -102,7 +103,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 文件 | 内容 | 什么时候读 |
 |---|---|---|
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | **从零接手 · 改前改后 · 提交 · 交接 · 换 Agent 一致性** | 开始干活前 |
-| [docs/RULES.md](docs/RULES.md) | **硬约束 C1–C13 + 禁止事项清单** | **动手前必读** |
+| [docs/RULES.md](docs/RULES.md) | **硬约束 C1–C14 + 禁止事项清单** | **动手前必读** |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、模块表、数据流、不变量、协议补丁、实测数据 | 改代码前 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境、构建、测试、验收、调试、命令行参数、图标、发布 | 跑环境 / 发版 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | D1–D15 关键决策与理由、被否决的方案 | 想知道「为什么这样」 |

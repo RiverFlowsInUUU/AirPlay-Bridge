@@ -82,6 +82,16 @@ jobs:
           done
           echo "补丁校验通过（4 个文件）"
 
+      # 文档自检也放进来 —— 理由和上面的补丁校验一样：
+      # `check-docs.yml` 和本工作流相互独立，一个挂了不拦另一个。
+      # 它只跑一个 Python 脚本（不到 1 秒），但能拦住「README 的档位表过时了」
+      # 这种「用户会照着做错事」的问题。规矩见 docs/RULES.md C14。
+      - name: 核对文档声明与代码真值
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python tools/check_docs.py
+
       - name: 读版本号
         id: ver
         shell: bash
