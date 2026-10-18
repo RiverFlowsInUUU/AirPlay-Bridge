@@ -302,15 +302,30 @@ for _rel in _SRC:
                 continue
             # ★ 跨行调用也要看得到：`setTooltip(` 换行后字面量在下一行。
             #   只看同一行是原版，会漏（2026-10-18 外部审查指出）。
+            # ★ 从 sink 出发一直累计到匹配的右括号（最多再看 4 行）。
+            #   原来只拼下一行，写成三行（参数 + 字面量各占一行）就漏了
+            #   —— 2026-10-18 第三轮外部审查指出。
             _rest = _line[_k + len(_sink):]
-            if _ln < len(_lines_txt):
-                _rest += " " + _lines_txt[_ln]
+            # ★ 计数器从 1 起（sink 名里那个左括号已经被吃掉）。
+            #   写成 depth=0 的话，「promptUser( 独占一行」这种最常见的形态
+            #   会算出 0 → 循环不进 → 完全漏掉。2026-10-18 我改错过一次，
+            #   是反向测试把它揪出来的。
+            _depth = 1 + _rest.count("(") - _rest.count(")")
+            _j = _ln            # _lines_txt 是 0 基，_ln 是 1 基 → 下一行正是该下标
+            while _depth > 0 and _j < len(_lines_txt) and (_j - _ln) < 4:
+                _rest += " " + _lines_txt[_j]
+                _depth += _lines_txt[_j].count("(") - _lines_txt[_j].count(")")
+                _j += 1
             if "i18n::tr" in _rest or "tr(" in _rest:
                 continue
-            # 只看同一行里传进去的字面量
-            _m = re.search(chr(34) + "([^" + chr(34) + "]*)" + chr(34), _rest)
-            if _m and _CJK.search(_m.group(1)):
-                _rawhits.append("%s:%d %s" % (_rel, _ln, _m.group(1)[:30]))
+            # ★ 宽字符字面量 L"..." 也要认。原来只认不带前缀的 "..."，
+            #   而 promptUser 的参数类型是 const wchar_t*，实际写法几乎都是
+            #   L"中文" —— 于是这条检查对 promptUser 基本无效。
+            #   （2026-10-18 第三轮外部审查的反向测试用例就是 L"裸中文"。）
+            for _m in re.finditer(r'(?:L)?"([^"]*)"', _rest):
+                if _CJK.search(_m.group(1)):
+                    _rawhits.append("%s:%d %s" % (_rel, _ln, _m.group(1)[:30]))
+                    break
 
 if _rawhits:
     for _h in _rawhits[:8]:
@@ -386,9 +401,20 @@ if _mx:
 # 去掉注释是必要的：否则「注释里提到过某个 key」会把死词条误判成活的。
 _I18N_SRC = read("src/app/i18n.cpp") or ""
 _blob_parts = []
-_srclist = ["src/app/airplay_bridge.cpp", "src/ui/tray.cpp",
-            "src/ui/latency_dialog.cpp", "src/device/discovery.cpp",
-            "src/device/audiodevices.h", "src/audio/sysvolume.cpp"]
+# ★ 覆盖 src/ 下全部 .cpp/.h（只排除 i18n.cpp 自身）。
+#   原来写死 6 个文件 —— 若某词条只在被排除的文件里引用，会被误判成死词条。
+#   当前 117 条零死词条是"恰好没踩到"，不是"踩不到"。
+#   （2026-10-18 第三轮外部审查指出。）
+_srclist = []
+for _root, _dirs, _files in os.walk("src"):
+    for _f in sorted(_files):
+        if not _f.endswith((".cpp", ".h")):
+            continue
+        _rel = os.path.join(_root, _f).replace(os.sep, "/")
+        if _rel.endswith("i18n.cpp"):
+            continue
+        _srclist.append(_rel)
+_srclist.sort()
 for _rel in _srclist:
     _t = read(_rel)
     if not _t:
