@@ -460,22 +460,20 @@ else:
     else:
         ok("卸载器递归删除", "无（[UninstallDelete] 不含 filesandordirs {app}）")
 
-# -------------------------------------------------- ⑫ AP2 事件通道必须有上限
-
-# 2026-10-18 实例（第四轮审查 P1-4）：控制通道有 4 MiB 上限，
-# 事件通道漏了 —— 接收端持续发「没有终止头的头」会让 eventPlainBuf_ 无限增长。
-_rs_path = "third_party/airplay2-sender-cpp/src/raop_sender.cpp"
-_rs_h = "third_party/airplay2-sender-cpp/src/raop_sender.h"
-_rs = read(_rs_path) or ""
-_rsh = read(_rs_h) or ""
-if not _rs:
-    fail("事件通道上限", "读不到 %s" % _rs_path)
+# 2026-10-18 实例（第四轮审查 P1-4）：控制通道有 4 MiB 上限，事件通道漏了 ——
+# 接收端持续发「没有终止头的头」会让 eventPlainBuf_ 无限增长。
+#
+# ★ 查 **patches/**（真相源），不查 third_party/ 工作区。
+#   原因：CI 检出的是干净子模块（未打补丁），工作区里根本没有那段代码 ——
+#   查工作区会在 CI 上误报「没有上限」。补丁才是「用户装到的代码」的依据（C13）。
+_patch = read("patches/upstream-airplay2-sender-cpp.patch") or ""
+if not _patch:
+    fail("事件通道上限", "读不到 patches/upstream-airplay2-sender-cpp.patch")
+elif "kMaxEventPlainBuf" in _patch:
+    ok("事件通道上限", "有（补丁含 kMaxEventPlainBuf）")
 else:
-    _has_cap = ("kMaxEventPlainBuf" in _rs) and ("kMaxEventPlainBuf" in _rsh)
-    if _has_cap:
-        ok("事件通道上限", "有（kMaxEventPlainBuf）")
-    else:
-        fail("事件通道上限", "eventPlainBuf_ 没有上限 —— 与 P1-4 同一类问题")
+    fail("事件通道上限", "补丁里没有事件通道上限 —— 与 P1-4 同一类问题")
+
 
 # ---------------------------------------------------------------- 输出
 
