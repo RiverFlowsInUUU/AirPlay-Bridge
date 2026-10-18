@@ -91,14 +91,9 @@ std::string wideToUtf8(const wchar_t* w) {
     return buf;
 }
 
-std::string appDataDir() {
-    char buf[MAX_PATH] = {};
-    DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", buf, MAX_PATH);
-    std::string base = (n > 0 && n < MAX_PATH) ? std::string(buf, n) : std::string(".");
-    std::string dir = base + "\\AirPlayBridge\\";
-    CreateDirectoryA(dir.c_str(), nullptr);
-    return dir;
-}
+// （这里原来有个 appDataDir()，只为写 level.txt 打点用 ——
+//   打点删掉后它没有调用点了，而且带 CreateDirectoryA 副作用。
+//   2026-10-18 连同打点一起清掉。）
 
 // ---- 单台设备的采集 ----
 struct DeviceCapture {
