@@ -439,6 +439,44 @@ else:
     else:
         ok("i18n 死词条", "无（共 %d 条词条）" % len(_entries))
 
+# -------------------------------------------------- ⑪ 卸载器不许递归删整个 {app}
+
+# 2026-10-18 实例（第四轮审查 P1-1）：[UninstallDelete] 里有
+#   Type: filesandordirs; Name: "{app}"
+# 这会在用户把程序装进已有内容的目录（如 D:\Tools）时，卸载递归删光那里 ——
+# 不可逆的数据丢失。而 [Files] 本来就会自动删自己装的 4 个文件，
+# 那条规则唯一的作用就是删掉原本不该删的东西。
+_iss = read("installer/airplay-bridge.iss") or ""
+if not _iss:
+    fail("卸载器递归删除", "读不到 installer/airplay-bridge.iss")
+else:
+    # 只看非注释行
+    _live = [ln for ln in _iss.split(chr(10))
+             if not ln.strip().startswith(";")]
+    _bad = [ln.strip() for ln in _live
+            if "filesandordirs" in ln and "{app}" in ln]
+    if _bad:
+        fail("卸载器递归删除", "仍然存在: %s" % _bad[0][:60])
+    else:
+        ok("卸载器递归删除", "无（[UninstallDelete] 不含 filesandordirs {app}）")
+
+# -------------------------------------------------- ⑫ AP2 事件通道必须有上限
+
+# 2026-10-18 实例（第四轮审查 P1-4）：控制通道有 4 MiB 上限，
+# 事件通道漏了 —— 接收端持续发「没有终止头的头」会让 eventPlainBuf_ 无限增长。
+_rs_path = "third_party/airplay2-sender-cpp/src/raop_sender.cpp"
+_rs_h = "third_party/airplay2-sender-cpp/src/raop_sender.h"
+_rs = read(_rs_path) or ""
+_rsh = read(_rs_h) or ""
+if not _rs:
+    fail("事件通道上限", "读不到 %s" % _rs_path)
+else:
+    _has_cap = ("kMaxEventPlainBuf" in _rs) and ("kMaxEventPlainBuf" in _rsh)
+    if _has_cap:
+        ok("事件通道上限", "有（kMaxEventPlainBuf）")
+    else:
+        fail("事件通道上限", "eventPlainBuf_ 没有上限 —— 与 P1-4 同一类问题")
+
 # ---------------------------------------------------------------- 输出
 
 print("")
