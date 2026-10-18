@@ -31,7 +31,13 @@ jobs:
   check-docs:
     runs-on: windows-latest
     steps:
+      # ★ 必须带子模块：检查器要读 third_party/airplay2-sender-cpp 里的
+      #   raop_sender.cpp（事件通道上限那条）。不带的话 third_party 是空的，
+      #   检查会误报「读不到文件」—— 那不是文档有问题，是检出不全。
+      #   （2026-10-18 加 P1-4 检查时踩到：本地通过、CI 失败）
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
 
       - name: 核对文档声明与代码真值
         shell: bash
