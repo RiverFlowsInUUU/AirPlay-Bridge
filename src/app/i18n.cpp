@@ -98,6 +98,13 @@ const Entry kEntries[] = {
     {"AirPlay Bridge - 找到 ", "AirPlay Bridge - Found "},
     {"AirPlay Bridge ", "AirPlay Bridge "},
     {"AirPlay Bridge（没有虚拟声卡）", "AirPlay Bridge (no virtual audio device)"},
+    // ── 状态文案（tooltip 与菜单共用）──
+    // 2026-10-18：这几条原来只存在于代码里的裸中文字面量，
+    // 于是英文界面的 tooltip 一直是中文（P2-3，外部审查发现）。
+    {"连接断开", "Disconnected"},
+    {"连接失败: ", "Connection failed: "},
+    {"（若持续失败请检查防火墙入站规则）",
+     " (if it keeps failing, check the firewall inbound rule)"},
     {"已连接（未装虚拟声卡：电脑的输出设备也会播放）",
      "Connected (no virtual audio device - this PC's output still plays)"},
     {"未能连接（未装虚拟声卡：电脑的输出设备也会播放）",

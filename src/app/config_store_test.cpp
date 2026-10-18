@@ -294,6 +294,91 @@ int main() {
     }
 
     std::printf("\n");
+    // ---- 12. ★ 写入是原子的：不留 .tmp、正式文件完整 ----
+    // 触发场景：写在半路被杀（用户强杀 / 断电）→ 半份 JSON →
+    // loadConfig 原来只看「非空」就当成有效配置（P1-2，外部审查）。
+    {
+        std::printf("\n12. 写入原子性\n");
+        removeFile(kFile);
+        removeFile(kFile + ".tmp");
+
+        BridgeConfig a;
+        a.volume = 37;
+        a.latencyMs = 188;
+        a.lastDeviceName = "测试设备";
+        check(saveConfig(kFile, a), "saveConfig 成功");
+
+        // ① 临时文件不该留下
+        std::FILE* t = std::fopen((kFile + ".tmp").c_str(), "rb");
+        check(t == nullptr, "写完不留 .tmp");
+        if (t) std::fclose(t);
+
+        // ② 正式文件完整（首尾花括号）
+        std::string raw = readRaw(kFile);
+        // 末尾有换行 —— loadConfig 里也是先 trim 再判首尾，这里跟着做。
+        while (!raw.empty() && (raw.back() == 10 || raw.back() == 13 ||
+                                raw.back() == 32 || raw.back() == 9))
+            raw.pop_back();
+        check(!raw.empty() && raw.front() == char(123) && raw.back() == char(125),
+              "正式文件首尾是花括号（完整）");
+
+        // ③ 能读回来
+        BridgeConfig b;
+        check(loadConfig(kFile, b), "能读回");
+        checkInt(b.volume, 37, "值正确");
+        removeFile(kFile);
+    }
+
+    // ---- 13. ★ 截断 / 损坏的文件被拒绝，并留一份 .bak ----
+    {
+        std::printf("\n13. 截断 / 损坏保护\n");
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+
+        // 模拟「写到一半被杀」：开头有 {，结尾没 }
+        writeRaw(kFile, "{\"volume\": 37, \"latencyMs\": 18");
+        BridgeConfig out;
+        out.volume = 55;
+        check(!loadConfig(kFile, out), "截断文件应被拒绝（返回 false）");
+        checkInt(out.volume, 55, "拒绝时不动 out");
+
+        std::FILE* b = std::fopen((kFile + ".bak").c_str(), "rb");
+        check(b != nullptr, "留了一份 .bak 供事后查证");
+        if (b) std::fclose(b);
+
+        // 完全不是 JSON 也一样
+        removeFile(kFile + ".bak");
+        writeRaw(kFile, "这不是 JSON 乱码");
+        BridgeConfig o2;
+        o2.volume = 66;
+        check(!loadConfig(kFile, o2), "非 JSON 应被拒绝");
+        checkInt(o2.volume, 66, "拒绝时不动 out");
+
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+    }
+
+    // ---- 14. ★ loadConfig 幂等：同一对象读两次结果不变 ----
+    // P2-5：ignoredDeviceIds 原来只 push_back 不清空 ——
+    // 对同一对象 load 两次会把设备列表累积成两倍。
+    {
+        std::printf("\n14. loadConfig 幂等\n");
+        BridgeConfig a;
+        a.ignoredDeviceIds = {"AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02"};
+        a.volume = 23;
+        saveConfig(kFile, a);
+
+        BridgeConfig out;
+        loadConfig(kFile, out);
+        const size_t n1 = out.ignoredDeviceIds.size();
+        loadConfig(kFile, out);
+        const size_t n2 = out.ignoredDeviceIds.size();
+        checkInt(int(n1), 2, "第一次加载 2 条");
+        checkInt(int(n2), 2, "第二次加载仍是 2 条（不累积）");
+        checkInt(out.volume, 23, "音量不因二次加载而变");
+        removeFile(kFile);
+    }
+
     if (g_fail) {
         std::printf("   %d/%d 项失败 —— 配置读写有回归\n", g_fail, g_checks);
         return 1;

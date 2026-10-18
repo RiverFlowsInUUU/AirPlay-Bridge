@@ -1531,7 +1531,10 @@ std::atomic<bool> g_notifyIfNoDevice{false};
 // 于是「丢帧」这条最经典的爆音线索完全看不见。
 // 丢帧 = 音频不连续 = 咔哒/爆裂声；削波 = 波形被削平 = 失真。
 // 两个都记下来，主循环每秒汇总一次（见 logAudioHealth）。
-std::atomic<uint64_t> g_ringDroppedFrames{0};   // 推不进环、被丢掉的帧数
+std::atomic<uint64_t> g_ringDroppedFrames{0};   // 推不进环、被丢掉的**帧**数
+// ↑ 单位是帧，不是样本。ring 里存的是交错样本（帧数 x 2），
+//   加进这里之前必须先换算 —— 2026-10-18 之前一直加的是样本数，
+//   于是日志「累计 N 帧」立体声下虚报一倍。
 std::atomic<uint64_t> g_clippedSamples{0};      // 峰值触顶（可能削波）的样本数
 // 诊断用：本窗口内采集到的最大峰值。
 // 排查「杂音/爆音」时必须知道**采集侧到底有多大电平** ——
@@ -2206,8 +2209,11 @@ struct Session {
             }
             if (onConnected) onConnected(ok);
             if (onStatus) {
-                if (ok && !extraStatus.empty()) onStatus(extraStatus);
-                else onStatus(ok ? "已连接" : ("连接失败: " + e));
+                // ★ 送出去的是**翻译后**的文案（tooltip / 菜单要跟着界面语言走）；
+                //   日志仍写中文 —— 那是排查用的，不跟界面语言变（既有设计）。
+                if (ok && !extraStatus.empty()) onStatus(i18n::tr(extraStatus.c_str()));
+                else onStatus(ok ? i18n::tr("已连接")
+                                 : (i18n::tr("连接失败: ") + e));
             }
             // 首次连上时弹一次气泡。
             // 只在首次 —— 自动重连时不弹，否则隔一会儿蹦一个很烦。
@@ -2228,7 +2234,7 @@ struct Session {
         ev.closed = [this]() {
             connected.store(false);
             if (onConnected) onConnected(false);
-            if (onStatus) onStatus("连接断开");
+            if (onStatus) onStatus(i18n::tr("连接断开"));
             wantReconnect.store(true);
         };
         ev.pinRequired = [](const std::string&) {};
@@ -2305,8 +2311,12 @@ struct Session {
                     // 设备本来就是 44.1k，直接送。
                     // ★ 只在已连接时才推 —— 见下方 resampler 分支的说明。
                     if (pushing) {
+                        // ★ 计数器是**帧数**，而 ring 里存的是**样本**（n*2）。
+                        //   原来这里加的是 n*2（样本数），立体声下日志里
+                        //   「音频丢帧：累计 N 帧」恒为真实值的 2 倍 ——
+                        //   排查爆音时会被这个虚报的数字带偏（P2-8）。
                         if (!ring->tryPush(std::span<const int16_t>(d, n * 2)))
-                            g_ringDroppedFrames.fetch_add(n * 2);
+                            g_ringDroppedFrames.fetch_add(n);
                     }
                     return;
                 }
@@ -2329,7 +2339,8 @@ struct Session {
                 if (pushing && !resampleBuf.empty()) {
                     if (!ring->tryPush(std::span<const int16_t>(resampleBuf.data(),
                                                        resampleBuf.size()))) {
-                        g_ringDroppedFrames.fetch_add(resampleBuf.size());
+                        // resampleBuf 是交错样本，除以声道数才是帧（同 ①）。
+                        g_ringDroppedFrames.fetch_add(resampleBuf.size() / 2);
                     }
                 }
             });
@@ -3021,7 +3032,7 @@ int main(int argc, char** argv) {
         // 这里只改 tooltip，不弹气泡 —— 重连循环里弹气泡是骚扰。
         if (sess.running.load() &&
             g_handshakeFailStreak.load() >= kFirewallHintAfterFails) {
-            tip += "（若持续失败请检查防火墙入站规则）";
+            tip += i18n::tr("（若持续失败请检查防火墙入站规则）");
         }
         tray.setTooltip(tip);
         logLine(s);
@@ -3032,8 +3043,8 @@ int main(int argc, char** argv) {
         // tooltip 的"基础文案"跟着图标一起走 —— 这两者必须始终一致，
         // 分成两条独立的路就一定会有一条被漏掉。
         // 具体状态（失败原因、断开原因）稍后由 onStatus 覆盖上去。
-        tray.setTooltip(ok ? "AirPlay Bridge - 已连接"
-                           : "AirPlay Bridge - 未连接");
+        tray.setTooltip(ok ? i18n::tr("AirPlay Bridge - 已连接")
+                           : i18n::tr("AirPlay Bridge - 未连接"));
 
         // 连接时静音电脑自己的扬声器，断开时恢复。
         //
@@ -3625,7 +3636,7 @@ int main(int argc, char** argv) {
                     std::string err;
                     if (!sess.start(err)) {
                         logLine("启动失败: " + err);
-                        tray.setTooltip("AirPlay Bridge - 启动失败");
+                        tray.setTooltip(i18n::tr("AirPlay Bridge - 启动失败"));
                         tray.notify("AirPlay Bridge",
                                 std::string(i18n::tr("启动失败: ")) + err);
                     } else {
@@ -3833,7 +3844,7 @@ int main(int argc, char** argv) {
                             sub.push_back({"", 0, true, true, false});
                             sub.push_back({"请确认 HomePod 已通电", 0, false, false, false});
                             sub.push_back({"且与电脑在同一 WiFi", 0, false, false, false});
-                            tray.setTooltip("AirPlay Bridge - 未找到设备");
+                            tray.setTooltip(i18n::tr("AirPlay Bridge - 未找到设备"));
                         } else {
                             for (size_t i = 0; i < discovered.size(); ++i) {
                                 sub.push_back({deviceMenuLabel(discovered[i]),
@@ -3855,7 +3866,7 @@ int main(int argc, char** argv) {
                             std::string err;
                             if (!sess.start(err)) {
                                 logLine("启动失败: " + err);
-                                tray.setTooltip("AirPlay Bridge - 启动失败");
+                                tray.setTooltip(i18n::tr("AirPlay Bridge - 启动失败"));
                                 tray.notify("AirPlay Bridge",
                                 std::string(i18n::tr("启动失败: ")) + err);
                             } else {

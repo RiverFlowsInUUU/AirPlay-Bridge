@@ -271,6 +271,47 @@ else:
             ok("补丁文件数", "%d 个（%s）"
                % (n_files, ", ".join(r for r, _ in claims)))
 
+# -------------------------------------------------- ⑦ i18n：用户可见文案不许裸写中文
+
+# 2026-10-18 实例（P2-3）：setTooltip("AirPlay Bridge - 已连接") 三处裸中文，
+# 而 i18n 表里**早就有**对应英文词条 —— 词条是死的，英文界面一直显示中文。
+# 这类问题机器能查：只看「传给用户可见出口的字面量里有没有中文」。
+#
+# 出口名单是故意写死的（窄）：新增一个面向用户的出口时，要把它加进来。
+_SINKS = ["setTooltip(", "onStatus(", "tray.notify(", "notify(", "MessageBox"]
+_SRC = ["src/app/airplay_bridge.cpp", "src/ui/tray.cpp",
+        "src/ui/latency_dialog.cpp", "src/app/i18n.cpp"]
+_CJK = re.compile("[一-鿿]")
+
+_rawhits = []
+for _rel in _SRC:
+    _text = read(_rel)
+    if not _text:
+        continue
+    if _rel.endswith("i18n.cpp"):
+        continue            # 词条表本身就是中文，不查
+    for _ln, _line in enumerate(_text.split(chr(10)), 1):
+        _st = _line.strip()
+        if _st.startswith("//"):
+            continue
+        for _sink in _SINKS:
+            _k = _line.find(_sink)
+            if _k < 0:
+                continue
+            _rest = _line[_k + len(_sink):]
+            if "i18n::tr" in _rest or "tr(" in _rest:
+                continue
+            # 只看同一行里传进去的字面量
+            _m = re.search(chr(34) + "([^" + chr(34) + "]*)" + chr(34), _rest)
+            if _m and _CJK.search(_m.group(1)):
+                _rawhits.append("%s:%d %s" % (_rel, _ln, _m.group(1)[:30]))
+
+if _rawhits:
+    for _h in _rawhits[:8]:
+        fail("i18n 裸中文 (%s)" % _h.split(" ")[0], _h)
+else:
+    ok("i18n 裸中文扫描", "无（出口：%s）" % ", ".join(_SINKS))
+
 # ---------------------------------------------------------------- 输出
 
 print("")

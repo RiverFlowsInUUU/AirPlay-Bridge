@@ -99,6 +99,23 @@ std::string defaultConfigPath() {
     return appDataDir() + "bridge_config.json";
 }
 
+namespace {
+
+// UTF-8 -> UTF-16。注意 need **包含结尾的 NUL**，所以按 need 分配、
+// 之后再 resize(need - 1) —— 这个坑在本项目踩过三次
+// （MultiByteToWideChar 越界写 2 字节），别按 need-1 分配。
+std::wstring utf8ToWide(const std::string& s) {
+    if (s.empty()) return std::wstring();
+    const int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (need <= 1) return std::wstring();
+    std::wstring out(static_cast<size_t>(need), 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), need);
+    out.resize(static_cast<size_t>(need - 1));
+    return out;
+}
+
+}  // namespace
+
 bool loadConfig(const std::string& path, BridgeConfig& out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
@@ -106,6 +123,33 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     ss << f.rdbuf();
     std::string j = ss.str();
     if (j.empty()) return false;
+    if (j.empty()) return false;
+
+    // ★ 截断 / 损坏保护：一次写入被中断会留下**半份 JSON**，而它「非空」，
+    //   原来会被当成有效配置 —— deviceId 缺失就重新生成、设置全部回落默认。
+    //   这与本项目的红线（v1.5.4「fallback 悄悄改掉用户存下的值」）是同一类。
+    //
+    //   这里只做最小健全性检查：去掉尾部空白后，首尾必须是花括号。
+    //   不通过 → 把内容另存一份 .bak 留证，然后拒绝加载。
+    //   调用方按「没有配置」处理（保持默认值），不拿半份文件当真。
+    //
+    //   空白判断用数字字面量（10/13/32/9），不写反斜杠转义 ——
+    //   本文件顶部注释说明过：反斜杠转义在这条工具链里会被吃掉。
+    {
+        std::string t = j;
+        while (!t.empty()) {
+            const char c = t.back();
+            if (c == 10 || c == 13 || c == 32 || c == 9) { t.pop_back(); continue; }
+            break;
+        }
+        const bool complete = t.size() > 1 && t.front() == char(123) && t.back() == char(125);
+        if (!complete) {
+            const std::string bak = path + ".bak";
+            std::ofstream b(bak, std::ios::binary | std::ios::trunc);
+            if (b) b << j;                 // 留证：事后能看出是不是被截断的
+            return false;
+        }
+    }
 
     out.lastDeviceId   = jsonGetString(j, "lastDeviceId");
     out.lastDeviceName = jsonGetString(j, "lastDeviceName");
@@ -177,6 +221,11 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         size_t lb = j.find('[', arr);
         size_t rb = (lb == std::string::npos) ? std::string::npos : j.find(']', lb);
         if (lb != std::string::npos && rb != std::string::npos) {
+            // ★ 先清空。其它字段都是赋值语义（覆盖），只有这里是 push_back ——
+            //   不清空的话，对同一个对象 load 两次就会把设备列表累积成两倍
+            //   （P2-5，外部审查发现）。目前所有调用点都传新对象所以没触发，
+            //   但「同名函数里只有这一个字段不是覆盖语义」本身就是个雷。
+            out.ignoredDeviceIds.clear();
             std::string body = j.substr(lb + 1, rb - lb - 1);
             size_t p = 0;
             while ((p = body.find('"', p)) != std::string::npos) {
@@ -191,7 +240,20 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
 }
 
 bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+// ★ 原子写：先写同目录下的 .tmp，全部落盘后再整体换名覆盖正式文件。
+//
+// 原来直接 ofstream(path, trunc) 原地截断 —— 写到一半被杀（用户强杀、
+// 断电、崩溃）就留下**半份 JSON**；而 loadConfig 只看「文件非空」，
+// 于是半份文件被当成有效配置：deviceId 缺失会被重新生成
+// （接收端把这台电脑当新设备），其余设置全部回落默认。
+//
+// 本程序明确以「用户可能强杀」为设计前提（preCaptureDevice / localMutedByUs
+// 的崩溃恢复就是为此），配置这条链不该是唯一没有保护的那个。
+const std::string tmpPath = path + ".tmp";
+{
+    std::ofstream f(tmpPath, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+
     if (!f) return false;
 
     f << "{\n";
@@ -235,7 +297,20 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
     }
     f << "]\n";
     f << "}\n";
-    return true;
+    f.flush();
+    if (!f) {                       // 写失败（磁盘满等）—— 不要覆盖正式文件
+        f.close();
+        DeleteFileW(utf8ToWide(tmpPath).c_str());
+        return false;
+    }
+}
+// 同一目录内换名是原子的：要么旧文件完整、要么新文件完整，不存在半份。
+if (!MoveFileExW(utf8ToWide(tmpPath).c_str(), utf8ToWide(path).c_str(),
+                 MOVEFILE_REPLACE_EXISTING)) {
+    DeleteFileW(utf8ToWide(tmpPath).c_str());
+    return false;
+}
+return true;
 }
 
 } // namespace fxchain
