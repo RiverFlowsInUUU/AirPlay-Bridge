@@ -3,6 +3,43 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.26] - 2026-10-18
+
+**中文**
+
+### 修复
+
+- 卸载程序不再删除安装目录里的其它文件。此前如果把程序装进一个已有内容的
+  文件夹，卸载会把它整个删掉。
+- 修复「无声音时待机」开启时，在待机状态下退出程序会让进程异常终止的问题。
+- 修复切换默认播放设备后若采集无法启动，电脑的声音不会切回原设备的问题。
+- 修复音频采集无法启动时界面仍显示「已连接」、但完全没有声音的问题；
+  现在会提示并自动重连。
+- 修复设备名较长时托盘提示整条变空白的问题。
+
+### 安全
+
+- 接收端持续发送异常数据时，事件通道不再无限占用内存。
+
+**English**
+
+### Fixed
+
+- The uninstaller no longer deletes other files from the installation folder.
+  Installing into a folder that already had content used to wipe it on uninstall.
+- Fixed the process terminating abnormally when quitting while the speaker was in
+  standby.
+- Fixed the computer audio not switching back to the original device when audio
+  capture failed to start.
+- Fixed the app showing "Connected" with no audio at all when capture failed to
+  start; it now reports the problem and reconnects.
+- Fixed the tray tooltip turning blank when a device name was long.
+
+### Security
+
+- The event channel no longer grows without bound when the receiver keeps sending
+  malformed data.
+
 ## [1.5.25] - 2026-10-18
 
 **中文**
