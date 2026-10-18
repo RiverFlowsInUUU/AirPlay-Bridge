@@ -3,6 +3,24 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.24] - 2026-10-18
+
+**中文**
+
+### 修复
+
+- 修复 Windows 用户名（或安装路径）含中文时，设置改动无法保存的问题。
+  此前这种情况下改设置不生效、重启后全部回落默认，且这台电脑会被音箱当成新设备。
+
+**English**
+
+### Fixed
+
+- Fixed settings failing to save when the Windows user name (or the install path)
+  contains non-ASCII characters. Settings changes were silently lost, every value
+  reverted to its default on restart, and the computer was treated as a new device
+  by the speaker.
+
 ## [1.5.23] - 2026-10-18
 
 **中文**
