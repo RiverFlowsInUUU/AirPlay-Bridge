@@ -31,7 +31,7 @@ installer/   Inno Setup 脚本
 docs/        本套文档
 ```
 
-**主循环和托盘菜单回调都在 `src/app/airplay_bridge.cpp` 的 `main()` 里**（约 960 行）。
+**主循环和托盘菜单回调都在 `src/app/airplay_bridge.cpp` 的 `main()` 里**（近 1500 行）。
 它们深度依赖 main 的局部状态，抽出去会牵动一大片调用约定 ——
 这一点有专门的决策记录，见 [DECISIONS.md](DECISIONS.md) 和 [PITFALLS.md](PITFALLS.md)。
 
@@ -43,7 +43,7 @@ docs/        本套文档
 | `src/app/config_store.*` | JSON 配置读写，落在 `%LOCALAPPDATA%\AirPlayBridge\` |
 | `src/audio/wasapi_capture.*` | WASAPI 环回采集 |
 | `src/audio/resampler.h` | 窗函数 sinc 重采样（header-only，可脱离本程序单测） |
-| `src/audio/resampler_test.cpp` | 重采样自测，输出信噪比对比表 |
+| `src/audio/resampler_test.cpp` | 重采样自测，四节：基本正确性 / 品质曲线 / **分块不变性** / **窗口索引范围**（后两节是回归防护，见 RULES.md C11） |
 | `src/audio/sysvolume.*` | 系统音量、默认播放设备切换 |
 | `src/device/discovery.*` | 设备发现（扫网段 + 单播 mDNS） |
 | `src/device/audiodevices.h` | `--audio-devices` 的实现 |

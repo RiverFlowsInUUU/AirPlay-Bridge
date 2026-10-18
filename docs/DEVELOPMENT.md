@@ -29,6 +29,17 @@ cd third_party/airplay2-sender-cpp
 git apply ../../patches/upstream-airplay2-sender-cpp.patch
 cd ../..
 
+
+**改过 `third_party/` 里的文件之后，必须立刻重新生成补丁**（[RULES.md](RULES.md) C13）——
+本地编译读的是工作区，CI 打包读的是 `patches/`，不同步就等于「你测的和用户装的不是同一份代码」。
+
+```bash
+cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch
+```
+
+**验证不能只看「CI 绿了」** —— 在一份干净的 `git archive HEAD` 上 `git apply` 一遍，
+再 grep 关键实现值，确认打出来的和你本地的一样。`check-patch.yml` 里有一份「标志性行」
+清单做防陈旧检查，**新增关键实现时要同步更新那份清单**。
 cmake -S . -B build -G "<本机生成器>" -A x64
 cmake --build build --config Release
 ```
@@ -186,6 +197,18 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 `.github/workflows/release.yml` 只在 tag 或手动触发时跑完整构建
 （平时不烧分钟数，理由见 check-patch.yml 的注释）。
 它会从 `CMakeLists.txt` 读版本号、用 Inno 打安装包、建 release。
+
+**这条流水线自带补丁校验**（LF 行尾 / 能 apply / 覆盖 4 个文件 / 防陈旧标志行），
+**在编译之前跑，失败即中止**。所以 tag 推上去不用再靠旁路的 `check-patch.yml`
+替它把关 —— 两个 workflow 是相互独立的，一个挂了不拦另一个（2026-10-17 踩过）。
+
+**发布正文是从 `CHANGELOG.md` 本版那一节自动生成的**，并且会把折行的续行接回去。
+原因：CHANGELOG 按 ~80 列折行便于阅读，而 GitHub 对 **release 正文** 用的是
+「单个换行 = 硬换行」的渲染规则（跟仓库里的 `.md` 文件不同）——
+不接回去，页面上就会「没写到边就换行」。**不需要手工维护两份。**
+
+**只改文档 / CI 的提交不要升版**（见 [PITFALLS.md](PITFALLS.md) ⑥「文档改动不升版」）：
+打 tag 会产出一个和上一版没有实质区别的包。
 
 不想等 CI 也可以本机打（装了 Inno Setup 6 之后）：
 

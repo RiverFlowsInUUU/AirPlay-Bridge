@@ -35,7 +35,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 2 | 把环境跑起来 —— **这是最先要做的事**，环境不通什么都别谈 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「环境」「构建」 |
 | 3 | **验证你跑的是你刚编的**（版本号 + 能连上 + 日志有输出） | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「环境自检」 |
 | 4 | 确认这次要改什么、影响哪些层、有哪些相关约束 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「第 4 步 — 确认任务」 |
-| 5 | 看清红线 —— **有 19 条是踩过坑换来的** | [docs/RULES.md](docs/RULES.md) |
+| 5 | 看清红线 —— **每一条都是踩过坑换来的** | [docs/RULES.md](docs/RULES.md) |
 | 6 | 小步改 + 每步验证 + 提交 + 交接 | [docs/WORKFLOW.md](docs/WORKFLOW.md) |
 
 **不要跳过第 2、3 步。** 历史上多次出现「验证通过」实际测的是旧二进制 ——
@@ -51,6 +51,8 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 加/改界面文案 | [docs/STYLE.md](docs/STYLE.md)（i18n 规则），改完要全仓库 grep 旧名 |
 | 改配置项或档位 | [docs/RULES.md](docs/RULES.md) 的「范围类参数」——至少四处 |
 | 写第三方库相关代码 | **先读那个库的 README 和源码注释**，别只读代码 |
+| **改了 `third_party/` 里任何文件** | **必须同步重新生成 `patches/`** —— [docs/RULES.md](docs/RULES.md) 的 **C13**。不同步 = 你测的和用户装的不是同一份代码 |
+| 判断某个 bug 要不要修 | [docs/RULES.md](docs/RULES.md) 的 **C12**（低频 + 静默 = 按高频处理） |
 | 提交 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「提交」 |
 | 发版 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「发布」+ [docs/RULES.md](docs/RULES.md) 的发布纪律 |
 | 写 README / 发布说明 | [docs/STYLE.md](docs/STYLE.md) |
@@ -100,7 +102,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | 文件 | 内容 | 什么时候读 |
 |---|---|---|
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | **从零接手 · 改前改后 · 提交 · 交接 · 换 Agent 一致性** | 开始干活前 |
-| [docs/RULES.md](docs/RULES.md) | **硬约束 C1–C10 + 19 条禁止事项** | **动手前必读** |
+| [docs/RULES.md](docs/RULES.md) | **硬约束 C1–C13 + 禁止事项清单** | **动手前必读** |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、模块表、数据流、不变量、协议补丁、实测数据 | 改代码前 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境、构建、测试、验收、调试、命令行参数、图标、发布 | 跑环境 / 发版 |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | D1–D15 关键决策与理由、被否决的方案 | 想知道「为什么这样」 |
