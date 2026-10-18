@@ -3,6 +3,20 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.28] - 2026-10-19
+
+**中文**
+
+### 修复
+
+- 发布包里附上 SHA-256 校验和，方便下载后核对文件完整性。
+
+**English**
+
+### Fixed
+
+- The release notes now include the SHA-256 checksum of the installer.
+
 ## [1.5.27] - 2026-10-19
 
 **中文**
