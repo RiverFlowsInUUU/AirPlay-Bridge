@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.25] - 2026-10-18
+
+**中文**
+
+### 修复
+
+- 修复第一次运行时，若配置无法写入磁盘（目录不可写、磁盘已满），
+  日志里不会留下任何记录的问题。
+
+**English**
+
+### Fixed
+
+- Fixed the very first run leaving no trace in the log when the configuration
+  could not be written to disk (unwritable folder, full disk).
+
 ## [1.5.24] - 2026-10-18
 
 **中文**
