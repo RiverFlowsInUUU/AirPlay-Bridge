@@ -17,7 +17,7 @@ index 6f5c72d..c9d488b 100644
      else()
          target_compile_options(${target} PRIVATE -Wall -Wextra)
 diff --git a/src/raop_sender.cpp b/src/raop_sender.cpp
-index 0e282e1..c0abdea 100644
+index 0e282e1..50802cb 100644
 --- a/src/raop_sender.cpp
 +++ b/src/raop_sender.cpp
 @@ -98,8 +98,12 @@ struct RaopAp2State {
@@ -41,7 +41,7 @@ index 0e282e1..c0abdea 100644
          writeRtsp_(req);
      } else {
          sendRequest_("POST", "/feedback", {}, {});
-@@ -816,6 +821,17 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+@@ -816,6 +821,19 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
          }
          eventPlainBuf_.append(reinterpret_cast<const char*>(dec->data()), dec->size());
          eventEncBuf_.erase(0, need);
@@ -51,29 +51,43 @@ index 0e282e1..c0abdea 100644
 +        // eventPlainBuf_ without bound. Event requests are tiny; cap and drop
 +        // the channel instead of waiting forever.
 +        if (eventPlainBuf_.size() > kMaxEventPlainBuf) {
-+            warn_("Cast: oversized AirPlay 2 event data, closing event channel");
++            // ★ 必须真的断通道，不能只清缓冲 —— 只清的话下一批数据还会进来，
++            //   等于「喊了一声关、其实没关」。（2026-10-19 第五轮复核 P3-A）
 +            eventPlainBuf_.clear();
 +            eventEncBuf_.clear();
++            fail_("Oversized AirPlay 2 event data");
 +            return;
 +        }
      }
      // Answer each complete RTSP request with an encrypted 200 OK.
      for (;;) {
-@@ -832,6 +848,13 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
-             if (k == "content-length") contentLen = toInt(v);
+@@ -829,9 +847,24 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+             if (colon == std::string::npos || colon == 0) continue;
+             const std::string k = trimAscii(lowerAscii(t.substr(0, colon)));
+             const std::string v = trimAscii(t.substr(colon + 1));
+-            if (k == "content-length") contentLen = toInt(v);
++            if (k == "content-length") {
++                bool ok = false;
++                contentLen = toInt(v, ok);
++                if (!ok) {   // 垃圾值/溢出 —— 不能当 0 处理
++                    eventPlainBuf_.clear();
++                    fail_("Malformed Content-Length in AirPlay 2 event request");
++                    return;
++                }
++            }
              else if (k == "cseq")      cseq = v;
          }
 +        // A declared Content-Length beyond the cap is itself malformed —
 +        // don't wait for it to arrive.
 +        if (contentLen < 0 || size_t(contentLen) > kMaxEventPlainBuf) {
-+            warn_("Cast: absurd Content-Length in AirPlay 2 event request, dropping");
 +            eventPlainBuf_.clear();
++            fail_("Absurd Content-Length in AirPlay 2 event request");
 +            return;
 +        }
          const size_t total = headEnd + 4 + size_t(contentLen > 0 ? contentLen : 0);
          if (eventPlainBuf_.size() < total) break;   // body still arriving
          eventPlainBuf_.erase(0, total);
-@@ -1126,6 +1149,7 @@ void RaopSender::startStreaming_() {
+@@ -1126,6 +1159,7 @@ void RaopSender::startStreaming_() {
      startTs_ = ntp2ts(ntpNow_(), kRaopRate);
      framesSent_ = 0;
      firstAudio_ = true;
@@ -81,7 +95,7 @@ index 0e282e1..c0abdea 100644
      clockStart_ = now_();
      sendSyncPacket_(true);   // first sync carries the marker bit
      arm_(syncTimer_);
-@@ -1548,6 +1572,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
+@@ -1548,6 +1582,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
          ap2_->controlIn  = hkdfSha512("Control-Salt",
                                        "Control-Read-Encryption-Key",
                                        ap2_->sharedSecret, 32);
@@ -100,7 +114,7 @@ index 0e282e1..c0abdea 100644
          pairStage_ = PairStage::Done;
          afterAuthOk_();
          return;
-@@ -1859,6 +1895,26 @@ void RaopSender::sendAp2SetupStream_() {
+@@ -1859,6 +1905,26 @@ void RaopSender::sendAp2SetupStream_() {
      stream.emplace_back("controlPort", Value::integer(localControlPort_));
      stream.emplace_back("ct", Value::integer(2));        // ALAC
      stream.emplace_back("isMedia", Value::boolean(true));
@@ -127,7 +141,7 @@ index 0e282e1..c0abdea 100644
      stream.emplace_back("latencyMax", Value::integer(88200));
      stream.emplace_back("latencyMin", Value::integer(11025));
      stream.emplace_back("shk", Value::bytes(ap2_->audioKey));
-@@ -1981,6 +2037,39 @@ void RaopSender::sendAudioPacket_() {
+@@ -1981,6 +2047,39 @@ void RaopSender::sendAudioPacket_() {
      int16_t frames[kFramesPerPacket * kChannels];
      fillFrames_(frames, kFramesPerPacket);
  

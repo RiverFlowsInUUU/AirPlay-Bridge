@@ -14,10 +14,10 @@ on:
   workflow_dispatch:      # 手动触发：只出产物不建 release，方便试打包（实测 2 分钟跑完）
 
 permissions:
-  contents: write         # 建 release 需要
+  contents: read          # 顶层只读；写权限只在 release job 上单独授予
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
 
     steps:
@@ -209,18 +209,50 @@ jobs:
           fi
           echo "--- 本版说明 ---"; cat release-notes.md
 
+      # ★ 无条件上传：发布 job 靠它拿产物。以前只在手动触发时上传，
+      #   现在拆成两个 job，产物必须通过 artifact 传递。
+      - name: 上传产物（供发布 job 使用）
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AirPlay-Bridge-release
+          path: |
+            dist/AirPlay-Bridge-Setup-v*.exe
+            release-notes.md
+
+  # ★ 发布单独一个 job —— 只有它拿 contents: write。
+  #   这个 job **不检出代码、不执行任何第三方脚本**，只做三件事：
+  #   下载产物 → 校验 SHA-256 → 建 release。
+  #   理由：构建阶段要跑子模块和 Inno，那是最可能被污染的环节；
+  #   让它顺带持有发布权限，等于给供应链风险开了后门。
+  #   （2026-10-19 第五轮复核 P3-C —— 上一轮我用「拆 job 增加出错面」
+  #    拒绝过，那个理由站不住：安全边界和出错面是两件事。）
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write       # 只有这个 job 能写 release
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: AirPlay-Bridge-release
+          path: dist
+
+      - name: 校验产物并打印校验和
+        shell: bash
+        run: |
+          set -e
+          ls -la dist
+          # 必须恰好一个安装包：多个说明构建产物不唯一，宁可停。
+          n=$(ls dist/*Setup*.exe 2>/dev/null | wc -l)
+          if [ "$n" -ne 1 ]; then echo "::error::期望 1 个安装包，实际 $n 个"; exit 1; fi
+          # 打印 SHA-256：发布说明里会附上，用户可自行核对
+          sha256sum dist/*Setup*.exe | tee sha256.txt
+
       - name: 建 release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           body_path: release-notes.md
           files: |
-            dist/AirPlay-Bridge-Setup-v${{ steps.ver.outputs.version }}.exe
-
-      - name: 手动触发时留存产物
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: AirPlay-Bridge-v${{ steps.ver.outputs.version }}
-          path: |
             dist/AirPlay-Bridge-Setup-v*.exe

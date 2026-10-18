@@ -103,7 +103,9 @@ struct DeviceCapture {
     WAVEFORMATEX* mixFormat = nullptr;
     HANDLE        event     = nullptr;
     std::string   name;
-    std::atomic<bool> running{false};
+            std::atomic<bool> running{false};
+        std::atomic<long> lastError_{0};   // 最近一次运行中失败的 HRESULT（0 = 正常）
+        std::atomic<int>  failures{0};     // 运行中失败次数（供上层判断）
 
     // 诊断统计
     std::atomic<uint64_t> pulled{0};
@@ -156,6 +158,7 @@ struct DeviceCapture {
         if (!capture || !mixFormat) return 0;
 
         out.clear();
+        lastError_.store(0);
         UINT32 total = 0;
 
         for (;;) {
@@ -164,7 +167,23 @@ struct DeviceCapture {
             DWORD  flags  = 0;
 
             HRESULT hr = capture->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
-            if (FAILED(hr) || frames == 0) break;
+            if (FAILED(hr)) {
+                // ★ 运行中失效（USB 声卡拔出、端点被禁用、驱动重置）——
+                //   原来和「本轮没数据」一样只 break，采集线程就静静地停在
+                //   那里，界面还显示「已连接」，用户听到的是「突然没声音」，
+                //   而且永远不重连。（2026-10-19 第五轮复核 P2-A）
+                //
+                //   这里记下来：上层 pull() 会把 lastError_ 暴露出去，
+                //   Session::pump() 看到就断开重连。
+                lastError_ = hr;
+                if (hr == AUDCLNT_E_DEVICE_INVALIDATED ||
+                    hr == AUDCLNT_E_RESOURCES_INVALIDATED) {
+                    // 设备彻底没了：让本设备的循环退出，别每 200ms 空转
+                    running.store(false);
+                }
+                break;
+            }
+            if (frames == 0) break;   // 正常：这轮确实没数据
 
             const size_t base = out.size();
             out.resize(base + frames * 2);
@@ -361,7 +380,20 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
                 if (w != WAIT_OBJECT_0) continue;
 
                 UINT32 got = dc->pull(local);
-                if (got == 0) { ++dc->starved; continue; }
+                if (got == 0) {
+                    // ★ pull 失败（不只是「没数据」）要往上抛，否则设备在
+                    //   运行中失效后这个线程就静静空转，上层永远不知道 ——
+                    //   界面一直「已连接」，用户听到的是突然没声音。
+                    //   （2026-10-19 第五轮复核 P2-A）
+                    const long err = dc->lastError_.load();
+                    if (err != 0) {
+                        ++dc->failures;
+                        startFailures_.fetch_add(1);   // 上层 Session::pump() 看这个
+                        return;                        // 本设备线程退出，别空转
+                    }
+                    ++dc->starved;
+                    continue;
+                }
                 dc->pulled += got;
 
                 // 写进自己的队列；满了丢最老的（实时优先，绝不阻塞采集）

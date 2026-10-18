@@ -3899,13 +3899,18 @@ int main(int argc, char** argv) {
                     saveConfig(cfgPath, cfg);
                     // 关掉开关时如果端点还静着，立刻还回去 ——
                     // 不能等下一次断开，那时用户已经在困惑电脑为什么没声音了。
-                    if (!cfg.muteLocalOnConnect &&
-                        g_mutedByUs.exchange(false)) {
-                        if (setSystemMuted(false))
-                            logLine("已恢复电脑扬声器的声音（开关关闭）");
-                        else
-                            logLine("开关关闭后恢复电脑扬声器失败");
-                    }
+                        // ★ 先尝试恢复，**成功才清标记**。
+                        //   原来是先 exchange(false) 再恢复 —— 失败时标记已经没了，
+                        //   本次会话不会再试，只能等下个进程启动（落盘标记还在）。
+                        //   （2026-10-19 第五轮复核 P3-B）
+                        if (!cfg.muteLocalOnConnect && g_mutedByUs.load()) {
+                            if (setSystemMuted(false)) {
+                                g_mutedByUs.store(false);
+                                logLine("已恢复电脑扬声器的声音（开关关闭）");
+                            } else {
+                                logLine("开关关闭后恢复电脑扬声器失败，保留标记稍后重试");
+                            }
+                        }
                     return;
                 }
 
@@ -4301,8 +4306,16 @@ int main(int argc, char** argv) {
     // 兜底：万一断开那条路没走到，退出前保证端点恢复原状，
     // 否则用户会以为电脑没声音了。
     // 退出前最后一次尝试；失败也没机会重试了，至少留一条日志。
-    if (g_mutedByUs.exchange(false) && !setSystemMuted(false))
-        logLine("退出时恢复电脑扬声器失败（程序即将退出，无法重试）");
+    // ★ 失败时**不要清掉落盘标记** —— 进程马上就没了，内存标记无所谓，
+    //   但落盘那份是下次启动重试的唯一依据。
+    //   （2026-10-19 第五轮复核 P3-B）
+    if (g_mutedByUs.load()) {
+        if (setSystemMuted(false)) {
+            g_mutedByUs.store(false);
+        } else {
+            logLine("退出时恢复电脑扬声器失败，保留落盘标记供下次启动重试");
+        }
+    }
     tray.destroy();
     CoUninitialize();
     return 0;
