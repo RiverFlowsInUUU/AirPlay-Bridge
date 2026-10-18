@@ -120,6 +120,21 @@ jobs:
           cmake --build build --config Release
           ctest --test-dir build -C Release --output-on-failure
 
+      # ★ 协议层回归网。
+      #
+      # 主构建强制 AIRPLAY_BUILD_TESTS=OFF（只建库，不建示例/测试），
+      # 所以上游那套 core_tests / loop_tests **从来没被跑过**。
+      # 结果：补丁里的实现和测试断言早就自相矛盾了，一直没人知道
+      # （2026-10-18 外部审查发现；实测 224/231 通过，7 项失败）。
+      #
+      # 这里单独建一次上游测试并跑 —— 它是我们和协议引擎之间的唯一安全网。
+      - name: 编译并运行上游协议测试
+        shell: bash
+        run: |
+          cmake -S third_party/airplay2-sender-cpp -B tbuild -A x64 \n                -DAIRPLAY_BUILD_TESTS=ON \n                -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build tbuild --config Release --parallel
+          ctest --test-dir tbuild -C Release --output-on-failure
+
       - name: 安装 Inno Setup
         run: choco install innosetup --no-progress -y
 
