@@ -159,6 +159,28 @@ HBITMAP makeDotBitmap(int kind) {
 //
 // 注意：菜单树必须在 TrackPopupMenu 之前一次建好，所以子菜单的内容
 // 也得提前准备好 —— 这就是设备列表需要缓存的原因。
+// 把 UTF-8 拷进 Win32 的定长宽字符缓冲（含结尾 NUL），超长就截断。
+//
+// ★ 不能直接 MultiByteToWideChar(..., -1, buf, N)：源串超长时那一整次调用**失败**，
+//   buf 原样不动 —— 由于 NOTIFYICONDATA 是零初始化的，结果是
+//   **空 tooltip / 空通知**，而不是截断。（P3-1，外部审查发现。）
+//
+//   这里先完整转成 std::wstring 再按目标容量截，所以也**不会把一个
+//   多字节字符切一半**。
+void copyWideTrunc(wchar_t* dst, size_t dstChars, const std::string& s) {
+    if (dstChars == 0) return;
+    dst[0] = 0;
+    if (s.empty()) return;
+    const int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (need <= 1) return;
+    std::wstring w(static_cast<size_t>(need), 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+    w.resize(static_cast<size_t>(need - 1));      // 去掉结尾 NUL
+    const size_t n = (w.size() < dstChars - 1) ? w.size() : dstChars - 1;
+    std::wmemcpy(dst, w.c_str(), n);
+    dst[n] = 0;
+}
+
 static HMENU buildMenuTree(const std::vector<TrayMenuItem>& menu,
                            HBITMAP* dotGreen, HBITMAP* dotGray) {
     HMENU hmenu = CreatePopupMenu();
@@ -173,7 +195,7 @@ static HMENU buildMenuTree(const std::vector<TrayMenuItem>& menu,
         }
 
         wchar_t wbuf[256] = {};
-        MultiByteToWideChar(CP_UTF8, 0, item.label.c_str(), -1, wbuf, 255);
+        copyWideTrunc(wbuf, 256, item.label);
 
         if (!item.children.empty()) {
             HMENU hsub = buildMenuTree(item.children, dotGreen, dotGray);
@@ -343,7 +365,7 @@ bool TrayIcon::create(const std::string& tooltip) {
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY_CALLBACK;
     nid.hIcon = d_->current;
-    MultiByteToWideChar(CP_UTF8, 0, tooltip.c_str(), -1, nid.szTip, 128);
+    copyWideTrunc(nid.szTip, 128, tooltip);
 
     // 记住参数，Explorer 重启后要照着重挂
     g_lastNid = nid;
@@ -374,7 +396,7 @@ void TrayIcon::setTooltip(const std::string& tooltip) {
     nid.hWnd = d_->hwnd;
     nid.uID = ID_TRAY_ICON;
     nid.uFlags = NIF_TIP;
-    MultiByteToWideChar(CP_UTF8, 0, tooltip.c_str(), -1, nid.szTip, 128);
+    copyWideTrunc(nid.szTip, 128, tooltip);
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
@@ -422,8 +444,8 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     // 也就是说：我们自己的界面提示音污染了我们正在转发的音频流。
     // 气泡本身照常显示（视觉提醒不受影响），只是不出声。
     nid.dwInfoFlags = NIIF_USER | NIIF_NOSOUND;
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nid.szInfo, 255);
-    MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, nid.szInfoTitle, 63);
+    copyWideTrunc(nid.szInfo, 256, text);
+    copyWideTrunc(nid.szInfoTitle, 64, title);
     // 不要再写 nid.dwInfoFlags —— 上面已设为 NIIF_USER（用我们自己的图标），
     // 这里再赋值会把 NIIF_USER 盖掉，图标又变回系统那个灰的。
     Shell_NotifyIconW(NIM_MODIFY, &nid);

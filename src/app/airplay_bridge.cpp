@@ -3949,6 +3949,7 @@ int main(int argc, char** argv) {
                         // 检查更新并进来了：弹完窗**有意不 break**，让控制流落到
                         // 下面 MENU_CHECK_UPDATE 那段去做一次后台检查。
                         // 有新版本时它会再弹一个窗；已是最新则完全静默。
+                        [[fallthrough]];     // 有意为之：上面注释已说明
                         std::string about = "AirPlay Bridge";
                         about += char(10); about += char(10);
                         about += std::string(i18n::tr("版本")) + " v" + kAppVersion;
@@ -4036,6 +4037,14 @@ int main(int argc, char** argv) {
                 const int r2 = promptUser(tip.c_str(), L"AirPlay Bridge",
                                            MB_YESNO | MB_SETFOREGROUND);
                 if (r2 == IDYES && !r.url.empty()) {
+                    // ★ r.url 来自 GitHub API 返回的 JSON。
+                    //   虽然那是我们自己请求的接口，但「把远端返回的字符串
+                    //   直接交给 ShellExecute」是典型的注入面 —— API 被劫持或
+                    //   中间人改包，就能让用户点一下「检查更新」打开任意东西。
+                    //   只放行 https://github.com/ 开头的地址（纵深防御）。
+                    if (r.url.rfind("https://github.com/", 0) != 0) {
+                        logLine("更新检查: 返回的链接不是 github.com，已忽略");
+                    } else
                     ShellExecuteA(nullptr, "open", r.url.c_str(),
                                   nullptr, nullptr, SW_SHOWNORMAL);
                 }

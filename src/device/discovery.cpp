@@ -249,11 +249,11 @@ bool localSubnet(uint32_t& base, uint32_t& mask) {
 std::vector<std::string> scanPort7000(uint32_t base, uint32_t mask) {
     std::vector<std::string> hits;
 
-    SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (probe == INVALID_SOCKET) return hits;
-
+    // （这里原来建了一个 probe socket 设成非阻塞、然后就一直没用过，
+    //   最后直接 close —— 死代码。真正用到的连接在下面按地址逐个建。
+    //   2026-10-18 外部审查发现，删掉。）
+    //   注意 nonblock 是**下面每个真实连接**都要用的，保留。
     u_long nonblock = 1;
-    ioctlsocket(probe, FIONBIO, &nonblock);
 
     // 一次性发起所有连接，再统一收集
     std::vector<SOCKET> socks;
@@ -299,7 +299,6 @@ std::vector<std::string> scanPort7000(uint32_t base, uint32_t mask) {
         closesocket(socks[i]);
     }
 
-    closesocket(probe);
     return hits;
 }
 
