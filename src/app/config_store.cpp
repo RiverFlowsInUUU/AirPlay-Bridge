@@ -327,10 +327,26 @@ const std::string tmpPath = path + ".tmp";
         notifySaveFail();
         return false;
     }
+    f.close();                      // 必须先关：下面要独立句柄去刷盘
+}
+// ★ flush() 只把内容交到操作系统的缓存，**没落盘**。
+//   断电时可能出现「目录项换了、内容是空的」—— 那正是本函数想防的
+//   「半份文件」，只是触发条件从「进程被杀」变成「断电」。
+//   所以：先 FlushFileBuffers 把 tmp 真正写进磁盘，再带 WRITE_THROUGH 换名。
+//   （2026-10-18 第四轮外部审查 P3-1）
+{
+    const std::wstring wtmp = acpToWide(tmpPath);
+    HANDLE h = CreateFileW(wtmp.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        FlushFileBuffers(h);        // 失败也继续：换名本身仍能保证「不出现半份」
+        CloseHandle(h);
+    }
 }
 // 同一目录内换名是原子的：要么旧文件完整、要么新文件完整，不存在半份。
+// MOVEFILE_WRITE_THROUGH：等这次换名真正落到磁盘才返回。
 if (!MoveFileExW(acpToWide(tmpPath).c_str(), acpToWide(path).c_str(),
-                 MOVEFILE_REPLACE_EXISTING)) {
+                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
     DeleteFileW(acpToWide(tmpPath).c_str());
     notifySaveFail();
     return false;

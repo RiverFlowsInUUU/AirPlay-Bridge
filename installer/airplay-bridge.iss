@@ -175,7 +175,24 @@ begin
   Result := True;
   Cleaner := ExpandConstant('{app}\{#ExeName}');
   if FileExists(Cleaner) then
-    Exec(Cleaner, '--uninstall-cleanup', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  begin
+    // ★ 检查 Exec 的返回值**和**退出码，失败要告诉用户。
+    //   原来直接忽略 —— 清理跑不起来（被杀软拦住、权限不足、exe 已损坏）
+    //   时，防火墙规则和开机自启项会留在系统里变成指向不存在文件的死记录，
+    //   用户重装后还会看到，而且不知道去哪清（2026-10-18 审查 P3-3）。
+    //
+    //   不把 Result 置 False：清理失败不该**阻止**卸载 —— 那样用户删不掉程序。
+    //   只提示，让他知道手动去哪清。
+    if (not Exec(Cleaner, '--uninstall-cleanup', '', SW_HIDE,
+                 ewWaitUntilTerminated, ResultCode))
+       or (ResultCode <> 0) then
+      MsgBox('系统集成清理未完成（防火墙规则 / 开机自启项可能残留）。' + #13#10 + #13#10 +
+             '不影响卸载，但建议在卸载后手动检查：' + #13#10 +
+             '  · Windows 防火墙 → 高级设置 → 入站规则' + #13#10 +
+             '  · 任务管理器 → 启动应用' + #13#10 + #13#10 +
+             '程序仍会被正常卸载。',
+             mbInformation, MB_OK);
+  end;
 end;
 // 卸载的最后一步：问要不要连配置和日志一起删。
 //

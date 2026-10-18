@@ -16,6 +16,9 @@
 
 #include "config_store.h"
 
+#include <filesystem>
+#include <chrono>
+#include <windows.h>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -77,7 +80,23 @@ std::string readRaw(const std::string& path) {
 }  // namespace
 
 int main() {
-    const std::string kFile = "config_store_test_tmp.json";
+    // ★ 用「临时目录 + 本次进程唯一名」，不用固定的相对文件名。
+    //   原来写死在 CWD 里叫 config_store_test_tmp.json —— 两个人（或两个
+    //   CI job）同时跑 ctest 会互相删/覆盖同一个文件。实测：
+    //   并行跑两个实例 → 14/78 和 29/76 项失败（全是误报）。
+    //   2026-10-18 第四轮外部审查 P3-5。
+    const std::string kFile = []() {
+        std::error_code ec;
+        std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+        if (ec) dir = std::filesystem::current_path(ec);
+        const auto unique = static_cast<unsigned long long>(
+            std::chrono::steady_clock::now().time_since_epoch().count()) ^
+            static_cast<unsigned long long>(GetCurrentProcessId());
+        std::filesystem::path p = dir / ("airplay_bridge_cfgtest_" +
+                                         std::to_string(unique) + ".json");
+        // 窄路径：本测试覆盖的就是窄 API 行为，用 .string() 保持一致。
+        return p.string();
+    }();
 
     // ---- 1. 往返一致：每个字段都要回来 ----
     std::printf("\n1. 往返一致（save -> load，每个字段）\n");
