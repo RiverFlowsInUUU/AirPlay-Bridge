@@ -485,6 +485,31 @@ std::wstring screenText(const std::string& s) {
     return w;
 }
 
+// 本地编码（A 版 API 的字符串）-> UTF-16。
+//
+// ★ 约定（2026-10-18 统一，P2-6）：**防火墙那一条链上的 std::string 一律是
+//   系统本地编码（ACP）**，不是 UTF-8。原因是源头：
+//     · exePath() / netshExePath() 用 GetModuleFileNameA / GetSystemDirectoryA
+//     · exePath() 还被 ShellExecuteA（启动失败时打开日志、打开安装目录）消费
+//   所以「改成 UTF-8」会连带弄坏那些调用方；统一到 ACP 才是改动最小、
+//   且对 A 版 API 完全自洽的选择（ACP 字节正是 A 版 API 自己能表示的那批）。
+//
+//   原来这个文件里有三套写法并存：firewallRuleExists 逐字节扩宽、
+//   findOtherCopies/findStale 用 CP_ACP、runCommandLine 也是逐字节扩宽
+//   而 deleteFirewallRuleByNameEx 为了配合它把规则名编成 UTF-8 ——
+//   于是一条命令里 exe 路径是 ACP、规则名是 UTF-8，谁也不对谁。
+//   非 ASCII 路径下 firewallRuleExists 会「明明已放行却说没放行」。
+std::wstring acpToWide(const std::string& s) {
+    if (s.empty()) return std::wstring();
+    // need 含结尾 NUL，所以按 need 分配、再 resize(need-1)。
+    const int need = MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, nullptr, 0);
+    if (need <= 1) return std::wstring();
+    std::wstring out(static_cast<size_t>(need), 0);
+    MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, out.data(), need);
+    out.resize(static_cast<size_t>(need - 1));
+    return out;
+}
+
 // ============================================================
 // 单实例检测（命名互斥体）
 // ============================================================
@@ -642,8 +667,9 @@ std::string netshExePath() {
 // 直接把命令行交给 CreateProcessW，不做任何 shell 解析，最稳。
 int runCommandLine(const std::string& cmd) {
     if (cmd.empty()) return -1;
+    // ★ 按本地编码显式转换，不逐字节扩宽 —— 见 acpToWide 的约定说明。
     // CreateProcessW 需要一个可写的缓冲区
-    std::wstring w(cmd.begin(), cmd.end());
+    std::wstring w = acpToWide(cmd);
     std::vector<wchar_t> buf(w.begin(), w.end());
     buf.push_back(0);
 
@@ -809,7 +835,9 @@ bool firewallRuleExists() {
                 if (SUCCEEDED(rule->get_ApplicationName(&appPath)) &&
                     appPath && *appPath) {
                     const std::string want = exePath();
-                    const std::wstring cur(want.begin(), want.end());
+                    // ★ 逐字节扩宽会把 ACP 路径里 >0x7F 的字节当成单个码点，
+                    //   于是和注册表里的值对不上 ——「明明已放行却提示未放行」。
+                    const std::wstring cur = acpToWide(want);
                     if (_wcsicmp(appPath, cur.c_str()) == 0) {
                         found = true;
                     }
@@ -861,10 +889,9 @@ std::vector<std::wstring> findStaleFirewallRules() {
     const std::wstring exact(kFirewallRuleName,
                              kFirewallRuleName + std::strlen(kFirewallRuleName));
     // 当前 exe 的宽字符形式：规则里存的是宽字符路径，比较要同类型。
-    // exePath() 返回的是 A 版 API 拿到的系统本地编码字符串，
-    // 用 CP_ACP 转回宽字符才能和注册表里的值逐字符对上。
-    // （firewallRuleExists() 用的是逐字节扩宽，对纯 ASCII 路径等价，
-    //   这里用 CP_ACP 更稳，也顺带把带非 ASCII 路径的情况盖住。）
+    // exePath() 返回的是 A 版 API 拿到的**系统本地编码**字符串，
+    // 用 CP_ACP 转回宽字符才能和注册表里的值逐字符对上 ——
+    // 这就是这条链统一用 ACP 的依据（见 acpToWide 的说明）。
     std::wstring curExe;
     {
         const std::string p = exePath();
@@ -1040,17 +1067,18 @@ bool deleteFirewallRuleByNameEx(const std::wstring& name) {
     // 名字里一旦有超出 ASCII 的字符就会拼出一条不存在的规则名 ——
     // 删不掉，还一声不响。
     //
-    // 用 CP_UTF8 而不是 CP_ACP：runCommandLine 里是
-    // std::wstring cmd(cmd.begin(), cmd.end()) 这种逐字节扩宽，
-    // 只有 UTF-8 字节经过它才能原样还原成宽字符。ACP 编出来的字节
-    // 走这条路会被当成 Latin-1 一类的码点，netsh 收到的名字就变了。
+    // 用 CP_ACP：这条链统一走本地编码（见 acpToWide 的约定说明）。
+    // 原来为了让「逐字节扩宽」碰巧还原正确，这里特意编成 UTF-8 ——
+    // 结果是同一条命令里 exe 路径是 ACP、规则名是 UTF-8，谁也不对谁。
+    // 现在两端都统一成 ACP，不再需要那种配合。
+    // 规则名是我们自己生成的 ASCII 常量，ACP 一定表示得下。
     std::string narrow;
     {
-        const int need = WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1,
+        const int need = WideCharToMultiByte(CP_ACP, 0, name.c_str(), -1,
                                              nullptr, 0, nullptr, nullptr);
         if (need > 1) {
             narrow.resize(static_cast<size_t>(need));
-            WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1, narrow.data(),
+            WideCharToMultiByte(CP_ACP, 0, name.c_str(), -1, narrow.data(),
                                 need, nullptr, nullptr);
         }
     }
