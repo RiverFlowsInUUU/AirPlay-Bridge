@@ -420,29 +420,11 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
             if (ar > peak) peak = ar;
         }
 
-        // 电平 + 各设备统计，每 2 秒落一次盘（托盘模式没有控制台）
-        {
-            static auto lastReport = std::chrono::steady_clock::now();
-            static int peakSeen = 0;
-            if (peak > peakSeen) peakSeen = peak;
-
-            auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
-                lastReport = now;
-                FILE* lf = std::fopen((appDataDir() + "level.txt").c_str(), "w");
-                if (lf) {
-                    std::fprintf(lf, "peak %d\n", peakSeen);
-                    for (size_t di = 0; di < impl_->devices.size(); ++di) {
-                        std::fprintf(lf, "%s | pulled=%llu starved=%llu\n",
-                                     impl_->devices[di]->name.c_str(),
-                                     (unsigned long long)impl_->devices[di]->pulled.load(),
-                                     (unsigned long long)impl_->devices[di]->starved.load());
-                    }
-                    std::fclose(lf);
-                }
-                peakSeen = 0;
-            }
-        }
+        // （这里原来每 2 秒往 LOCALAPPDATA 写一个 level.txt：峰值电平 +
+        //   每个设备的 pulled/starved 计数。那是排查本地 ring 水位时的
+        //   临时打点，**从没文档化过、也没有开关**，等于把调试代码发给了用户。
+        //   它想回答的问题（ring 有没有被抽干）现在由 bridge.log 里的
+        //   「音频丢帧」计数覆盖，所以整块删掉。2026-10-18。）
 
         if (cb) cb(out.data(), frames);
     }

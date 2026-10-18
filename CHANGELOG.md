@@ -3,6 +3,40 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.23] - 2026-10-18
+
+**中文**
+
+### 修复
+
+- 修复英文界面下，把鼠标停在托盘图标上时显示的提示仍为中文的问题。
+- 修复设置文件写入过程被打断（强制结束、断电）后，下次启动各项设置回落默认、
+  且这台电脑被音箱当成一台新设备的问题。
+- 修复设备名或状态文字较长时，托盘提示整条变成空白的问题；现在会截断显示。
+- 修复诊断日志里「音频丢帧」计数虚报一倍的问题。
+
+### 安全
+
+- 检查更新时只会打开 github.com 上的链接；接口返回其它地址时忽略。
+
+**English**
+
+### Fixed
+
+- Fixed the tray tooltip still being shown in Chinese when the interface language is
+  English.
+- Fixed settings falling back to defaults — and the computer being treated as a new
+  device — after the settings file was interrupted mid-write.
+- Fixed the tray tooltip turning completely blank when a device name or status text
+  was long; it is now truncated instead.
+- Fixed the dropped-frame count in the diagnostics log being reported at twice the
+  real value.
+
+### Security
+
+- The update check now only opens links on github.com and ignores anything else the
+  API returns.
+
 ## [1.5.22] - 2026-10-18
 
 **中文**
