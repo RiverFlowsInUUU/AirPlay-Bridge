@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.22] - 2026-10-18
+
+**中文**
+
+### 修复
+
+- 修复连接音箱时，托盘「已连接」提示自身的系统提示音被一并转发到音箱的问题。
+  该提示音此前会混进转发的音频里，在音箱上表现为一声爆音。气泡提示本身不受影响。
+
+**English**
+
+### Fixed
+
+- Fixed the system sound of the tray "connected" notification being forwarded to the
+  speaker along with the audio. It used to mix into the forwarded stream and was heard
+  as a pop. The notification itself still appears.
+
 ## [1.5.21] - 2026-10-18
 
 **中文**

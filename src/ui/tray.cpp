@@ -411,7 +411,17 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     nid.uFlags = NIF_INFO | NIF_ICON;
     nid.hIcon = d_->iconConnected;
     nid.hBalloonIcon = d_->iconConnected;
-    nid.dwInfoFlags = NIIF_USER;
+    // ★ 必须带 NIIF_NOSOUND —— 我们自己弹的提示不能出声。
+    //
+    // 没有它时 Windows 会播系统提示音，而提示音的播放设备是**默认设备**；
+    // 我们在「连上」这一刻刚好把默认设备切成了 CABLE Input（没有物理输出），
+    // 于是这个提示音：
+    //   本机听不到  →  被我们自己的采集录进去  →  当作新会话的第一段音频
+    //   送给 HomePod  →  用户听到「刚连上有一声通知音，而且常常是爆的」
+    //
+    // 也就是说：我们自己的界面提示音污染了我们正在转发的音频流。
+    // 气泡本身照常显示（视觉提醒不受影响），只是不出声。
+    nid.dwInfoFlags = NIIF_USER | NIIF_NOSOUND;
     MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nid.szInfo, 255);
     MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, nid.szInfoTitle, 63);
     // 不要再写 nid.dwInfoFlags —— 上面已设为 NIIF_USER（用我们自己的图标），
