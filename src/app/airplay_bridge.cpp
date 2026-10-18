@@ -2480,6 +2480,13 @@ struct Session {
 
     void teardown() {
         stop();
+        // ★ 必须清待机状态 —— 否则 standbyThread 仍是 joinable，
+        //   Session 析构时 C++ 运行库会**确定性地**调 std::terminate。
+        //   触发场景：开启「无声音时待机」→ 静音进入待机 → 从托盘退出 /
+        //   注销 / 关机。进程以 0xC0000409 异常终止，日志落盘、崩溃标记
+        //   清理都可能中断。（2026-10-18 第四轮外部审查 P1-2，已实测复现）
+        //   clearStandbyState() 本身可重复调用（先判 joinable 再 join）。
+        clearStandbyState();
         // 主动拆除时必须清掉重连标志：否则用户手动断开/重连后，
         // 下一个检查点会把这个健康的会话当成"待重连"再拆一次，
         // 表现为约 5 秒闪断一次。
