@@ -2851,6 +2851,22 @@ int main(int argc, char** argv) {
     BridgeConfig cfg;
     loadConfig(cfgPath, cfg);
 
+    // 配置保存失败要留痕 —— saveConfig 的调用点全都忽略返回值，
+    // 写盘失败（路径不可用 / 磁盘满）本来是完全静默的。
+    // 只报第一条：之后每次改设置都会再失败，刷屏没有意义。
+    // 注意不写完整路径（隐私：日志可能被贴进 issue）。
+    //
+    // ★ 必须在**第一次 saveConfig 之前**注册。下面「生成 deviceId 并落盘」
+    //   就是本进程的第一次保存，而它正是「被音箱当成新设备」那条主诉的落点
+    //   —— hook 晚一步，留痕就会恰好在最该起作用的那次失效。
+    //   （2026-10-18 第三轮外部审查发现：原位置距此 47 行。）
+    setConfigSaveFailHook([]() {
+        static bool logged = false;
+        if (logged) return;
+        logged = true;
+        logLine("配置保存失败：设置改动不会保留（后续同样失败不再重复记录）");
+    });
+
     // 设备标识：第一次运行生成一个，之后一直复用
     if (cfg.deviceId.empty()) {
         cfg.deviceId = makeDeviceId();
@@ -2896,17 +2912,6 @@ int main(int argc, char** argv) {
         logLine("界面语言: " + std::string(i18n::toConfigValue(i18n::current())) +
                 "（词条 " + std::to_string(tr_) + "/" + std::to_string(tot_) + "）");
     }
-
-    // 配置保存失败要留痕 —— saveConfig 的 29 个调用点全都忽略返回值，
-    // 写盘失败（路径不可用 / 磁盘满）本来是完全静默的。
-    // 只报第一条：之后每次改设置都会再失败，刷屏没有意义。
-    // 注意不写完整路径（隐私：日志可能被贴进 issue）。
-    setConfigSaveFailHook([]() {
-        static bool logged = false;
-        if (logged) return;
-        logged = true;
-        logLine("配置保存失败：设置改动不会保留（后续同样失败不再重复记录）");
-    });
 
     setCaptureDeviceId(cfg.captureDeviceId);
 
