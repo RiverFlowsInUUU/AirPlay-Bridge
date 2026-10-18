@@ -2491,7 +2491,24 @@ struct Session {
     // 这里比 stop() 里那段更保守：只有恢复**成功**才清标记 ——
     // 与 DECISIONS 的「恢复失败要保留重试依据」一致（P2-3 同类）。
     void rollbackTakeover() {
-        if (savedRenderDevice.empty()) return;
+        if (savedRenderDevice.empty()) {
+            // 没有可恢复的设备 —— 可能是从没接管过，也可能接管时默认设备
+            // 已经在 CABLE 上（那种情况没记 savedRenderDevice）。
+            // 用 preCaptureDevice 兜底：它是落盘的那一份，强杀后仍然在。
+            if (!cfg || cfgPath.empty()) return;
+            BridgeConfig tmp;
+            loadConfig(cfgPath, tmp);
+            if (tmp.preCaptureDevice.empty()) return;
+            logLine("回滚：内存里没有原设备，用落盘记录兜底 -> " + tmp.preCaptureDevice);
+            if (setDefaultRenderDevice(tmp.preCaptureDevice)) {
+                logLine("回滚成功（兜底路径）: " + tmp.preCaptureDevice);
+                tmp.preCaptureDevice.clear();
+                saveConfig(cfgPath, tmp);
+            } else {
+                logLine("回滚失败（兜底路径），保留标记");
+            }
+            return;
+        }
         if (setDefaultRenderDevice(savedRenderDevice)) {
             savedRenderDevice.clear();
             g_takeoverActive.store(false);
@@ -2932,6 +2949,36 @@ int main(int argc, char** argv) {
         logLine("配置保存失败：设置改动不会保留（后续同样失败不再重复记录）");
     });
 
+
+    // ★ 必须在**任何设备接管之前**跑。原来这段在 tryConnect 之后 ——
+    //   而那时可能已经接管过（切到了 CABLE），于是「恢复」和「接管」打架：
+    //   实测表现是「上次强杀留下了标记，这次启动既不恢复也不清标记」。
+    //   （2026-10-18 第四轮整改时发现）
+    // ---- 崩溃保护：自检上次是否异常退出 ----
+    // 如果配置里记着"接管前的设备"，说明上次没走正常退出流程。
+    // 而当前默认设备还是虚拟声卡的话，就把它切回去 —— 否则用户
+    // 会以为电脑坏了（完全没声音，且不知道发生了什么）。
+    if (!cfg.preCaptureDevice.empty()) {
+        const std::string nowDev = getDefaultRenderDeviceName();
+        if (nowDev.find("CABLE") == std::string::npos) {
+            // 当前不是虚拟声卡 —— 说明问题已经不存在了（用户自己切回去了，
+            // 或者上次其实正常退出只是标记没来得及清）。这条记录已经过期。
+            cfg.preCaptureDevice.clear();
+            saveConfig(cfgPath, cfg);
+        } else {
+            // 设备还卡在虚拟声卡上，需要恢复。
+            // 注意：只有恢复成功才清标记 —— 恢复失败（比如原来的声卡被拔了）
+            // 时必须保留，否则下次启动就不会再试，用户永久没声音。
+            logLine("检测到上次异常退出，尝试恢复默认音频设备: " + cfg.preCaptureDevice);
+            if (setDefaultRenderDevice(cfg.preCaptureDevice)) {
+                logLine("已恢复到: " + cfg.preCaptureDevice);
+                cfg.preCaptureDevice.clear();
+            } else {
+                logLine("恢复失败（设备可能已移除），保留记录以便下次重试");
+            }
+            saveConfig(cfgPath, cfg);
+        }
+    }
     // 设备标识：第一次运行生成一个，之后一直复用
     if (cfg.deviceId.empty()) {
         cfg.deviceId = makeDeviceId();
@@ -3270,31 +3317,6 @@ int main(int argc, char** argv) {
         }
     };
 
-    // ---- 崩溃保护：自检上次是否异常退出 ----
-    // 如果配置里记着"接管前的设备"，说明上次没走正常退出流程。
-    // 而当前默认设备还是虚拟声卡的话，就把它切回去 —— 否则用户
-    // 会以为电脑坏了（完全没声音，且不知道发生了什么）。
-    if (!cfg.preCaptureDevice.empty()) {
-        const std::string nowDev = getDefaultRenderDeviceName();
-        if (nowDev.find("CABLE") == std::string::npos) {
-            // 当前不是虚拟声卡 —— 说明问题已经不存在了（用户自己切回去了，
-            // 或者上次其实正常退出只是标记没来得及清）。这条记录已经过期。
-            cfg.preCaptureDevice.clear();
-            saveConfig(cfgPath, cfg);
-        } else {
-            // 设备还卡在虚拟声卡上，需要恢复。
-            // 注意：只有恢复成功才清标记 —— 恢复失败（比如原来的声卡被拔了）
-            // 时必须保留，否则下次启动就不会再试，用户永久没声音。
-            logLine("检测到上次异常退出，尝试恢复默认音频设备: " + cfg.preCaptureDevice);
-            if (setDefaultRenderDevice(cfg.preCaptureDevice)) {
-                logLine("已恢复到: " + cfg.preCaptureDevice);
-                cfg.preCaptureDevice.clear();
-            } else {
-                logLine("恢复失败（设备可能已移除），保留记录以便下次重试");
-            }
-            saveConfig(cfgPath, cfg);
-        }
-    }
 
     // 看门狗线程：只托盘模式拉起来。
     // 它盯着 g_mainTick —— 主线程每轮循环都会刷新它，哪天刷不动了
