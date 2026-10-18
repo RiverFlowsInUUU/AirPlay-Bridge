@@ -29,7 +29,7 @@ constexpr double kPi = 3.14159265358979323846;
 // 质量是连续的：0-100。
 //
 //   0      = 关闭（不做重采样，交给引擎自带的线性插值）
-//   1-100  = 窗函数 sinc，抽头数从 4 线性升到 64
+//   1-100  = 窗函数 sinc，抽头数从 4 线性升到 32（kQualityMinTaps/kQualityMaxTaps）
 //
 // 抽头越多，抗混叠的过渡带越窄、高频越干净，CPU 也越贵。
 // 实测（48k->44.1k，19.9kHz 处信噪比）：
@@ -54,7 +54,7 @@ public:
     Resampler() = default;
 
     // 设置输入/输出采样率与质量。会清空内部状态。
-    // qualityPercent: 0 = 关闭；1-100 映射到抽头数 4..64。
+    // qualityPercent: 0 = 关闭；1-100 映射到抽头数 4..32。
     void configure(uint32_t inRate, uint32_t outRate, int qualityPercent) {
         inRate_ = inRate;
         outRate_ = outRate;

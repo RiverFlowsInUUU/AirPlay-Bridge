@@ -16,7 +16,7 @@
 Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod mini）。
 起因是 TuneBlade 在 HomePod OS 27 上失效。
 
-**技术栈**：C++17 / MSVC 2022 / CMake ≥3.20 / Win32（WIN32 子系统，无控制台）。
+**技术栈**：C++20 / MSVC 2022 / CMake ≥3.16 / Win32（WIN32 子系统，无控制台）。
 协议引擎来自 [airplay2-sender-cpp](https://github.com/akustikrausch/airplay2-sender-cpp)
 （git submodule）+ 本项目补丁。
 

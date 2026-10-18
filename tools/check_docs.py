@@ -312,6 +312,52 @@ if _rawhits:
 else:
     ok("i18n 裸中文扫描", "无（出口：%s）" % ", ".join(_SINKS))
 
+# -------------------------------------------------- ⑧ 技术栈声明（AGENTS vs CMake）
+
+# 2026-10-18 实例（P2-4a）：AGENTS.md 写「C++17 / CMake ≥3.20」，
+# 而实际是 C++20 / cmake_minimum_required(3.16) —— 两个数字都反了。
+# 这类「自述里的工具链版本」是最容易腐烂的一类（改 CMake 时没人会想到翻 AGENTS）。
+_cm = read("CMakeLists.txt") or ""
+_agents = read("AGENTS.md") or ""
+_std = re.search(r"CMAKE_CXX_STANDARD\s+(\d+)", _cm)
+_min = re.search(r"cmake_minimum_required\(VERSION\s+([0-9.]+)", _cm)
+if _std:
+    _want = "C++" + _std.group(1)
+    _m = re.search(r"C\+\+(\d+)", _agents)
+    if not _m:
+        fail("技术栈 C++ 版本", "AGENTS.md 里找不到 C++NN 声明")
+    elif ("C++" + _m.group(1)) == _want:
+        ok("技术栈 C++ 版本", _want)
+    else:
+        fail("技术栈 C++ 版本",
+             "AGENTS.md 写 C++%s，CMakeLists 是 %s" % (_m.group(1), _want))
+if _min:
+    _m = re.search(r"CMake\s*≥\s*([0-9.]+)", _agents)
+    if not _m:
+        fail("技术栈 CMake 版本", "AGENTS.md 里找不到 CMake 版本声明")
+    elif _m.group(1) == _min.group(1):
+        ok("技术栈 CMake 版本", "≥" + _min.group(1))
+    else:
+        fail("技术栈 CMake 版本",
+             "AGENTS.md 写 ≥%s，CMakeLists 实际 %s" % (_m.group(1), _min.group(1)))
+
+# -------------------------------------------------- ⑨ 抽头数说明（resampler.h vs 常量）
+
+# 2026-10-18 实例（P2-4b）：注释写「4..64」，实际 kQualityMaxTaps = 32。
+# 上一轮外部审查就提过这条，改了别处却漏了它 —— 正好说明需要机器盯。
+_rs = read("src/audio/resampler.h") or ""
+_mx = re.search(r"kQualityMaxTaps\s*=\s*(\d+)", _rs)
+_mn = re.search(r"kQualityMinTaps\s*=\s*(\d+)", _rs)
+if _mx:
+    _claim = re.search(r"抽头数\s*(\d+)\.\.(\d+)", _rs)
+    if not _claim:
+        fail("抽头数说明", "resampler.h 里找不到 `抽头数 N..M` 形式的声明")
+    elif _claim.group(2) == _mx.group(1):
+        ok("抽头数说明", "%s..%s" % (_claim.group(1), _claim.group(2)))
+    else:
+        fail("抽头数说明",
+             "注释写 4..%s，kQualityMaxTaps 实际 %s" % (_claim.group(2), _mx.group(1)))
+
 # ---------------------------------------------------------------- 输出
 
 print("")

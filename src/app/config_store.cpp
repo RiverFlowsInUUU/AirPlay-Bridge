@@ -159,7 +159,8 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     // 读进来就钳到可用范围。
     // 上游 setVolume/setLatencyMs 各自也会钳，但菜单标题显示的是这里的原值 ——
     // 不钳的话会出现「菜单写着 9999ms、实际按 1000ms 播」，显示和实际不一致。
-    // 范围与菜单里可选的一致（音量 0-100，延迟 100-1000）。
+    // 音量与菜单一致（0-100）；延迟的钳制范围（100-1000）故意比菜单（100-300）
+    // 宽 —— 它只是防脏数据的兜底，不是可选项列表。写「与菜单一致」是错的。
     if (out.volume < 0)      out.volume = 0;
     if (out.volume > 100)    out.volume = 100;
     if (out.latencyMs < 100) out.latencyMs = 100;
@@ -190,10 +191,10 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbyTenths", out.standbyTenths));
     } else if (j.find("\"standbySecs\"") != std::string::npos) {
         // 老配置是整秒（还有已经被砍掉的 0/1/3 秒档位）。乘 10 换算成十分之一秒，
-        // 再钳到 50-100：老值 0/1/3 会抬到下限 5.0 秒，20 秒这类会压到上限 10.0 秒。
+        // 再钳到 0-200（十分之一秒，即 0-20 秒；0 = 关掉静音待机）。
         out.standbyTenths = static_cast<int>(jsonGetInt(j, "standbySecs", 5)) * 10;
     }
-    // 50-100 之外的都是脏数据或老配置的越界值，钳回区间。
+    // 0-200（0-20 秒）之外的都是脏数据或老配置的越界值，钳回区间。
     // 首次运行引导有没有做过。
     // 走 jsonGetBool，不手写带转义的 key 字面量。
     out.askedAutoStart = jsonGetBool(j, "askedAutoStart", out.askedAutoStart);
