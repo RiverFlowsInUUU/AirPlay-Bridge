@@ -256,7 +256,8 @@ jobs:
             exit 1
           fi
           # 打印 SHA-256：发布说明里会附上，用户可自行核对
-          sha256sum dist/*Setup*.exe | tee sha256.txt
+          # 只输出「哈希 + 文件名」：带 dist/ 前缀对用户没意义，反而不好核对。
+          ( cd dist && sha256sum *Setup*.exe ) | tee sha256.txt
           # 把校验和追加到发布正文末尾（用户可自行核对下载到的包）。
           # 安装包没有代码签名，SHA-256 是用户能做的第二道校验。
           {
