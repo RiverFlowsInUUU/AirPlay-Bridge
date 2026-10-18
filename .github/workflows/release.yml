@@ -237,7 +237,10 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: AirPlay-Bridge-release
-          path: dist
+          # ★ 必须是 "."：上游上传时路径里带 dist/ 前缀（上传了 dist/*.exe 和
+          #   release-notes.md），下载到 "dist" 会变成 dist/dist/... →
+          #   后面 dist/*Setup*.exe 一个都匹配不到（2026-10-19 实测踩到）。
+          path: .
 
       - name: 校验产物并打印校验和
         shell: bash
@@ -246,7 +249,12 @@ jobs:
           ls -la dist
           # 必须恰好一个安装包：多个说明构建产物不唯一，宁可停。
           n=$(ls dist/*Setup*.exe 2>/dev/null | wc -l)
-          if [ "$n" -ne 1 ]; then echo "::error::期望 1 个安装包，实际 $n 个"; exit 1; fi
+          if [ "$n" -ne 1 ]; then
+            echo "::error::期望 1 个安装包，实际 $n 个"
+            echo "--- 实际目录树（诊断用）---"
+            find . -maxdepth 3 -type f | sort
+            exit 1
+          fi
           # 打印 SHA-256：发布说明里会附上，用户可自行核对
           sha256sum dist/*Setup*.exe | tee sha256.txt
           # 把校验和追加到发布正文末尾（用户可自行核对下载到的包）。
