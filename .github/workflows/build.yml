@@ -1,0 +1,79 @@
+# push / PR 就编译并跑测试。
+#
+# 为什么需要它：原来编译与 ctest **只在打 tag 之后**才发生（release.yml），
+# 所以编译错误和测试失败要等到发版那一刻才暴露 —— 反馈延迟到最贵的时刻。
+# check-docs / check-patch 又都不编译代码。master 还无分支保护，直推无闸门。
+#
+# 成本控制：只编默认目标（含两个测试）+ 跑 ctest，不打包。
+name: 构建与测试
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'third_party/**'
+      - 'patches/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: 取出代码（含子模块）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 自检放在构建前 —— 理由同 release.yml：两个 workflow 相互独立，
+      # 一个挂了不拦另一个，所以这里也得自己验一遍（尤其 tag 前）。
+      - name: 校验补丁
+        shell: bash
+        run: |
+          P=patches/upstream-airplay2-sender-cpp.patch
+          if file "$P" | grep -q CRLF; then
+            echo "::error::补丁是 CRLF 行尾"; exit 1
+          fi
+          fail=0
+          while IFS= read -r want; do
+            [ -z "$want" ] && continue
+            if ! grep -qF -- "$want" "$P"; then
+              echo "::error::补丁里缺少片段：$want —— patches/ 已陈旧"; fail=1
+            fi
+          done <<'MARKERS'
+               stream.emplace_back("latencyMax", Value::integer(88200));
+               stream.emplace_back("latencyMin", Value::integer(11025));
+          +    void setLatencyMs(int ms) {
+          +        ap2_->eventIn  = hkdfSha512("Events-Salt",
+          MARKERS
+          [ "$fail" -ne 0 ] && exit 1
+          cd third_party/airplay2-sender-cpp
+          git apply --check "../../$P" && git apply "../../$P"
+          for f in CMakeLists.txt src/raop_sender.cpp src/raop_sender.h test/core_tests.cpp; do
+            git diff --name-only | grep -q "^$f$" || { echo "::error::补丁没覆盖 $f"; exit 1; }
+          done
+          echo "补丁校验通过"
+
+      - name: 配置
+        shell: bash
+        run: cmake -S . -B build -A x64
+
+      - name: 编译（默认目标 = 主程序 + 全部测试）
+        shell: bash
+        run: cmake --build build --config Release --parallel
+
+      - name: 跑测试
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      # 协议层那套是独立构建（主构建强制 AIRPLAY_BUILD_TESTS=OFF）。
+      # 它是我们和协议引擎之间唯一的回归网，值得每次 push 都跑。
+      - name: 编译并运行上游协议测试
+        shell: bash
+        run: |
+          cmake -S third_party/airplay2-sender-cpp -B tbuild -A x64 \
+                -DAIRPLAY_BUILD_TESTS=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build tbuild --config Release --parallel
+          ctest --test-dir tbuild -C Release --output-on-failure

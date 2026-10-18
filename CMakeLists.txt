@@ -148,3 +148,12 @@ if(MSVC)
     target_compile_options(config_store_test PRIVATE /W3)
 endif()
 add_test(NAME config_store COMMAND config_store_test)
+
+# 版本比较 + JSON 取值：同样是纯函数，几毫秒跑完。
+# 这两类函数最容易错、也最容易被漏测（P3-3）。
+add_executable(version_test src/app/version_test.cpp src/app/config_store.cpp)
+target_include_directories(version_test PRIVATE src/app)
+if(MSVC)
+    target_compile_options(version_test PRIVATE /W3)
+endif()
+add_test(NAME version COMMAND version_test)

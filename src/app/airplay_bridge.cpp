@@ -23,6 +23,7 @@
 #include "discovery.h"
 #include "config_store.h"
 #include "i18n.h"
+#include "version.h"
 #include "wasapi_capture.h"
 #include "resampler.h"
 #include "tray.h"
@@ -259,32 +260,8 @@ constexpr const char* kProjectUrl = "https://github.com/RiverFlowsInUUU/AirPlay-
 constexpr const char* kLatestReleaseApi =
     "https://api.github.com/repos/RiverFlowsInUUU/AirPlay-Bridge/releases/latest";
 
-// 按 . 拆成数字逐段比较。
-// 不能字符串比较 —— "1.2.9" > "1.2.10" 会得到错误结论。
-bool isNewerVersion(const std::string& remote, const std::string& local) {
-    auto parse = [](const std::string& v) {
-        std::vector<int> out;
-        size_t i = 0;
-        // 去掉可能的 v 前缀
-        size_t start = (i < v.size() && (v[i] == 'v' || v[i] == 'V')) ? 1 : 0;
-        int cur = 0; bool has = false;
-        for (size_t k = start; k < v.size(); ++k) {
-            const char c = v[k];
-            if (c >= '0' && c <= '9') { cur = cur * 10 + (c - '0'); has = true; }
-            else if (c == '.') { out.push_back(has ? cur : 0); cur = 0; has = false; }
-            else break;   // 遇到 -rc 之类就停
-        }
-        if (has) out.push_back(cur);
-        return out;
-    };
-    const auto a = parse(remote), b = parse(local);
-    for (size_t k = 0; k < a.size() || k < b.size(); ++k) {
-        const int x = (k < a.size()) ? a[k] : 0;
-        const int y = (k < b.size()) ? b[k] : 0;
-        if (x != y) return x > y;
-    }
-    return false;
-}
+// 版本比较已抽到 version.h（纯函数，抽出去才能单测）。
+// 这里用 using namespace fxchain，所以调用点不用改。
 
 // 检查更新的结果。网络线程填、主线程读 —— 用 mutex + atomic 传递。
 enum class UpdateState { Failed, UpToDate, HasNew };
