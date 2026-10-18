@@ -17,7 +17,7 @@ index 6f5c72d..c9d488b 100644
      else()
          target_compile_options(${target} PRIVATE -Wall -Wextra)
 diff --git a/src/raop_sender.cpp b/src/raop_sender.cpp
-index 0e282e1..be08a5d 100644
+index 0e282e1..c0abdea 100644
 --- a/src/raop_sender.cpp
 +++ b/src/raop_sender.cpp
 @@ -98,8 +98,12 @@ struct RaopAp2State {
@@ -41,7 +41,39 @@ index 0e282e1..be08a5d 100644
          writeRtsp_(req);
      } else {
          sendRequest_("POST", "/feedback", {}, {});
-@@ -1126,6 +1131,7 @@ void RaopSender::startStreaming_() {
+@@ -816,6 +821,17 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+         }
+         eventPlainBuf_.append(reinterpret_cast<const char*>(dec->data()), dec->size());
+         eventEncBuf_.erase(0, need);
++        // Audit fix (2026-10-18): same class as the control-channel cap
++        // above — a buggy or hostile receiver that dribbles a never-ending
++        // event head, or declares a huge Content-Length, would otherwise grow
++        // eventPlainBuf_ without bound. Event requests are tiny; cap and drop
++        // the channel instead of waiting forever.
++        if (eventPlainBuf_.size() > kMaxEventPlainBuf) {
++            warn_("Cast: oversized AirPlay 2 event data, closing event channel");
++            eventPlainBuf_.clear();
++            eventEncBuf_.clear();
++            return;
++        }
+     }
+     // Answer each complete RTSP request with an encrypted 200 OK.
+     for (;;) {
+@@ -832,6 +848,13 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+             if (k == "content-length") contentLen = toInt(v);
+             else if (k == "cseq")      cseq = v;
+         }
++        // A declared Content-Length beyond the cap is itself malformed —
++        // don't wait for it to arrive.
++        if (contentLen < 0 || size_t(contentLen) > kMaxEventPlainBuf) {
++            warn_("Cast: absurd Content-Length in AirPlay 2 event request, dropping");
++            eventPlainBuf_.clear();
++            return;
++        }
+         const size_t total = headEnd + 4 + size_t(contentLen > 0 ? contentLen : 0);
+         if (eventPlainBuf_.size() < total) break;   // body still arriving
+         eventPlainBuf_.erase(0, total);
+@@ -1126,6 +1149,7 @@ void RaopSender::startStreaming_() {
      startTs_ = ntp2ts(ntpNow_(), kRaopRate);
      framesSent_ = 0;
      firstAudio_ = true;
@@ -49,7 +81,7 @@ index 0e282e1..be08a5d 100644
      clockStart_ = now_();
      sendSyncPacket_(true);   // first sync carries the marker bit
      arm_(syncTimer_);
-@@ -1548,6 +1554,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
+@@ -1548,6 +1572,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
          ap2_->controlIn  = hkdfSha512("Control-Salt",
                                        "Control-Read-Encryption-Key",
                                        ap2_->sharedSecret, 32);
@@ -68,7 +100,7 @@ index 0e282e1..be08a5d 100644
          pairStage_ = PairStage::Done;
          afterAuthOk_();
          return;
-@@ -1859,6 +1877,26 @@ void RaopSender::sendAp2SetupStream_() {
+@@ -1859,6 +1895,26 @@ void RaopSender::sendAp2SetupStream_() {
      stream.emplace_back("controlPort", Value::integer(localControlPort_));
      stream.emplace_back("ct", Value::integer(2));        // ALAC
      stream.emplace_back("isMedia", Value::boolean(true));
@@ -95,7 +127,7 @@ index 0e282e1..be08a5d 100644
      stream.emplace_back("latencyMax", Value::integer(88200));
      stream.emplace_back("latencyMin", Value::integer(11025));
      stream.emplace_back("shk", Value::bytes(ap2_->audioKey));
-@@ -1981,6 +2019,39 @@ void RaopSender::sendAudioPacket_() {
+@@ -1981,6 +2037,39 @@ void RaopSender::sendAudioPacket_() {
      int16_t frames[kFramesPerPacket * kChannels];
      fillFrames_(frames, kFramesPerPacket);
  
@@ -136,7 +168,7 @@ index 0e282e1..be08a5d 100644
      std::string header;
      header.reserve(12);
 diff --git a/src/raop_sender.h b/src/raop_sender.h
-index 5560966..f4051f0 100644
+index 5560966..985bd73 100644
 --- a/src/raop_sender.h
 +++ b/src/raop_sender.h
 @@ -142,6 +142,19 @@ public:
@@ -159,7 +191,18 @@ index 5560966..f4051f0 100644
      // Now-playing metadata pushed to the receiver via DMAP-tagged
      // SET_PARAMETER (title/artist/album) + the cover as image/jpeg|png.
      // Stored when not streaming and (re)sent on the next RECORD; sent
-@@ -343,9 +356,17 @@ private:
+@@ -320,6 +333,10 @@ private:
+     uint64_t    eventRecvCtr_ = 0;
+     std::string eventEncBuf_;     // raw (still-encrypted) bytes from the receiver
+     std::string eventPlainBuf_;   // decrypted RTSP request stream
++    // Upper bound for the decrypted event-request stream. Mirrors the
++    // control-channel cap (4 MiB): a receiver that never terminates a head,
++    // or declares a huge Content-Length, must not grow this without bound.
++    static constexpr size_t kMaxEventPlainBuf = 4u * 1024u * 1024u;
+     std::deque<std::string> pendingMethods_;   // FIFO: request -> response routing
+     int         cseq_ = 0;
+     uint32_t    sessionId_ = 0;          // RTSP URI id; doubles as RTP SSRC
+@@ -343,9 +360,17 @@ private:
      Clock::time_point clockStart_{};     // monotonic pacing reference
      uint64_t startTs_ = 0;       // NTP-derived start timestamp (pyatv model)
      uint64_t framesSent_ = 0;    // 44.1 kHz frames put on the wire

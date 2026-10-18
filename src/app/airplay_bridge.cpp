@@ -2138,6 +2138,10 @@ struct Session {
         setPhase(PHASE_CAPTURE_OPEN);   // 打点：开采集设备可能耗时
         if (!capture->open(&err)) {
             capture.reset();   // 失败路径不留半成品
+            // ★ 必须撤销接管 —— 默认设备已经切到 CABLE 了，不撤销就等于
+            //   把用户的声音送进一个没人采集的黑洞（P1-3）。
+            rollbackTakeover();
+            setHighResTimer(false);   // 同样别留着一个不断电的高精度定时器
             return false;
         }
 
@@ -2442,6 +2446,32 @@ struct Session {
         }
         logLine("已接管：默认播放设备切到 CABLE Input（原为 " + cur + "）");
     }
+    // 只负责「把接管撤销掉」，不碰采集/发送线程。
+    //
+    // 为什么需要单独一个：start() 里 maybeTakeOverRenderDevice() 已经把默认设备
+    // 切到 CABLE 了，之后若采集打不开就直接 return —— 那时 stop() 没被调用，
+    // 用户的系统声音会继续送往一个**没人采集**的端点，表现是「没声音了」。
+    // （2026-10-18 第四轮外部审查 P1-3）
+    //
+    // 这里比 stop() 里那段更保守：只有恢复**成功**才清标记 ——
+    // 与 DECISIONS 的「恢复失败要保留重试依据」一致（P2-3 同类）。
+    void rollbackTakeover() {
+        if (savedRenderDevice.empty()) return;
+        if (setDefaultRenderDevice(savedRenderDevice)) {
+            savedRenderDevice.clear();
+            g_takeoverActive.store(false);
+            if (!cfgPath.empty()) {
+                BridgeConfig tmp;
+                loadConfig(cfgPath, tmp);
+                tmp.preCaptureDevice.clear();
+                saveConfig(cfgPath, tmp);
+            }
+        } else {
+            // 恢复失败：保留 savedRenderDevice 和落盘标记，下次启动还能重试。
+            logLine("回滚接管失败：默认设备没能切回原设备，保留恢复标记供下次重试");
+        }
+    }
+
     void stop() {
         running.store(false);
         // 不再推流了 —— 立刻恢复系统时钟精度（不播放时不占任何时钟开销）。
