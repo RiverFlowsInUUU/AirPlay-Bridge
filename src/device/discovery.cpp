@@ -216,7 +216,17 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
     return gotInstance || gotSrv || gotTxt;
 }
 
-// 拿本机第一个非回环 IPv4 网段
+// 拿本机一个非回环 IPv4 网段。
+//
+// ★ 为什么仍然是 /24，而不是适配器上报的真实前缀长度（2026-10-18 审查 P3-4）：
+//   在 /16 网段上按真实前缀扫一遍 = 65534 个地址 x 7000 端口，
+//   而设备发现的预算是 2.5 秒。改成真实前缀会直接把「发现设备」变成
+//   「卡几分钟」—— 那比漏掉设备更糟。
+//   同网段的家用/办公网络几乎全是 /24；真遇到 /16，用户可手动指定设备 IP。
+//
+//   但审查的另一半是对的：**多网卡时只取第一个可能选错网段**。
+//   所以这里加一层偏好：优先选「有默认网关」的那块网卡（通常就是上网
+//   用的那块），而不是枚举顺序里的第一个（可能是虚拟网卡 / VPN）。
 bool localSubnet(uint32_t& base, uint32_t& mask) {
     ULONG size = 0;
     if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, nullptr, &size) !=
@@ -228,18 +238,22 @@ bool localSubnet(uint32_t& base, uint32_t& mask) {
     if (GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, addrs, &size) != NO_ERROR)
         return false;
 
-    for (auto* a = addrs; a; a = a->Next) {
-        if (a->OperStatus != IfOperStatusUp) continue;
-        if (a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
-        for (auto* ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
-            auto* sa = reinterpret_cast<sockaddr_in*>(ua->Address.lpSockaddr);
-            if (!sa || sa->sin_family != AF_INET) continue;
-            uint32_t ip = ntohl(sa->sin_addr.s_addr);
-            if ((ip >> 24) == 127) continue;
-            if ((ip >> 24) == 169) continue;    // link-local
-            base = ip & 0xFFFFFF00u;
-            mask = 0xFFFFFF00u;
-            return true;
+    // 两轮：第一轮只接受「有默认网关」的网卡，找不到再退回任意一块。
+    for (int pass = 0; pass < 2; ++pass) {
+        for (auto* a = addrs; a; a = a->Next) {
+            if (a->OperStatus != IfOperStatusUp) continue;
+            if (a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+            if (pass == 0 && !a->FirstGatewayAddress) continue;   // 没网关 = 大概不是上网那块
+            for (auto* ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
+                auto* sa = reinterpret_cast<sockaddr_in*>(ua->Address.lpSockaddr);
+                if (!sa || sa->sin_family != AF_INET) continue;
+                uint32_t ip = ntohl(sa->sin_addr.s_addr);
+                if ((ip >> 24) == 127) continue;
+                if ((ip >> 24) == 169) continue;    // link-local
+                base = ip & 0xFFFFFF00u;
+                mask = 0xFFFFFF00u;
+                return true;
+            }
         }
     }
     return false;
