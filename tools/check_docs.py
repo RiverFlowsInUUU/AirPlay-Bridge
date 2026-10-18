@@ -278,7 +278,8 @@ else:
 # 这类问题机器能查：只看「传给用户可见出口的字面量里有没有中文」。
 #
 # 出口名单是故意写死的（窄）：新增一个面向用户的出口时，要把它加进来。
-_SINKS = ["setTooltip(", "onStatus(", "tray.notify(", "notify(", "MessageBox"]
+_SINKS = ["setTooltip(", "onStatus(", "tray.notify(", "notify(", "MessageBox",
+          "promptUser("]
 _SRC = ["src/app/airplay_bridge.cpp", "src/ui/tray.cpp",
         "src/ui/latency_dialog.cpp", "src/app/i18n.cpp"]
 _CJK = re.compile("[一-鿿]")
@@ -290,7 +291,8 @@ for _rel in _SRC:
         continue
     if _rel.endswith("i18n.cpp"):
         continue            # 词条表本身就是中文，不查
-    for _ln, _line in enumerate(_text.split(chr(10)), 1):
+    _lines_txt = _text.split(chr(10))
+    for _ln, _line in enumerate(_lines_txt, 1):
         _st = _line.strip()
         if _st.startswith("//"):
             continue
@@ -298,7 +300,11 @@ for _rel in _SRC:
             _k = _line.find(_sink)
             if _k < 0:
                 continue
+            # ★ 跨行调用也要看得到：`setTooltip(` 换行后字面量在下一行。
+            #   只看同一行是原版，会漏（2026-10-18 外部审查指出）。
             _rest = _line[_k + len(_sink):]
+            if _ln < len(_lines_txt):
+                _rest += " " + _lines_txt[_ln]
             if "i18n::tr" in _rest or "tr(" in _rest:
                 continue
             # 只看同一行里传进去的字面量
@@ -349,14 +355,63 @@ _rs = read("src/audio/resampler.h") or ""
 _mx = re.search(r"kQualityMaxTaps\s*=\s*(\d+)", _rs)
 _mn = re.search(r"kQualityMinTaps\s*=\s*(\d+)", _rs)
 if _mx:
-    _claim = re.search(r"抽头数\s*(\d+)\.\.(\d+)", _rs)
-    if not _claim:
-        fail("抽头数说明", "resampler.h 里找不到 `抽头数 N..M` 形式的声明")
-    elif _claim.group(2) == _mx.group(1):
-        ok("抽头数说明", "%s..%s" % (_claim.group(1), _claim.group(2)))
+    # ★ 两种写法都要盯：`抽头数 N..M` 和散文式「抽头数从 N 线性升到 M」。
+    #   原来只认前者，而 P2-4 里被点名的恰恰是后者那条散文 ——
+    #   机器盯住了另一行。（2026-10-18 外部审查指出覆盖面比安全感窄。）
+    _claims = []
+    for _m in re.finditer(r"抽头数\s*(\d+)\.\.(\d+)", _rs):
+        _claims.append((_m.group(1), _m.group(2), "抽头数 N..M"))
+    for _m in re.finditer(r"抽头数从\s*(\d+)\s*线性升到\s*(\d+)", _rs):
+        _claims.append((_m.group(1), _m.group(2), "散文式"))
+    if not _claims:
+        fail("抽头数说明", "resampler.h 里找不到任何一种抽头数声明")
     else:
-        fail("抽头数说明",
-             "注释写 4..%s，kQualityMaxTaps 实际 %s" % (_claim.group(2), _mx.group(1)))
+        _bad = [(a, b, t) for (a, b, t) in _claims if b != _mx.group(1)]
+        if _bad:
+            fail("抽头数说明",
+                 "%s" % "; ".join("%s 写 %s..%s，kQualityMaxTaps 实际 %s"
+                                  % (t, a, b, _mx.group(1)) for a, b, t in _bad))
+        else:
+            ok("抽头数说明", "%d 处声明一致（上限 %s）" % (len(_claims), _mx.group(1)))
+
+# -------------------------------------------------- ⑩ i18n 死词条（零引用）
+
+# 2026-10-18 实例（P3-9）：词条表里有 16 条在全部源码里零引用 ——
+# 多是已删功能的残留（首次运行的选语言向导、开机自启引导、早期 tooltip 文案）。
+# 第 ⑦ 节只查「裸中文」（漏翻译方向），不查「多余词条」方向，所以 P3-9 一直没闭环。
+#
+# 做法：把 src/ 里除 i18n.cpp 之外的源码**去掉注释**后拼成一个大串，
+# 再把引号与空白全去掉（源码里相邻字面量会被编译器拼接，去空白才对得上），
+# 然后看每个词条 key 是否出现。
+# 去掉注释是必要的：否则「注释里提到过某个 key」会把死词条误判成活的。
+_I18N_SRC = read("src/app/i18n.cpp") or ""
+_blob_parts = []
+_srclist = ["src/app/airplay_bridge.cpp", "src/ui/tray.cpp",
+            "src/ui/latency_dialog.cpp", "src/device/discovery.cpp",
+            "src/device/audiodevices.h", "src/audio/sysvolume.cpp"]
+for _rel in _srclist:
+    _t = read(_rel)
+    if not _t:
+        continue
+    _t = re.sub(r"/\*.*?\*/", "", _t, flags=re.S)      # 去块注释
+    _t = re.sub("//[^" + chr(10) + "]*", "", _t)                       # 去行注释
+    _blob_parts.append(_t)
+_blob = "".join(_blob_parts)
+_blob = _blob.replace(chr(34), "").replace(chr(39), "")
+_blob = re.sub(r"\s+", "", _blob)
+
+_entries = re.findall(r"^\s*\{\s*\"([^\"]+)\"\s*,", _I18N_SRC, re.M)
+if not _entries:
+    fail("i18n 死词条", "在 i18n.cpp 里解析不出任何词条")
+else:
+    _dead = [k for k in _entries if re.sub(r"\s+", "", k) not in _blob]
+    if _dead:
+        for _k in _dead[:8]:
+            fail("i18n 死词条", "零引用：%s" % _k[:44])
+        if len(_dead) > 8:
+            fail("i18n 死词条", "…另有 %d 条零引用" % (len(_dead) - 8))
+    else:
+        ok("i18n 死词条", "无（共 %d 条词条）" % len(_entries))
 
 # ---------------------------------------------------------------- 输出
 

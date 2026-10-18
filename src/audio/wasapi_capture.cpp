@@ -403,7 +403,11 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
 
         // 限幅
         out.resize(frames * 2);
-        int peak = 0;
+        // （这里原来还有一个 int peak 和逐样本求峰值 ——
+        //   它是给已删除的 level.txt 打点用的，删掉打点后就成了死代码：
+        //   算得出来、没有任何消费者，每个 chunk 白跑一遍取绝对值。
+        //   主程序侧的峰值统计在 airplay_bridge.cpp 的 g_peakWindowMax，
+        //   那才是「采集电平」日志用的那份。2026-10-18 外部审查发现。）
         for (size_t f = 0; f < frames; ++f) {
             int32_t l = take[f * 2 + 0];
             int32_t r = take[f * 2 + 1];
@@ -413,11 +417,6 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
             if (r < -32768) r = -32768;
             out[f * 2 + 0] = static_cast<int16_t>(l);
             out[f * 2 + 1] = static_cast<int16_t>(r);
-
-            int al = l < 0 ? -l : l;
-            int ar = r < 0 ? -r : r;
-            if (al > peak) peak = al;
-            if (ar > peak) peak = ar;
         }
 
         // （这里原来每 2 秒往 LOCALAPPDATA 写一个 level.txt：峰值电平 +

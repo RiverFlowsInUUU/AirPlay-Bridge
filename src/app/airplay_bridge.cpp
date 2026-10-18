@@ -3937,7 +3937,6 @@ int main(int argc, char** argv) {
                         // 检查更新并进来了：弹完窗**有意不 break**，让控制流落到
                         // 下面 MENU_CHECK_UPDATE 那段去做一次后台检查。
                         // 有新版本时它会再弹一个窗；已是最新则完全静默。
-                        [[fallthrough]];     // 有意为之：上面注释已说明
                         std::string about = "AirPlay Bridge";
                         about += char(10); about += char(10);
                         about += std::string(i18n::tr("版本")) + " v" + kAppVersion;
@@ -3956,6 +3955,11 @@ int main(int argc, char** argv) {
                         }
                         // 落下去执行检查更新（见上方注释）。
                     }
+                    // ★ 属性必须在**真正的穿越点**上，也就是本条 case 结束、
+                    //   紧接着下一个 case 标签之前。放在块首是无效的
+                    //   （标准要求它是该 switch section 的最后一条语句）——
+                    //   2026-10-18 外部审查指出位置放错了。
+                    [[fallthrough]];
                     case MENU_CHECK_UPDATE: {
                         // 网络请求放独立线程 —— 托盘程序卡一下就会被当成死掉。
                         // 结果通过 g_updateResult 交给主循环去弹窗（见下面轮询）。

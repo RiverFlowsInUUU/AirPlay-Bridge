@@ -131,7 +131,9 @@ jobs:
       - name: 编译并运行上游协议测试
         shell: bash
         run: |
-          cmake -S third_party/airplay2-sender-cpp -B tbuild -A x64 \n                -DAIRPLAY_BUILD_TESTS=ON \n                -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake -S third_party/airplay2-sender-cpp -B tbuild -A x64 \
+                -DAIRPLAY_BUILD_TESTS=ON \
+                -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           cmake --build tbuild --config Release --parallel
           ctest --test-dir tbuild -C Release --output-on-failure
 

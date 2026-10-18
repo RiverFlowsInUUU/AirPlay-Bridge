@@ -87,9 +87,6 @@ const Entry kEntries[] = {
     // ── 托盘图标 tooltip ──
     {"AirPlay Bridge - 已连接", "AirPlay Bridge - Connected"},
     {"AirPlay Bridge - 未连接", "AirPlay Bridge - Not connected"},
-    {"AirPlay Bridge - 正在连接", "AirPlay Bridge - Connecting"},
-    {"AirPlay Bridge - 扫描设备", "AirPlay Bridge - Scanning"},
-    {"AirPlay Bridge - 连接失败", "AirPlay Bridge - Connection failed"},
     {"AirPlay Bridge - 已断开（手动）", "AirPlay Bridge - Disconnected (manual)"},
     {"AirPlay Bridge - 未找到设备", "AirPlay Bridge - No devices found"},
     {" 台设备", " devices"},
@@ -97,7 +94,6 @@ const Entry kEntries[] = {
     {"AirPlay Bridge - 启动失败", "AirPlay Bridge - Startup failed"},
     {"AirPlay Bridge - 找到 ", "AirPlay Bridge - Found "},
     {"AirPlay Bridge ", "AirPlay Bridge "},
-    {"AirPlay Bridge（没有虚拟声卡）", "AirPlay Bridge (no virtual audio device)"},
     // ── 状态文案（tooltip 与菜单共用）──
     // 2026-10-18：这几条原来只存在于代码里的裸中文字面量，
     // 于是英文界面的 tooltip 一直是中文（P2-3，外部审查发现）。
@@ -107,40 +103,24 @@ const Entry kEntries[] = {
      " (if it keeps failing, check the firewall inbound rule)"},
     {"已连接（未装虚拟声卡：电脑的输出设备也会播放）",
      "Connected (no virtual audio device - this PC's output still plays)"},
-    {"未能连接（未装虚拟声卡：电脑的输出设备也会播放）",
-     "Not connected (no virtual audio device - this PC's output still plays)"},
 
     // ── 滑块窗口标题 ──
     {"AirPlay Bridge — 延迟调节", "AirPlay Bridge - Latency"},
     {"AirPlay Bridge — 音量调节", "AirPlay Bridge - Volume"},
-    {"AirPlay Bridge — 音质调节", "AirPlay Bridge - Quality"},
     {"AirPlay Bridge — 无声音时待机", "AirPlay Bridge - Standby when silent"},
 
     // ── 「关于」弹窗（「关于」本身在菜单那节已有一条）──
     {"版本", "Version"},
-    {"项目主页：", "Project home: "},
 
     // ── 首次运行：选语言 ──
-    {"选择语言", "Choose language"},
-    {"选择界面语言，之后可以在托盘菜单的「更多设置 › 语言」里随时更改。",
-     "Choose the interface language. You can change it later under "
-     "\"More settings > Language\" in the tray menu."},
 
     // ── 首次运行：开机自启 ──
-    {"要开机自动启动吗？", "Start automatically at login?"},
-    {"是，开机自动启动", "Yes, start at login"},
     {"不用", "No"},
-    {"以后可以在托盘菜单的「更多设置 › 开机自启」里改。",
-     "You can change this later under \"More settings > Run at startup\"."},
 
     // ── 连接诊断 ──
-    {"需要的网络放行还没配好", "Network access is not allowed yet"},
-    {"点「是」帮你配好（会弹一次管理员确认）",
-     "Click Yes to fix it (you'll see one admin prompt)"},
     {"已修复，程序正在重连。", "Fixed. Reconnecting..."},
     {"若仍连不上，请断开后重新连接一次（或重启程序）。",
      "If it still won't connect, disconnect and connect again (or restart)."},
-    {"修复失败：无法添加网络放行规则。", "Failed: could not add the network rule."},
     {"请确认在弹出的用户账户控制窗口中选择了「是」。",
      "Make sure you clicked Yes in the User Account Control prompt."},
 
@@ -220,9 +200,7 @@ const Entry kEntries[] = {
     {"可能爆音", "May crackle"},
     {"偶有爆音", "Occasional crackle"},
     {"稳定", "Stable"},
-    {"接近下限", "Near the limit"},
     {"推荐", "Recommended"},
-    {"更稳（延迟略高）", "Smoothest (slightly more delay)"},
     {"很轻", "Very quiet"},
     {"适中", "Moderate"},
     {"较响", "Loud"},
