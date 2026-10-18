@@ -2897,6 +2897,17 @@ int main(int argc, char** argv) {
                 "（词条 " + std::to_string(tr_) + "/" + std::to_string(tot_) + "）");
     }
 
+    // 配置保存失败要留痕 —— saveConfig 的 29 个调用点全都忽略返回值，
+    // 写盘失败（路径不可用 / 磁盘满）本来是完全静默的。
+    // 只报第一条：之后每次改设置都会再失败，刷屏没有意义。
+    // 注意不写完整路径（隐私：日志可能被贴进 issue）。
+    setConfigSaveFailHook([]() {
+        static bool logged = false;
+        if (logged) return;
+        logged = true;
+        logLine("配置保存失败：设置改动不会保留（后续同样失败不再重复记录）");
+    });
+
     setCaptureDeviceId(cfg.captureDeviceId);
 
     // 「连接时静音电脑扬声器」的崩溃恢复 ——

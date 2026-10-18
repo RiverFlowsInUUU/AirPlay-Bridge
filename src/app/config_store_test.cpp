@@ -379,6 +379,44 @@ int main() {
         removeFile(kFile);
     }
 
+    // ---- 15. ★ 非 ASCII 路径（2026-10-18 回归的守卫）----
+    //
+    // 背景：配置路径来自 appDataDir()，而它用 GetEnvironmentVariableA，
+    // 返回的是**系统本地编码(ACP)**字节。原子换名时若按 CP_UTF8 解码它，
+    // 非法字节会变成 U+FFFD → 宽路径错误 → MoveFileExW 失败 →
+    // 配置永不落盘。中文用户名下必然触发。
+    //
+    // 实测（同一段 ACP 路径）：CP_UTF8 → MoveFileExW 失败 err=3；CP_ACP → 成功。
+    //
+    // 这里用 GBK 字节（而不是源码里的中文字面量）构造文件名 ——
+    // 窄 API 走的是 ACP，源码里写中文经 /utf-8 编译后是 UTF-8 字节，
+    // 反而不忠实。GBK 字节才等价于 appDataDir() 的真实产物。
+    //
+    // "测试" 的 GBK 字节是 B2 E2 CA D4。
+    {
+        std::printf("\n15. 非 ASCII 路径（ACP 字节）\n");
+        const std::string base = std::string("cfg_test_") +
+                                 "\xB2\xE2\xCA\xD4" + ".json";
+        removeFile(base);
+        removeFile(base + ".tmp");
+
+        BridgeConfig a;
+        a.volume = 33;
+        a.lastDeviceName = "non-ascii path";
+        check(saveConfig(base, a), "非 ASCII 路径：保存成功");
+
+        std::FILE* t = std::fopen((base + ".tmp").c_str(), "rb");
+        check(t == nullptr, "非 ASCII 路径：不留 .tmp");
+        if (t) std::fclose(t);
+
+        BridgeConfig b;
+        check(loadConfig(base, b), "非 ASCII 路径：能读回");
+        checkInt(b.volume, 33, "非 ASCII 路径：值正确");
+
+        removeFile(base);
+        removeFile(base + ".tmp");
+    }
+
     if (g_fail) {
         std::printf("   %d/%d 项失败 —— 配置读写有回归\n", g_fail, g_checks);
         return 1;

@@ -85,6 +85,15 @@ std::string appDataDir();
 // 默认配置路径
 std::string defaultConfigPath();
 
+// saveConfig 失败时的通知钩子。
+//
+// 为什么需要它：saveConfig 有 29 个调用点，**全都忽略返回值** ——
+// 一旦写盘失败（路径不可用、磁盘满）就是完全静默的，用户只会看到
+// 「设置改了没用」。主程序注册这个钩子落一条日志。
+//（2026-10-18 外部审查指出「29 个调用点全忽略返回值本身是风险放大器」。）
+using ConfigSaveFailHook = void (*)();
+void setConfigSaveFailHook(ConfigSaveFailHook fn);
+
 bool loadConfig(const std::string& path, BridgeConfig& out);
 bool saveConfig(const std::string& path, const BridgeConfig& cfg);
 

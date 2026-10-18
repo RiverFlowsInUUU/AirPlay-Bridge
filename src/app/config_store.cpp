@@ -85,6 +85,16 @@ bool jsonGetBool(const std::string& json, const std::string& key, bool def) {
 
 // 运行时数据统一放 %LOCALAPPDATA%\\AirPlayBridge\\，
 // 这样 exe 是真正零外挂的：放哪儿都能跑，不在自己旁边堆文件。
+namespace {
+ConfigSaveFailHook g_saveFailHook = nullptr;
+}  // namespace
+
+void setConfigSaveFailHook(ConfigSaveFailHook fn) { g_saveFailHook = fn; }
+
+namespace {
+void notifySaveFail() { if (g_saveFailHook) g_saveFailHook(); }
+}  // namespace
+
 std::string appDataDir() {
     char buf[MAX_PATH] = {};
     DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", buf, MAX_PATH);
@@ -101,15 +111,30 @@ std::string defaultConfigPath() {
 
 namespace {
 
-// UTF-8 -> UTF-16。注意 need **包含结尾的 NUL**，所以按 need 分配、
-// 之后再 resize(need - 1) —— 这个坑在本项目踩过三次
-// （MultiByteToWideChar 越界写 2 字节），别按 need-1 分配。
-std::wstring utf8ToWide(const std::string& s) {
+// 本地编码（A 版 API 的字符串）-> UTF-16。
+//
+// ★ 必须是 CP_ACP，不是 CP_UTF8（2026-10-18 修正了一个我自己引入的回归）：
+//   本文件里的路径来自 appDataDir()，而它用 **GetEnvironmentVariableA** ——
+//   返回的是**系统本地编码（ACP）**字节，不是 UTF-8。
+//   拿它去按 UTF-8 解码，非法字节会被换成 U+FFFD，得到一条**错误的宽路径**，
+//   于是 MoveFileExW / DeleteFileW 全部失败 → 配置写不进去、.tmp 残留，
+//   而这 29 个调用点全都忽略返回值 → **完全静默**。
+//
+//   中文用户名（如“张三”）下必然触发。实测（同一段 ACP 路径）：
+//     CP_UTF8 转换 -> MoveFileExW 失败 err=3（路径找不到）
+//     CP_ACP  转换 -> MoveFileExW 成功
+//
+//   注意：另一个文件 airplay_bridge.cpp 里的 acpToWide() 是同一套约定 ——
+//   这条链上（路径、防火墙规则名）一律是 ACP。
+//
+// 注意 need **包含结尾的 NUL**，所以按 need 分配、之后再 resize(need - 1) ——
+// 这个坑在本项目踩过三次（MultiByteToWideChar 越界写 2 字节）。
+std::wstring acpToWide(const std::string& s) {
     if (s.empty()) return std::wstring();
-    const int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    const int need = MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, nullptr, 0);
     if (need <= 1) return std::wstring();
     std::wstring out(static_cast<size_t>(need), 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), need);
+    MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, out.data(), need);
     out.resize(static_cast<size_t>(need - 1));
     return out;
 }
@@ -253,7 +278,7 @@ bool saveConfig(const std::string& path, const BridgeConfig& cfg) {
 const std::string tmpPath = path + ".tmp";
 {
     std::ofstream f(tmpPath, std::ios::binary | std::ios::trunc);
-    if (!f) return false;
+    if (!f) { notifySaveFail(); return false; }
 
     if (!f) return false;
 
@@ -301,14 +326,16 @@ const std::string tmpPath = path + ".tmp";
     f.flush();
     if (!f) {                       // 写失败（磁盘满等）—— 不要覆盖正式文件
         f.close();
-        DeleteFileW(utf8ToWide(tmpPath).c_str());
+        DeleteFileW(acpToWide(tmpPath).c_str());
+        notifySaveFail();
         return false;
     }
 }
 // 同一目录内换名是原子的：要么旧文件完整、要么新文件完整，不存在半份。
-if (!MoveFileExW(utf8ToWide(tmpPath).c_str(), utf8ToWide(path).c_str(),
+if (!MoveFileExW(acpToWide(tmpPath).c_str(), acpToWide(path).c_str(),
                  MOVEFILE_REPLACE_EXISTING)) {
-    DeleteFileW(utf8ToWide(tmpPath).c_str());
+    DeleteFileW(acpToWide(tmpPath).c_str());
+    notifySaveFail();
     return false;
 }
 return true;
