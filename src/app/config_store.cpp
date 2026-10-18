@@ -148,7 +148,6 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     ss << f.rdbuf();
     std::string j = ss.str();
     if (j.empty()) return false;
-    if (j.empty()) return false;
 
     // ★ 截断 / 损坏保护：一次写入被中断会留下**半份 JSON**，而它「非空」，
     //   原来会被当成有效配置 —— deviceId 缺失就重新生成、设置全部回落默认。
@@ -279,8 +278,6 @@ const std::string tmpPath = path + ".tmp";
 {
     std::ofstream f(tmpPath, std::ios::binary | std::ios::trunc);
     if (!f) { notifySaveFail(); return false; }
-
-    if (!f) return false;
 
     f << "{\n";
     f << "  \"lastDeviceId\": \""   << escapeJson(cfg.lastDeviceId)   << "\",\n";
