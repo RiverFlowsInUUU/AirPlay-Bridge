@@ -109,7 +109,19 @@ Filename: "{app}\{#ExeName}"; Parameters: "--fix-firewall --quiet"; StatusMsg: "
 Filename: "{app}\{#ExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}"
+; ★ 这里**故意是空的**，不要加 `Type: filesandordirs; Name: "{app}"`。
+;
+; 那条规则会**递归删除整个安装目录**，包括用户自己放进去的东西：
+; 安装时目录可以随便改（DefaultDirName 只是默认值），一旦有人装到
+; D:\Tools 这类已有内容的目录，卸载就等于删库 —— 不可逆的数据丢失。
+; （2026-10-18 第四轮外部审查 P1-1）
+;
+; 不需要它：[Files] 里那 4 个文件（exe + README + CHANGELOG + LICENSE）
+; Inno 自己会记录并在卸载时删掉；目录空了它会自己清掉。
+; 也就是说这条规则**唯一的作用就是删掉原本不该删的东西**。
+;
+; 将来若要清理运行期产物（日志、配置），请**逐项列明具体文件**，
+; 绝不要对整个 {app} 递归。
 
 [Code]
 // 卸载开始时清掉「按 exe 路径」写进系统的那些东西（防火墙规则、开机自启项）。
