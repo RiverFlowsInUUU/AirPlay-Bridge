@@ -96,11 +96,34 @@ void notifySaveFail() { if (g_saveFailHook) g_saveFailHook(); }
 }  // namespace
 
 std::string appDataDir() {
-    char buf[MAX_PATH] = {};
-    DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", buf, MAX_PATH);
-    std::string base = (n > 0 && n < MAX_PATH) ? std::string(buf, n)
-                                               : std::string(".");
-    std::string dir = base + "\\AirPlayBridge\\";
+    // 用宽版 API 取，再转成本地编码 —— 这样：
+    //   ① 不会因为 MAX_PATH 截断而悄悄回落
+    //   ② 超长路径也有机会拿到完整值
+    // 注意：本文件其余部分（ifstream/ofstream 的窄路径）仍走 ACP，
+    // 所以这里必须转回 ACP 而不是 UTF-8，两端要同一个编码。
+    wchar_t wbuf[32768] = {};
+    const DWORD wn = GetEnvironmentVariableW(L"LOCALAPPDATA", wbuf, 32767);
+    std::string base;
+    if (wn > 0) {
+        const int need = WideCharToMultiByte(CP_ACP, 0, wbuf, -1, nullptr, 0, nullptr, nullptr);
+        if (need > 1) {
+            base.resize(static_cast<size_t>(need));
+            WideCharToMultiByte(CP_ACP, 0, wbuf, -1, base.data(), need, nullptr, nullptr);
+            base.resize(static_cast<size_t>(need - 1));
+        }
+    }
+    if (base.empty()) {
+        // ★ 绝不能回落到 "." —— 那会把配置写到「当前工作目录」，
+        //   而托盘程序的工作目录可能是任何地方（开机自启时甚至是 system32）。
+        //   写到那里用户永远找不到，卸载也清不掉。
+        //   退到 TEMP：至少是个可预期、可清理的位置。
+        //   （2026-10-18 第四轮外部审查 P3-2 指出回落 "." 的问题）
+        char tbuf[MAX_PATH] = {};
+        const DWORD tn = GetTempPathA(MAX_PATH, tbuf);
+        base = (tn > 0 && tn < MAX_PATH) ? std::string(tbuf, tn) : std::string();
+        while (!base.empty() && (base.back() == 92 || base.back() == 47)) base.pop_back();
+    }
+    const std::string dir = base + "\\AirPlayBridge\\";
     CreateDirectoryA(dir.c_str(), nullptr);   // 已存在时返回失败，忽略
     return dir;
 }
