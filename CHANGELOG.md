@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.21] - 2026-10-18
+
+**中文**
+
+### 修复
+
+- 修复刚连上、刚开始播放时的一声爆音。此前会话建立后的开头几十毫秒送往设备的是纯静音，
+  真实音频接上时会出现突变；现在开头会平滑淡入。
+
+**English**
+
+### Fixed
+
+- Fixed a pop heard right after connecting, when playback first starts. The first few
+  tens of milliseconds sent to the device used to be pure silence, so the real audio
+  arrived as an abrupt step; playback now fades in smoothly.
+
 ## [1.5.20] - 2026-10-17
 
 **中文**
