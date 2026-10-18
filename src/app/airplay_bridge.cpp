@@ -2039,6 +2039,11 @@ struct Session {
     // 待机期间的轻量采集：只用来唤醒，不推数据。
     std::unique_ptr<WasapiCapture> standbyEar;
     std::thread                    standbyThread;
+    // sender->start() 是否**同步**失败过（RAOP 的 UDP 绑定失败会同步调 launched(false)）。
+    // 见 start() 末尾的说明。
+    std::atomic<bool>              launchSyncFailed{false};
+    // 采集启动失败是否已经处理过（避免每轮重复触发重连）。
+    bool                           captureFailHandled = false;
 
     // 事件回调（由外部设置）
     std::function<void(bool)>  onConnected;      // true = 已连接
@@ -2237,6 +2242,11 @@ struct Session {
                 // 如果这里不显式清掉，主循环会把一个失败的会话当成"在跑"，
                 // 并且把重连退避重置回 5 秒，形成密集重试。
                 running.store(false);
+                // ★ 标记「这次失败是 sender->start() 同步触发的」。
+                //   launchSyncFailed 在 sender->start() 之前清零、之后检查 ——
+                //   否则下面那句无条件 running=true 会把这里刚清掉的状态冲回来，
+                //   主循环就把一个 Idle 状态的会话当成在跑（P2-2）。
+                launchSyncFailed.store(true);
                 wantReconnect.store(true);
             }
         };
@@ -2356,6 +2366,10 @@ struct Session {
         });
 
         setPhase(PHASE_CONNECT);   // 打点：握手全在这一步里跑
+        // ★ 清零必须在 sender->start() **之前** —— 它可能同步触发 launched(false)
+        //   并把标志置 true（P2-2）。紧跟其后检查，再决定要不要置 running。
+        launchSyncFailed.store(false);
+        captureFailHandled = false;   // 新会话重新观察采集状态
         sender->start(host, 7000, "AirPlay Bridge");
 
         // ★ 音量必须在 start() **之后**设。
@@ -2384,6 +2398,13 @@ struct Session {
         // 真正的结果要等后续 pump() 里才出来（launched 回调）。
         // 所以这里不能按 connected 判断成败，只能先置 running，
         // 让主循环跑起来；失败由 launched(false) 回调负责清掉。
+        if (launchSyncFailed.load()) {
+            // sender->start() 同步失败（launched(false) 已经把 running 清了、
+            // 把重连标志设了）。这里**不能再置 running=true** ——
+            // 那会让主循环把一个 Idle 会话当成在跑，界面显示「已连接」
+            // 但实际没有音频（2026-10-18 第四轮外部审查 P2-2）。
+            return false;
+        }
         running.store(true);
         return true;
     }
@@ -2391,6 +2412,20 @@ struct Session {
     // 主循环的一步
     void pump() {
         if (!sender) return;
+        // ★ 采集健康检查：WASAPI 的 Start() 失败时采集线程会直接退出，
+        //   而 running 仍为 true —— 界面显示「已连接」、实际一个采样都没收到，
+        //   用户只会觉得「连上了但没声音」，也没有任何提示（P2-1）。
+        //   这里发现失败就让会话「正常地」断开，交给既有的重连/重枚举去处理。
+        //   只做一次（cleared 标志），避免每轮重复触发。
+        if (capture && !captureFailHandled && capture->startFailures() > 0) {
+            captureFailHandled = true;
+            logLine("采集启动失败（" + std::to_string(capture->startFailures()) +
+                    " 路设备），断开并等待重连");
+            running.store(false);
+            wantReconnect.store(true);
+            if (onStatus) onStatus(i18n::tr("采集启动失败"));
+            return;
+        }
         // 等待上限压到 10ms（默认 50ms）。
         //
         // 主循环一轮 = pump + 20ms sleep，而托盘每轮只处理一条消息。
@@ -2477,18 +2512,11 @@ struct Session {
         // 不再推流了 —— 立刻恢复系统时钟精度（不播放时不占任何时钟开销）。
         setHighResTimer(false);
         // 切回原来的默认设备
-        if (!savedRenderDevice.empty()) {
-            setDefaultRenderDevice(savedRenderDevice);
-            savedRenderDevice.clear();
-            g_takeoverActive.store(false);
-            // 正常恢复了，清掉落盘标记
-            if (!cfgPath.empty()) {
-                BridgeConfig tmp;
-                loadConfig(cfgPath, tmp);
-                tmp.preCaptureDevice.clear();
-                saveConfig(cfgPath, tmp);
-            }
-        }
+        // ★ 只有**恢复成功**才清标记 —— 这是 D4 的硬约束（docs/DECISIONS.md）：
+        //   「失败必须保留标记，否则用户会永久失去声音且程序不再尝试恢复」。
+        //   原来这里不看返回值直接清空，恢复失败就等于把重试依据也丢了
+        //   （2026-10-18 第四轮外部审查 P2-3）。
+        rollbackTakeover();
         if (capture) capture->stop();
         if (sender)  sender->stop();
         if (producer.joinable()) producer.join();
@@ -2957,9 +2985,14 @@ int main(int argc, char** argv) {
     // 启动时看到它还在，说明上次是被强杀的，端点多半还静着。
     if (cfg.localMutedByUs) {
         logLine("检测到上次异常退出时电脑扬声器仍处于静音，正在恢复");
-        setSystemMuted(false);
-        cfg.localMutedByUs = false;
-        saveConfig(cfgPath, cfg);
+        // ★ 只有恢复成功才清标记（D4 同一条原则，2026-10-18 审查 P2-4）。
+        //   失败就留着 —— 下次启动还能再试，否则用户永久静音且无人再管。
+        if (setSystemMuted(false)) {
+            cfg.localMutedByUs = false;
+            saveConfig(cfgPath, cfg);
+        } else {
+            logLine("恢复电脑扬声器失败：保留标记，下次启动重试");
+        }
     }
     g_captureDevices = listRenderDevicesWithId();
 
@@ -3126,11 +3159,15 @@ int main(int argc, char** argv) {
                 }
             }
         } else if (g_mutedByUs.load()) {
-            setSystemMuted(false);
-            g_mutedByUs.store(false);
-            if (cfg.localMutedByUs) {
-                cfg.localMutedByUs = false;
-                saveConfig(cfgPath, cfg);
+            // 同 ①：成功才清，失败保留标记等下次（P2-4）。
+            if (setSystemMuted(false)) {
+                g_mutedByUs.store(false);
+                if (cfg.localMutedByUs) {
+                    cfg.localMutedByUs = false;
+                    saveConfig(cfgPath, cfg);
+                }
+            } else if (cfg.localMutedByUs) {
+                logLine("断开时恢复电脑扬声器失败：保留标记，下次启动重试");
             }
             logLine("已恢复电脑扬声器的声音");
         }
@@ -3842,8 +3879,10 @@ int main(int argc, char** argv) {
                     // 不能等下一次断开，那时用户已经在困惑电脑为什么没声音了。
                     if (!cfg.muteLocalOnConnect &&
                         g_mutedByUs.exchange(false)) {
-                        setSystemMuted(false);
-                        logLine("已恢复电脑扬声器的声音（开关关闭）");
+                        if (setSystemMuted(false))
+                            logLine("已恢复电脑扬声器的声音（开关关闭）");
+                        else
+                            logLine("开关关闭后恢复电脑扬声器失败");
                     }
                     return;
                 }
@@ -4239,7 +4278,9 @@ int main(int argc, char** argv) {
     sess.teardown();
     // 兜底：万一断开那条路没走到，退出前保证端点恢复原状，
     // 否则用户会以为电脑没声音了。
-    if (g_mutedByUs.exchange(false)) setSystemMuted(false);
+    // 退出前最后一次尝试；失败也没机会重试了，至少留一条日志。
+    if (g_mutedByUs.exchange(false) && !setSystemMuted(false))
+        logLine("退出时恢复电脑扬声器失败（程序即将退出，无法重试）");
     tray.destroy();
     CoUninitialize();
     return 0;

@@ -97,6 +97,7 @@ const Entry kEntries[] = {
     // ── 状态文案（tooltip 与菜单共用）──
     // 2026-10-18：这几条原来只存在于代码里的裸中文字面量，
     // 于是英文界面的 tooltip 一直是中文（P2-3，外部审查发现）。
+    {"采集启动失败", "Audio capture failed to start"},
     {"连接断开", "Disconnected"},
     {"连接失败: ", "Connection failed: "},
     {"（若持续失败请检查防火墙入站规则）",

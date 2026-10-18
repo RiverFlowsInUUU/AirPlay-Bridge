@@ -324,10 +324,28 @@ bool setDefaultRenderDevice(const std::string& nameSubstring) {
 
     // 复核：用独立 enumerator 读回来，确认真的切过去了。
     // 有些驱动/USB 声卡切换是异步的，给一点时间。
+    //
+    // ★ 三个 role **都要查**，不能只查 eConsole（2026-10-18 审查 P2-5）。
+    //   上面注释自己就说了「eCommunications 是独立的，必须单独设」——
+    //   那它也可能单独失败。只查 eConsole 时，「console 成功、comm 失败」
+    //   会被当成完全成功 → 调用方据此清掉崩溃恢复标记 → 用户再也恢复不回来。
+    //   这里用「三个都是目标设备」才算成功。
+    //
+    //   实测（2026-10-18，Windows Server + Realtek + VB-CABLE）：
+    //   callSetDefaultEndpoint 设 eConsole 之后三个 role 会一起跟过去，
+    //   切回 CABLE→Realtek 也一致。所以收紧不会在本机造成「永远判失败」。
+    //   但别的机器/驱动未必联动 —— 若真出现「comm 永远跟不上」，
+    //   症状是每次连接都判切换失败、标记永不清、每次启动都重试一次恢复；
+    //   那时应把判据改成「eConsole 必须成功，comm 失败只记日志」。
     for (int i = 0; i < 10; ++i) {
-        if (isRoleDefault(targetId, eConsole)) return true;
-        Sleep(50);
+        const bool c = isRoleDefault(targetId, eConsole);
+        const bool m = isRoleDefault(targetId, eMultimedia);
+        const bool k = isRoleDefault(targetId, eCommunications);
+        if (c && m && k) return true;
+        // 前几次可能只是异步还没生效，继续等；最后一次就别等了。
+        if (i < 9) Sleep(50);
     }
+    // 走到这里说明一直没全齐 —— 如实返回失败，让调用方保留恢复标记。
     return false;
 }
 

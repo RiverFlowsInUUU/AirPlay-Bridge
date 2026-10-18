@@ -59,7 +59,8 @@ public:
 
     void stop();
 
-    bool isRunning() const { return running_.load(); }
+    bool isRunning() const { return running_.load() && startFailures_.load() == 0; }
+    int  startFailures() const { return startFailures_.load(); }
 
     // 实际打开的设备数（AllDevices 模式下可能大于 1）
     size_t deviceCount() const;
@@ -78,6 +79,10 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::atomic<bool> running_{false};
+    // 有多少路设备 Start() 失败了。非 0 表示「跑着但没在收音频」——
+    // 原来这种失败被直接 return 吞掉，running_ 仍是 true，
+    // 界面显示「已连接」却没有声音，也没有任何提示（P2-1）。
+    std::atomic<int>  startFailures_{0};
     WasapiCaptureConfig cfg_;
 };
 

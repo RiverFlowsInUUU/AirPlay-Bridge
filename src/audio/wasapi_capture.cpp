@@ -335,6 +335,7 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
     running_.store(true);
 
     // ---- 每台设备一个采集线程 ----
+    startFailures_.store(0);   // 每次开始采集都从 0 算
     std::vector<std::thread> workers;
     workers.reserve(impl_->devices.size());
 
@@ -345,7 +346,14 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
             std::vector<int16_t> local;
 
             HRESULT hr = dc->client->Start();
-            if (FAILED(hr)) return;
+            if (FAILED(hr)) {
+                // ★ 不能只是 return —— 那会让上层以为「还在跑」：
+                //   running_ 仍是 true、界面显示已连接、却一个采样都收不到。
+                //   记下失败数，isRunning() 据此返回 false，上层走重连/重枚举
+                //   （2026-10-18 第四轮外部审查 P2-1）。
+                startFailures_.fetch_add(1);
+                return;
+            }
             dc->running.store(true);
 
             while (running_.load() && dc->running.load()) {
