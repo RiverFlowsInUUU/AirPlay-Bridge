@@ -135,10 +135,33 @@ jobs:
         # 免得两处漂移（老板对发布说明的文风有硬要求，见 AGENTS.md）。
         run: |
           V="${{ steps.ver.outputs.version }}"
+          # 提取本版说明，并把「续行」合并回上一行。
+          #
+          # 为什么要合并：CHANGELOG.md 是按 ~80 列手动折行的（便于阅读与 diff），
+          # 但 GitHub 对 **release 正文 / issue 评论** 用的是「单个换行 = 硬换行」
+          # 的渲染规则（跟仓库里的 .md 文件不同 —— 那里单换行会被合并成空格）。
+          # 直接把折行过的文本当正文，页面上就会「没写到边就换行」。
+          # 所以只在生成正文这一步把续行接回去，CHANGELOG 本身保持折行。
+          #
+          # 接续规则：行首两个空格、且不是列表项/表格 → 判定为续行。
+          # 接缝处的空格：两侧都是可打印 ASCII 才补空格（中文之间不能有空格）。
           awk -v v="$V" '
-            index($0, "## [" v "]") == 1 { f=1; next }
+            function isasciiw(c) { return (c != "" && c ~ /^[ -~]$/) }
+            function lastc(s) { return substr(s, length(s), 1) }
+            function firstc(s) { sub(/^[ 	]+/, "", s); return substr(s, 1, 1) }
+            index($0, "## [" v "]") == 1 { f = 1; next }
             f && index($0, "## [") == 1 { exit }
-            f { print }
+            f {
+              body = $0; sub(/^[ 	]+/, "", body)
+              merge = (outn > 0 && out[outn] ~ /[^ 	]/                        && out[outn] !~ /^[ 	]*(```|#|\|)/                        && $0 ~ /^  / && body != ""                        && $0 !~ /^[ 	]*[-*+][ 	]/ && $0 !~ /^[ 	]*\|/)
+              if (merge) {
+                sep = (isasciiw(lastc(out[outn])) && isasciiw(firstc($0))) ? " " : ""
+                out[outn] = out[outn] sep body
+                next
+              }
+              out[++outn] = $0
+            }
+            END { for (i = 1; i <= outn; ++i) print out[i] }
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
             echo "::warning::CHANGELOG.md 里没找到 v$V 那一节，发布说明会为空"
