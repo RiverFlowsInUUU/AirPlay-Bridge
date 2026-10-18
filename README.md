@@ -93,7 +93,7 @@ When the rule is fine, **More settings › Connection check** says so.
 | Item | Range | Applies |
 |---|---|---|
 | Latency | 130 – 300 ms, 5 presets + continuous slider (100–300) | on reconnect |
-| Volume | 0 – 100%, Off + 30% steps + continuous slider | immediately |
+| Volume | 0 – 100%, Off / 30% / 50% / 70% / 100% + continuous slider | immediately |
 | Quality | 0 – 100%, 5 presets + slider | on reconnect |
 | Standby when silent | 0 – 20 s, 4 presets + slider (0 = off) | immediately |
 

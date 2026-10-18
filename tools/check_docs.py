@@ -173,6 +173,30 @@ else:
                  "文档列 %d 项（%s），代码有 %d 档 %s"
                  % (len(items), items, len(vt), vt))
 
+# -------------------------------------------------- ③b 音量档位（表格行）
+
+# 表格是用户扫读的地方，和下面那行明细说的是同一件事 —— 两处会漂移。
+# 2026-10-18 实例：表格写「Off + 30% steps」，而实际档位是 30/50/70/100
+# （不是 30% 等距）。明细行是对的，表格是错的 —— 而用户先看的是表格。
+if vt is not None:
+    want_presets = " / ".join("%d%%" % v for v in vt if v != 0)
+    for rel in ("README.md", "README.zh-CN.md"):
+        text = read(rel)
+        if text is None:
+            fail("音量档位表格行 (%s)" % rel, "%s 不存在" % rel)
+            continue
+        m = re.search(r"^\|\s*(?:Volume|音量)\s*\|([^|]*)\|", text, re.M)
+        if not m:
+            fail("音量档位表格行 (%s)" % rel,
+                 "找不到音量那一行（措辞被改过？去更新 check_docs.py）")
+            continue
+        row = m.group(1).strip()
+        if want_presets in row:
+            ok("音量档位表格行 (%s)" % rel, want_presets)
+        else:
+            fail("音量档位表格行 (%s)" % rel,
+                 "表格写「%s」，应含「%s」" % (row[:60], want_presets))
+
 # -------------------------------------------------- ④ 待机档位
 
 st = code_numbers(CORE, "kStandbyLevels")
