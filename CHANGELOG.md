@@ -3,6 +3,31 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.30] - 2026-10-19
+
+**中文**
+
+### 修复
+
+- 修复播放中音频设备失效后，偶尔需要重启程序才能恢复的问题。
+
+### 安全
+
+- 接收端发来数值非法的内容长度时，事件通道现在会被关闭，不会再被当成
+  正常请求处理。
+
+**English**
+
+### Fixed
+
+- Fixed the audio occasionally needing a restart to recover after the audio device
+  went away during playback.
+
+### Security
+
+- A content length that is not a valid number now closes the event channel instead
+  of being treated as a normal request.
+
 ## [1.5.29] - 2026-10-19
 
 **中文**
