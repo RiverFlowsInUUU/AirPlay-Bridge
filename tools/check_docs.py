@@ -475,6 +475,31 @@ else:
     fail("事件通道上限", "补丁里没有事件通道上限 —— 与 P1-4 同一类问题")
 
 
+# -------------------------------------------------- ⑬ 静音标记：内存与落盘必须同时清
+
+# 2026-10-19 实例（第六轮复核 P3-B）：清 `g_mutedByUs` 的几处里，
+# 有两处只清内存、不清 cfg.localMutedByUs —— 配置文件里留着 true，
+# 下次启动会**再取消一次静音**，覆盖用户退出后手动设的静音。
+# 这个坑我修了两轮才全改到，所以做成检查。
+_ab = read("src/app/airplay_bridge.cpp") or ""
+if not _ab:
+    fail("静音标记一致性", "读不到 src/app/airplay_bridge.cpp")
+else:
+    _al = _ab.split(chr(10))
+    _bad = []
+    for _i, _l in enumerate(_al):
+        if "g_mutedByUs.store(false)" in _l:
+            _ctx = chr(10).join(_al[_i:_i + 12])
+            if "localMutedByUs = false" not in _ctx:
+                _bad.append(_i + 1)
+    if _bad:
+        fail("静音标记一致性",
+             "这些行只清内存、没清落盘标记: %s" % _bad)
+    else:
+        ok("静音标记一致性",
+           "每处都同时清了（共 %d 处）"
+           % sum(1 for _l in _al if "g_mutedByUs.store(false)" in _l))
+
 # ---------------------------------------------------------------- 输出
 
 print("")

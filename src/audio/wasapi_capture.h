@@ -59,8 +59,9 @@ public:
 
     void stop();
 
-    bool isRunning() const { return running_.load() && startFailures_.load() == 0; }
+    bool isRunning() const { return running_.load() && startFailures_.load() == 0 && runtimeFailures_.load() == 0; }
     int  startFailures() const { return startFailures_.load(); }
+    int  runtimeFailures() const { return runtimeFailures_.load(); }
 
     // 实际打开的设备数（AllDevices 模式下可能大于 1）
     size_t deviceCount() const;
@@ -82,7 +83,12 @@ private:
     // 有多少路设备 Start() 失败了。非 0 表示「跑着但没在收音频」——
     // 原来这种失败被直接 return 吞掉，running_ 仍是 true，
     // 界面显示「已连接」却没有声音，也没有任何提示（P2-1）。
+    // ★ 分开计数（2026-10-19 第六轮复核）：
+    //   startFailures  = Start() 直接失败（设备一开始就打不开）
+    //   runtimeFailures= 播放过程中失效（拔声卡/端点被禁用/驱动重置）
+    //   两者对用户的含义完全不同，混在一起会让排障误判。
     std::atomic<int>  startFailures_{0};
+    std::atomic<int>  runtimeFailures_{0};
     WasapiCaptureConfig cfg_;
 };
 

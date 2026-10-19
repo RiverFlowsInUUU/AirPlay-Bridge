@@ -157,3 +157,13 @@ if(MSVC)
     target_compile_options(version_test PRIVATE /W3)
 endif()
 add_test(NAME version COMMAND version_test)
+
+# 采集失败分类：纯函数，几毫秒跑完。
+# 它把「运行中失效优先于启动失败」这个优先级钉死 —— 那正是用户提示
+# 会不会说错的关键（2026-10-19 第六轮复核 P2-A）。
+add_executable(capture_health_test src/audio/capture_health_test.cpp)
+target_include_directories(capture_health_test PRIVATE src/audio)
+if(MSVC)
+    target_compile_options(capture_health_test PRIVATE /W3)
+endif()
+add_test(NAME capture_health COMMAND capture_health_test)

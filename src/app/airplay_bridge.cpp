@@ -24,6 +24,7 @@
 #include "config_store.h"
 #include "i18n.h"
 #include "version.h"
+#include "capture_health.h"
 #include "wasapi_capture.h"
 #include "resampler.h"
 #include "tray.h"
@@ -2412,20 +2413,34 @@ struct Session {
     // 主循环的一步
     void pump() {
         if (!sender) return;
-        // ★ 采集健康检查：WASAPI 的 Start() 失败时采集线程会直接退出，
-        //   而 running 仍为 true —— 界面显示「已连接」、实际一个采样都没收到，
-        //   用户只会觉得「连上了但没声音」，也没有任何提示（P2-1）。
-        //   这里发现失败就让会话「正常地」断开，交给既有的重连/重枚举去处理。
-        //   只做一次（cleared 标志），避免每轮重复触发。
-        if (capture && !captureFailHandled && capture->startFailures() > 0) {
-            captureFailHandled = true;
-            logLine("采集启动失败（" + std::to_string(capture->startFailures()) +
-                    " 路设备），断开并等待重连");
-            running.store(false);
-            wantReconnect.store(true);
-            if (onStatus) onStatus(i18n::tr("采集启动失败"));
-            return;
-        }
+        // ★ 采集健康检查（2026-10-18 P2-1 / 2026-10-19 第六轮复核 P2-A）：
+        //   两种失败都会让「界面显示已连接、实际一个采样都没有」，
+        //   但**原因不同、文案必须不同**，否则用户排障会被误导：
+        //     · 启动失败：设备一开始就没打开（缺驱动/被独占）
+        //     · 运行中失效：播着播着拔了声卡 / 端点被禁用 / 驱动重置
+        //   只做一次（captureFailHandled），避免每轮重复触发重连。
+            if (capture && !captureFailHandled) {
+                const int started = capture->startFailures();
+                const int runtime = capture->runtimeFailures();
+                // 判定逻辑抽成纯函数（src/audio/capture_health.h）——
+                // 它可以单测，这里只负责「按结果做动作」。
+                const CaptureFailure kind = captureFailureKind(started, runtime);
+                if (kind != CaptureFailure::None) {
+                    captureFailHandled = true;
+                    if (kind == CaptureFailure::Runtime) {
+                        logLine("采集设备在播放中失效（" + std::to_string(runtime) +
+                                " 路设备），断开并等待重连");
+                        if (onStatus) onStatus(i18n::tr("音频设备已失效"));
+                    } else {
+                        logLine("采集启动失败（" + std::to_string(started) +
+                                " 路设备），断开并等待重连");
+                        if (onStatus) onStatus(i18n::tr("采集启动失败"));
+                    }
+                    running.store(false);
+                    wantReconnect.store(true);
+                    return;
+                }
+            }
         // 等待上限压到 10ms（默认 50ms）。
         //
         // 主循环一轮 = pump + 20ms sleep，而托盘每轮只处理一条消息。
@@ -3906,6 +3921,14 @@ int main(int argc, char** argv) {
                         if (!cfg.muteLocalOnConnect && g_mutedByUs.load()) {
                             if (setSystemMuted(false)) {
                                 g_mutedByUs.store(false);
+                                // ★ 落盘标记也要清 —— 只清内存的话，配置里还留着
+                                //   localMutedByUs=true，下次启动会再取消一次静音，
+                                //   覆盖用户退出后手动设置的静音。
+                                //   （2026-10-19 第六轮复核 P3-B）
+                                if (cfg.localMutedByUs) {
+                                    cfg.localMutedByUs = false;
+                                    saveConfig(cfgPath, cfg);
+                                }
                                 logLine("已恢复电脑扬声器的声音（开关关闭）");
                             } else {
                                 logLine("开关关闭后恢复电脑扬声器失败，保留标记稍后重试");
@@ -4312,6 +4335,12 @@ int main(int argc, char** argv) {
     if (g_mutedByUs.load()) {
         if (setSystemMuted(false)) {
             g_mutedByUs.store(false);
+            // ★ 同样要清落盘标记（第六轮复核 P3-B）：不清的话下次启动会
+            //   再取消一次静音 —— 那会覆盖用户退出后手动设的静音。
+            if (cfg.localMutedByUs) {
+                cfg.localMutedByUs = false;
+                saveConfig(cfgPath, cfg);
+            }
         } else {
             logLine("退出时恢复电脑扬声器失败，保留落盘标记供下次启动重试");
         }

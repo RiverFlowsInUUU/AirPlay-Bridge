@@ -355,6 +355,7 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
 
     // ---- 每台设备一个采集线程 ----
     startFailures_.store(0);   // 每次开始采集都从 0 算
+    runtimeFailures_.store(0);
     std::vector<std::thread> workers;
     workers.reserve(impl_->devices.size());
 
@@ -388,7 +389,9 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
                     const long err = dc->lastError_.load();
                     if (err != 0) {
                         ++dc->failures;
-                        startFailures_.fetch_add(1);   // 上层 Session::pump() 看这个
+                        // 运行中失效 —— 记到另一个计数器，
+                        // 上层据此给出「播放中设备失效」而不是「启动失败」
+                        runtimeFailures_.fetch_add(1);
                         return;                        // 本设备线程退出，别空转
                     }
                     ++dc->starved;
