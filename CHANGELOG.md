@@ -3,6 +3,26 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.29] - 2026-10-19
+
+**中文**
+
+### 修复
+
+- 修复播放中拔掉声卡或禁用输出设备时，状态栏提示为「采集启动失败」的问题；
+  现在会明确提示「音频设备已失效」。
+- 修复关闭「连接时静音电脑扬声器」后，若当时恢复失败，退出后手动设置的静音
+  会在下次启动时被取消的问题。
+
+**English**
+
+### Fixed
+
+- Fixed the status message saying "capture failed to start" when the audio device
+  went away during playback; it now says "audio device disconnected".
+- Fixed a mute you set manually being turned off on the next launch after turning
+  off "Mute computer speakers on connect" and the restore having failed.
+
 ## [1.5.28] - 2026-10-19
 
 **中文**
