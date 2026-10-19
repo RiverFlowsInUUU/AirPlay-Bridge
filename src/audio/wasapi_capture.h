@@ -59,7 +59,10 @@ public:
 
     void stop();
 
-    bool isRunning() const { return running_.load() && startFailures_.load() == 0 && runtimeFailures_.load() == 0; }
+    // （原来这里有个 isRunning() = running_ && 两类失败都为 0。
+    //   没有调用方 —— 上层要判断健康时直接看两个计数更清楚，
+    //   而 running_ 在 stop() 之后也会是 false，混进去容易被误读。
+    //   2026-10-19 第七轮复核指出后删掉。）
     int  startFailures() const { return startFailures_.load(); }
     int  runtimeFailures() const { return runtimeFailures_.load(); }
 

@@ -236,7 +236,7 @@ index 5560966..985bd73 100644
  
      // -- input conditioning (device rate -> 44.1 kHz) -----------------
 diff --git a/test/core_tests.cpp b/test/core_tests.cpp
-index 0f72065..9b0b34e 100644
+index 0f72065..0e4c216 100644
 --- a/test/core_tests.cpp
 +++ b/test/core_tests.cpp
 @@ -648,6 +648,42 @@ std::vector<int16_t> rampExpect(size_t samples, int16_t seed = 0) {
@@ -416,3 +416,144 @@ index 0f72065..9b0b34e 100644
      // 10 packets consume 3520 output frames ~ 3831 input frames
      for (int i = 0; i < 10; ++i) r.advance(8);
      dgs = r.io.takeUdp();
+@@ -1447,6 +1531,132 @@ void testResampler() {
+ 
+ } // namespace
+ 
++// ── 事件通道：畸形的 Content-Length 必须结束会话 ──────────────────────
++//
++// 2026-10-19 第六/七轮复核：事件通道原来用的是不带 ok 的 toInt 重载，
++// 垃圾值 / 溢出都会返回 0 → 被当成「没有 body」→ 回 200 继续跑。
++// 现在这几种值都应走 fail_()，会话结束（active() == false）。
++//
++// 单独一个测试函数、自己建 Rig —— 不动那个已经稳定的主测试流程。
++// ── 事件通道：畸形的 Content-Length 必须结束会话 ──────────────────────
++//
++// 2026-10-19 第六/七轮复核：事件通道原来用不带 ok 的 toInt 重载，
++// 垃圾值 / 溢出都返回 0 → 被当成「没有 body」→ 回 200 继续跑。
++// 现在这些值都应走 fail_()，会话结束（active() == false）。
++//
++// 每个用例一个独立 { } 块（与本文件其它测试一致），不用循环建 Rig。
++// ── 事件通道：畸形的 Content-Length 必须结束会话 ──────────────────────
++//
++// 2026-10-19 第六/七轮复核：事件通道原来用不带 ok 的 toInt 重载，
++// 垃圾值 / 溢出都返回 0 → 被当成「没有 body」→ 回 200 继续跑。
++// 现在这些值都应走 fail_()，会话结束（active() == false）。
++//
++// ★ 必须是 Ap2Pin：事件通道密钥来自完整配对；Ap2Transient 没有事件密钥，
++//   pushEvent 里的加密会崩（2026-10-19 我在这里踩过）。
++// 每个用例一个独立 { } 块（与本文件其它测试一致），不用循环建 Rig。
++void testEventChannelMalformedContentLength() {
++    g_test = "ap2 event channel: malformed Content-Length";
++
++    {   // non-numeric
++        Rig r;
++        runAp2Handshake(r, FakeReceiver::Mode::Ap2Pin,
++                        RaopDeviceInfo::Auth::HapPin, "", "1234");
++        REQUIRE(r.launchedOk && *r.launchedOk, "pin pairing reaches streaming");
++        CHECK(r.sender->active(), "active before the bad request");
++
++        r.sender->onTcpConnected(RaopTcp::Event, {r.localIp, 50001}, {r.peerIp, 7001});
++        const std::string req =
++            "POST /command RTSP/1.0" + std::string(1, 13) + std::string(1, 10) +
++            "Content-Length: abc" + std::string(1, 13) + std::string(1, 10) +
++            std::string(1, 13) + std::string(1, 10);
++        r.sender->onTcpData(RaopTcp::Event, spanOf(r.rx.pushEvent(req)));
++
++        const std::string why = "malformed Content-Length (non-numeric) ends the session";
++        // 两个判据缺一不可：
++        //   ① 会话必须结束（新行为）
++        //   ② 事件通道**不能**有 200 回应 —— 旧行为就是对垃圾值
++        //      回一个 200 然后继续跑，只有 ① 会被某些值骗过
++        //      （负数被 toInt 当 0，会话照样「结束」不了，但会回 200）
++        const std::string replies =
++            r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event));
++        CHECK(!r.sender->active() && replies.empty(), why.c_str());
++        r.sender->stop();
++    }
++    // ⚠ 关于「负数」：它在这次修复**前后行为相同** —— 因为
++    //   `contentLen < 0` 那条检查本来就有（早于本次改动），
++    //   toInt("-5") 返回 -5，命中该检查 → 走 fail_()。
++    //   保留它是为了覆盖「负数也必须被拒」，而不是作为本次回归的证据。
++    {   // negative (pre-existing check, not this fix's regression guard)
++        Rig r;
++        runAp2Handshake(r, FakeReceiver::Mode::Ap2Pin,
++                        RaopDeviceInfo::Auth::HapPin, "", "1234");
++        REQUIRE(r.launchedOk && *r.launchedOk, "pin pairing reaches streaming");
++        CHECK(r.sender->active(), "active before the bad request");
++
++        r.sender->onTcpConnected(RaopTcp::Event, {r.localIp, 50001}, {r.peerIp, 7001});
++        const std::string req =
++            "POST /command RTSP/1.0" + std::string(1, 13) + std::string(1, 10) +
++            "Content-Length: -5" + std::string(1, 13) + std::string(1, 10) +
++            std::string(1, 13) + std::string(1, 10);
++        r.sender->onTcpData(RaopTcp::Event, spanOf(r.rx.pushEvent(req)));
++
++        //   而 0 是合法值 —— 所以「会话结束了没」区分不出来。
++        r.sender->stop();
++    }
++    {   // overflowing
++        Rig r;
++        runAp2Handshake(r, FakeReceiver::Mode::Ap2Pin,
++                        RaopDeviceInfo::Auth::HapPin, "", "1234");
++        REQUIRE(r.launchedOk && *r.launchedOk, "pin pairing reaches streaming");
++        CHECK(r.sender->active(), "active before the bad request");
++
++        r.sender->onTcpConnected(RaopTcp::Event, {r.localIp, 50001}, {r.peerIp, 7001});
++        const std::string req =
++            "POST /command RTSP/1.0" + std::string(1, 13) + std::string(1, 10) +
++            "Content-Length: 99999999999999999999" + std::string(1, 13) + std::string(1, 10) +
++            std::string(1, 13) + std::string(1, 10);
++        r.sender->onTcpData(RaopTcp::Event, spanOf(r.rx.pushEvent(req)));
++
++        const std::string why = "malformed Content-Length (overflowing) ends the session";
++        // 两个判据缺一不可：
++        //   ① 会话必须结束（新行为）
++        //   ② 事件通道**不能**有 200 回应 —— 旧行为就是对垃圾值
++        //      回一个 200 然后继续跑，只有 ① 会被某些值骗过
++        //      （负数被 toInt 当 0，会话照样「结束」不了，但会回 200）
++        const std::string replies =
++            r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event));
++        CHECK(!r.sender->active() && replies.empty(), why.c_str());
++        r.sender->stop();
++    }
++    {   // beyond the buffer cap
++        Rig r;
++        runAp2Handshake(r, FakeReceiver::Mode::Ap2Pin,
++                        RaopDeviceInfo::Auth::HapPin, "", "1234");
++        REQUIRE(r.launchedOk && *r.launchedOk, "pin pairing reaches streaming");
++        CHECK(r.sender->active(), "active before the bad request");
++
++        r.sender->onTcpConnected(RaopTcp::Event, {r.localIp, 50001}, {r.peerIp, 7001});
++        const std::string req =
++            "POST /command RTSP/1.0" + std::string(1, 13) + std::string(1, 10) +
++            "Content-Length: 4294967296" + std::string(1, 13) + std::string(1, 10) +
++            std::string(1, 13) + std::string(1, 10);
++        r.sender->onTcpData(RaopTcp::Event, spanOf(r.rx.pushEvent(req)));
++
++        const std::string why = "malformed Content-Length (beyond the buffer cap) ends the session";
++        // 两个判据缺一不可：
++        //   ① 会话必须结束（新行为）
++        //   ② 事件通道**不能**有 200 回应 —— 旧行为就是对垃圾值
++        //      回一个 200 然后继续跑，只有 ① 会被某些值骗过
++        //      （负数被 toInt 当 0，会话照样「结束」不了，但会回 200）
++        const std::string replies =
++            r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event));
++        CHECK(!r.sender->active() && replies.empty(), why.c_str());
++        r.sender->stop();
++    }
++}
++
++
++
+ int main() {
+     std::printf("== raop core tests (in-process fake receiver, no sockets) ==\n");
+     testFormatter();
+@@ -1456,6 +1666,7 @@ int main() {
+     testAp2PinPairingThenStoredCredentials();
+     testStrictReceiverAuth();
+     testFailurePaths();
++    testEventChannelMalformedContentLength();
+     testIdentityAndDigest();
+     testResampler();
+     std::printf("%s: %d/%d checks passed\n", g_failures == 0 ? "ALL PASS" : "FAILURES",

@@ -167,3 +167,11 @@ if(MSVC)
     target_compile_options(capture_health_test PRIVATE /W3)
 endif()
 add_test(NAME capture_health COMMAND capture_health_test)
+
+# 采集看门狗：判定链 + 「只触发一次」（2026-10-19 第七轮复核要求补的回归）。
+add_executable(capture_watchdog_test src/audio/capture_watchdog_test.cpp)
+target_include_directories(capture_watchdog_test PRIVATE src/audio)
+if(MSVC)
+    target_compile_options(capture_watchdog_test PRIVATE /W3)
+endif()
+add_test(NAME capture_watchdog COMMAND capture_watchdog_test)

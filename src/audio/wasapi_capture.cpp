@@ -369,7 +369,7 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
             if (FAILED(hr)) {
                 // ★ 不能只是 return —— 那会让上层以为「还在跑」：
                 //   running_ 仍是 true、界面显示已连接、却一个采样都收不到。
-                //   记下失败数，isRunning() 据此返回 false，上层走重连/重枚举
+                //   记下失败数，上层读 startFailures()/runtimeFailures() 后走重连
                 //   （2026-10-18 第四轮外部审查 P2-1）。
                 startFailures_.fetch_add(1);
                 return;

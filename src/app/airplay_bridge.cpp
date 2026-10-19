@@ -25,6 +25,7 @@
 #include "i18n.h"
 #include "version.h"
 #include "capture_health.h"
+#include "capture_watchdog.h"
 #include "wasapi_capture.h"
 #include "resampler.h"
 #include "tray.h"
@@ -2044,7 +2045,7 @@ struct Session {
     // 见 start() 末尾的说明。
     std::atomic<bool>              launchSyncFailed{false};
     // 采集启动失败是否已经处理过（避免每轮重复触发重连）。
-    bool                           captureFailHandled = false;
+    CaptureWatchdog                 captureWatchdog;   // 采集健康看门狗（可测）
 
     // 事件回调（由外部设置）
     std::function<void(bool)>  onConnected;      // true = 已连接
@@ -2370,7 +2371,7 @@ struct Session {
         // ★ 清零必须在 sender->start() **之前** —— 它可能同步触发 launched(false)
         //   并把标志置 true（P2-2）。紧跟其后检查，再决定要不要置 running。
         launchSyncFailed.store(false);
-        captureFailHandled = false;   // 新会话重新观察采集状态
+        captureWatchdog.reset();      // 新会话重新观察采集状态
         sender->start(host, 7000, "AirPlay Bridge");
 
         // ★ 音量必须在 start() **之后**设。
@@ -2419,20 +2420,22 @@ struct Session {
         //     · 启动失败：设备一开始就没打开（缺驱动/被独占）
         //     · 运行中失效：播着播着拔了声卡 / 端点被禁用 / 驱动重置
         //   只做一次（captureFailHandled），避免每轮重复触发重连。
-            if (capture && !captureFailHandled) {
-                const int started = capture->startFailures();
-                const int runtime = capture->runtimeFailures();
-                // 判定逻辑抽成纯函数（src/audio/capture_health.h）——
-                // 它可以单测，这里只负责「按结果做动作」。
-                const CaptureFailure kind = captureFailureKind(started, runtime);
-                if (kind != CaptureFailure::None) {
-                    captureFailHandled = true;
-                    if (kind == CaptureFailure::Runtime) {
-                        logLine("采集设备在播放中失效（" + std::to_string(runtime) +
+            // ★ 不能拿 !isRunning() 当入口：isRunning() 里含 running_，
+            //   而 stop() 会把 running_ 置 false —— 「已经停了」会被误判成
+            //   「采集坏了」，虽然 watchdog 的 handled_ 能挡住重复动作，
+            //   但语义是错的。这里只问两个失败计数。
+            if (capture) {
+                const auto dec = captureWatchdog.observe(
+                    capture->startFailures(), capture->runtimeFailures());
+                if (dec.act) {
+                    if (dec.failure == CaptureFailure::Runtime) {
+                        logLine("采集设备在播放中失效（" +
+                                std::to_string(capture->runtimeFailures()) +
                                 " 路设备），断开并等待重连");
                         if (onStatus) onStatus(i18n::tr("音频设备已失效"));
                     } else {
-                        logLine("采集启动失败（" + std::to_string(started) +
+                        logLine("采集启动失败（" +
+                                std::to_string(capture->startFailures()) +
                                 " 路设备），断开并等待重连");
                         if (onStatus) onStatus(i18n::tr("采集启动失败"));
                     }
