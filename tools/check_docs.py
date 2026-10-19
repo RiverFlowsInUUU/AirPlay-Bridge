@@ -500,6 +500,36 @@ else:
            "每处都同时清了（共 %d 处）"
            % sum(1 for _l in _al if "g_mutedByUs.store(false)" in _l))
 
+# -------------------------------------------------- ⑭ 源码里不许留测试注入标记
+
+# 2026-10-19 实例（第七轮复核后自查）：我做反向测试时会往源码里注入临时改动
+# （改优先级、去守卫、改名常量…）。有一次注入后没还原干净，工作区脏着 ——
+# 幸好发现得早（那次没提交）。这类残留一旦提交，就是「产品里带着故意写坏的代码」。
+#
+# 约定：所有临时注入都必须带一个可 grep 的标记，收尾脚本按标记检查。
+_INJECT_MARKS = ["TX-VERIFY", "TX-COUNT", "TX-bisect", "BUG-INJECT",
+                 "TEMP-REPRO", "DISABLED_BY_TEST", "TX-disabled"]
+_hits = []
+for _dir in ("src", "third_party/airplay2-sender-cpp/src",
+             "third_party/airplay2-sender-cpp/test"):
+    for _root, _dirs, _files in os.walk(_dir):
+        for _f in _files:
+            if not _f.endswith((".cpp", ".h")):
+                continue
+            _full = os.path.join(_root, _f).replace(os.sep, "/")
+            try:
+                _txt = io.open(_full, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for _m in _INJECT_MARKS:
+                if _m in _txt:
+                    _hits.append("%s: %s" % (_full, _m))
+if _hits:
+    for _h in _hits[:6]:
+        fail("测试注入残留", _h)
+else:
+    ok("测试注入残留", "无（检查 %d 个标记）" % len(_INJECT_MARKS))
+
 # ---------------------------------------------------------------- 输出
 
 print("")

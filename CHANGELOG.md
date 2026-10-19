@@ -3,6 +3,20 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.31] - 2026-10-19
+
+**中文**
+
+### 修复
+
+- 修正代码注释中一处过时的说明（不影响行为）。
+
+**English**
+
+### Fixed
+
+- Corrected an outdated code comment (no behaviour change).
+
 ## [1.5.30] - 2026-10-19
 
 **中文**

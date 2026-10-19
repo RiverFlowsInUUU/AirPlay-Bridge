@@ -2419,30 +2419,30 @@ struct Session {
         //   但**原因不同、文案必须不同**，否则用户排障会被误导：
         //     · 启动失败：设备一开始就没打开（缺驱动/被独占）
         //     · 运行中失效：播着播着拔了声卡 / 端点被禁用 / 驱动重置
-        //   只做一次（captureFailHandled），避免每轮重复触发重连。
-            // ★ 不能拿 !isRunning() 当入口：isRunning() 里含 running_，
-            //   而 stop() 会把 running_ 置 false —— 「已经停了」会被误判成
-            //   「采集坏了」，虽然 watchdog 的 handled_ 能挡住重复动作，
-            //   但语义是错的。这里只问两个失败计数。
-            if (capture) {
-                const auto dec = captureWatchdog.observe(
-                    capture->startFailures(), capture->runtimeFailures());
-                if (dec.act) {
-                    if (dec.failure == CaptureFailure::Runtime) {
-                        logLine("采集设备在播放中失效（" +
-                                std::to_string(capture->runtimeFailures()) +
-                                " 路设备），断开并等待重连");
-                        if (onStatus) onStatus(i18n::tr("音频设备已失效"));
-                    } else {
-                        logLine("采集启动失败（" +
-                                std::to_string(capture->startFailures()) +
-                                " 路设备），断开并等待重连");
-                        if (onStatus) onStatus(i18n::tr("采集启动失败"));
-                    }
-                    running.store(false);
-                    wantReconnect.store(true);
-                    return;
+        //   只做一次（captureWatchdog 的 handled_），避免每轮重复触发重连。
+        //
+        // ★ 不能拿 !isRunning() 当入口：那个函数 2026-10-19 已删，
+        //   而且它含 running_ —— stop() 会把 running_ 置 false，
+        //   「已经停了」会被误判成「采集坏了」。这里只问两个失败计数。
+        if (capture) {
+            const auto dec = captureWatchdog.observe(
+                capture->startFailures(), capture->runtimeFailures());
+            if (dec.act) {
+                if (dec.failure == CaptureFailure::Runtime) {
+                    logLine("采集设备在播放中失效（" +
+                            std::to_string(capture->runtimeFailures()) +
+                            " 路设备），断开并等待重连");
+                    if (onStatus) onStatus(i18n::tr("音频设备已失效"));
+                } else {
+                    logLine("采集启动失败（" +
+                            std::to_string(capture->startFailures()) +
+                            " 路设备），断开并等待重连");
+                    if (onStatus) onStatus(i18n::tr("采集启动失败"));
                 }
+                running.store(false);
+                wantReconnect.store(true);
+                return;
+            }
             }
         // 等待上限压到 10ms（默认 50ms）。
         //
