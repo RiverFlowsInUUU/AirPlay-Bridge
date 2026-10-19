@@ -2443,7 +2443,7 @@ struct Session {
                 wantReconnect.store(true);
                 return;
             }
-            }
+        }
         // 等待上限压到 10ms（默认 50ms）。
         //
         // 主循环一轮 = pump + 20ms sleep，而托盘每轮只处理一条消息。

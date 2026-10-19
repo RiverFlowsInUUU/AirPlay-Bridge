@@ -530,6 +530,50 @@ if _hits:
 else:
     ok("测试注入残留", "无（检查 %d 个标记）" % len(_INJECT_MARKS))
 
+# -------------------------------------------------- ⑮ 大括号缩进必须配对
+
+# 2026-10-19 实例（第八轮复核 P4）：一段代码的缩进从 12 格理到 8 格，
+# 却**只理了一半** —— 块首 `if (capture) {` 是 8 格，闭合它的 `}` 还是 12 格。
+# 功能无影响，但读的人容易把那个 `}` 误读成内层块的。
+#
+# 通用缩进检查难写准（注释/续行/字符串都会误报），所以只盯这一段：
+# **用括号配对找到 `if (capture) {` 真正对应的那个 `}`，比对两者缩进。**
+_ab = (read("src/app/airplay_bridge.cpp") or "").split(chr(10))
+_ai = None
+for _k in range(len(_ab)):
+    if "采集健康检查（2026-10-18 P2-1" in _ab[_k]:
+        _ai = _k
+        break
+if _ai is None:
+    fail("大括号缩进配对", "找不到采集健康检查那段锚点")
+else:
+    _oi = None
+    for _k in range(_ai, min(_ai + 40, len(_ab))):
+        if _ab[_k].lstrip().startswith("if (capture) {"):
+            _oi = _k
+            break
+    if _oi is None:
+        fail("大括号缩进配对", "锚点下找不到 if (capture) {")
+    else:
+        _depth = 0
+        _ci = None
+        for _k in range(_oi, min(_oi + 60, len(_ab))):
+            _depth += _ab[_k].count("{") - _ab[_k].count("}")
+            if _depth <= 0:
+                _ci = _k
+                break
+        if _ci is None:
+            fail("大括号缩进配对", "if (capture) { 60 行内找不到闭合")
+        else:
+            _io = len(_ab[_oi]) - len(_ab[_oi].lstrip())
+            _ic = len(_ab[_ci]) - len(_ab[_ci].lstrip())
+            if _io != _ic:
+                fail("大括号缩进配对",
+                     "块首(第%d行) %d格，闭合(第%d行) %d格" % (_oi+1, _io, _ci+1, _ic))
+            else:
+                ok("大括号缩进配对",
+                   "采集健康检查块 首尾同缩进（%d格，第%d/%d行）" % (_io, _oi+1, _ci+1))
+
 # ---------------------------------------------------------------- 输出
 
 print("")
