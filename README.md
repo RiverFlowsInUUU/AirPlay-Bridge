@@ -12,11 +12,9 @@ A replacement for TuneBlade, which stopped working on HomePod OS 27.
 
 ## 📦 Install
 
-Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) first (free, reboot after).
-
 Download `AirPlay-Bridge-Setup-vX.Y.Z.exe` from
 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
-and run it.
+and run it. The app works on its own — no virtual audio device needed.
 
 It installs to a fixed location (`Program Files\AirPlayBridge`).
 **Upgrades need no reconfiguration** — the firewall rule and startup entry follow
@@ -25,6 +23,29 @@ that location, so they survive version changes.
 Windows 10 / 11, 64-bit. The installer bundles its runtime.
 
 > Windows may block it once on first run — click **More info** → **Run anyway**.
+
+### 🔊 When you need a virtual audio cable
+
+[VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free, reboot after) is what
+keeps the sound off this PC. On connect the app switches the default playback
+device to the virtual cable, captures from there, and your speakers simply get no
+signal.
+
+That is worth having when the PC has speakers or headphones you would otherwise
+hear — a laptop with built-in speakers, or a desktop with something in the
+headphone jack. Without the cable the app still streams, and it mutes this PC's
+output device by default, so you normally will not hear it twice. The cable just
+makes "quiet PC" a property of how the audio is routed, not of that mute setting.
+
+Skip it when there is nothing to hear from anyway: a machine whose only audio
+endpoint is a dummy or a remote-playback device, a headless mini PC, or a box
+whose speakers are always off. Install the app on its own and it just works.
+
+One exception — if Windows lists no playback device at all (every endpoint
+disabled), there is nothing for the app to capture, and the cable is what gives
+it one.
+
+> The cable never changes what gets streamed — the audio is identical either way.
 
 ## 🚀 First run
 
@@ -130,7 +151,8 @@ Not listed? **Change settings** → **Allow another app** → **Browse**.
 
 ## ⚠️ Known limitations
 
-- Without a virtual audio cable, sound also goes to this PC's output device
+- Without a virtual audio cable, sound stays on this PC's output device (the app
+  mutes it by default — switchable from the menu)
 - Changing latency or quality requires one reconnect
 - Windows only
 - A few seconds of silence after a drop
