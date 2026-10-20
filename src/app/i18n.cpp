@@ -103,8 +103,11 @@ const Entry kEntries[] = {
     {"连接失败: ", "Connection failed: "},
     {"（若持续失败请检查防火墙入站规则）",
      " (if it keeps failing, check the firewall inbound rule)"},
-    {"已连接（未装虚拟声卡：电脑的输出设备也会播放）",
-     "Connected (no virtual audio device - this PC's output still plays)"},
+    // tooltip 的「已连接（设备名：IP）」按片段拼 —— 设备名与 IP 是运行时值，
+    // 整句进不了词条表。英文侧括号与冒号都跟中文不同，所以标点也得走词条。
+    // 右括号复用了下面「菜单状态行」那一节已有的 {"）", ")"}，不重复登记。
+    {"已连接（", "Connected ("},
+    {"：", ": "},
 
     // ── 滑块窗口标题 ──
     {"AirPlay Bridge — 延迟调节", "AirPlay Bridge - Latency"},

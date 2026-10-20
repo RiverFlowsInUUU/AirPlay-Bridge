@@ -2173,9 +2173,6 @@ struct Session {
 
         RaopEvents ev;
         ev.launched = [this](bool ok, const std::string& e) {
-            // 某些分支想给状态文案加点补充（比如"无虚拟声卡"）。
-            // 攒在这里、最后统一发，避免被后面那句通用文案覆盖掉。
-            std::string extraStatus;
             // 连上了：记住当前默认设备，然后切到虚拟声卡。
             // 这样系统声音不再走向物理音箱，而是进了虚拟声卡；
             // 我们从虚拟声卡采集推给 HomePod —— 电脑自己静悄悄。
@@ -2193,14 +2190,11 @@ struct Session {
                     // 这时是「监听复制」模式：系统声音仍然送往默认输出设备，
                     // 程序只是复制一份推给接收端。
                     //
-                    // 文案别写死成「两边同时出声」—— 电脑可能根本没接音箱，
-                    // 那样说会让人以为程序描述错了。准确的说法是
-                    // 「电脑的输出设备也会播放」：这是信号层面的事实；
-                    // 至于用户听不听得见，取决于他接没接音箱。
+                    // 这里只写日志，不再往 tooltip 上挂括号说明 ——
+                    // 托盘 icon 的提示只回答「连的是谁」，混进运行模式的解释
+                    // 会让那一行变长又变糊（老板 2026-10-20 要求统一）。
+                    // 没装虚拟声卡的后果已经写在 README 与菜单里。
                     logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
-                    // 不在这里直接发 onStatus —— 下面还会用「已连接」覆盖一次，
-                    // 用户就看不到这条提示了。攒到 extraStatus 里统一发。
-                    extraStatus = "已连接（未装虚拟声卡：电脑的输出设备也会播放）";
                 }
             }
 
@@ -2227,9 +2221,22 @@ struct Session {
             if (onStatus) {
                 // ★ 送出去的是**翻译后**的文案（tooltip / 菜单要跟着界面语言走）；
                 //   日志仍写中文 —— 那是排查用的，不跟界面语言变（既有设计）。
-                if (ok && !extraStatus.empty()) onStatus(i18n::tr(extraStatus.c_str()));
-                else onStatus(ok ? i18n::tr("已连接")
-                                 : (i18n::tr("连接失败: ") + e));
+                //
+                // 连上时带上「设备名：IP」，和菜单状态区说的是同一件事：
+                // 家里两台同型号的 HomePod 光看「已连接」分不出连的哪个。
+                // 拿不到名字就退回 IP（deviceLabel 的既有约定），两者都空
+                // 才只剩一句「已连接」。
+                if (!ok) {
+                    onStatus(i18n::tr("连接失败: ") + e);
+                } else if (deviceName.empty() && host.empty()) {
+                    onStatus(i18n::tr("已连接"));
+                } else {
+                    const std::string who = deviceName.empty() ? host : deviceName;
+                    onStatus(i18n::tr("已连接（") + who +
+                             (host.empty() ? std::string()
+                                           : i18n::tr("：") + host) +
+                             i18n::tr("）"));
+                }
             }
             // 首次连上时弹一次气泡。
             // 只在首次 —— 自动重连时不弹，否则隔一会儿蹦一个很烦。
