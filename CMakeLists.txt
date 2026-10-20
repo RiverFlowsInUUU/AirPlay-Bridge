@@ -175,3 +175,12 @@ if(MSVC)
     target_compile_options(capture_watchdog_test PRIVATE /W3)
 endif()
 add_test(NAME capture_watchdog COMMAND capture_watchdog_test)
+
+# 托盘提示文案：纯函数拼装，钉住「长设备名不能把 IP 挤掉」
+# 与「名字为空时 IP 不重复出现」这两条（2026-10-20）。
+add_executable(tooltip_text_test src/app/tooltip_text_test.cpp)
+target_include_directories(tooltip_text_test PRIVATE src/app)
+if(MSVC)
+    target_compile_options(tooltip_text_test PRIVATE /W3 /utf-8)
+endif()
+add_test(NAME tooltip_text COMMAND tooltip_text_test)

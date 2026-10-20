@@ -25,6 +25,7 @@
 #include "i18n.h"
 #include "version.h"
 #include "capture_health.h"
+#include "tooltip_text.h"
 #include "capture_watchdog.h"
 #include "wasapi_capture.h"
 #include "resampler.h"
@@ -2222,20 +2223,21 @@ struct Session {
                 // ★ 送出去的是**翻译后**的文案（tooltip / 菜单要跟着界面语言走）；
                 //   日志仍写中文 —— 那是排查用的，不跟界面语言变（既有设计）。
                 //
-                // 连上时带上「设备名：IP」，和菜单状态区说的是同一件事：
-                // 家里两台同型号的 HomePod 光看「已连接」分不出连的哪个。
-                // 拿不到名字就退回 IP（deviceLabel 的既有约定），两者都空
-                // 才只剩一句「已连接」。
+                // 连上时拆成三行，和菜单状态区一一对应：
+                //
+                //     AirPlay Bridge - 已连接
+                //     客厅 HomePod
+                //     192.168.1.50
+                //
+                // 单行塞「（设备名：IP）」在长设备名时会被 szTip 的 128
+                // 字符上限截掉 IP —— 而 IP 正是用来区分同名设备的那一项。
+                // 换行不受这个限制：szTip 支持多行。
+                // 设备名过长按菜单同样的 22 字符截断，避免提示框撑得过宽。
                 if (!ok) {
                     onStatus(i18n::tr("连接失败: ") + e);
-                } else if (deviceName.empty() && host.empty()) {
-                    onStatus(i18n::tr("已连接"));
                 } else {
-                    const std::string who = deviceName.empty() ? host : deviceName;
-                    onStatus(i18n::tr("已连接（") + who +
-                             (host.empty() ? std::string()
-                                           : i18n::tr("：") + host) +
-                             i18n::tr("）"));
+                    onStatus(connectedTipBody(deviceName, host,
+                                              i18n::tr("已连接")));
                 }
             }
             // 首次连上时弹一次气泡。
@@ -3198,7 +3200,13 @@ int main(int argc, char** argv) {
             tip += i18n::tr("（若持续失败请检查防火墙入站规则）");
         }
         tray.setTooltip(tip);
-        logLine(s);
+        // 日志仍写成一行：logLine 给每条打时间戳，多行文案会在日志里留下
+        // 几行没有时间戳的续行，翻日志时容易当成别的东西。
+        std::string forLog = s;
+        for (char& c : forLog) {
+            if (c == '\n') c = ' ';
+        }
+        logLine(forLog);
     };
     // 捕获 cfgPath：下面「静音扬声器」那几条要落盘（崩溃恢复用）。
     sess.onConnected = [&tray, &cfg, &cfgPath](bool ok) {
