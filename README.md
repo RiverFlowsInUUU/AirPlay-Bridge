@@ -26,24 +26,18 @@ Windows 10 / 11, 64-bit. The installer bundles its runtime.
 
 ### 🔊 When you need a virtual audio cable
 
-[VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free, reboot after) is what
-keeps the sound off this PC. On connect the app switches the default playback
-device to the virtual cable, captures from there, and your speakers simply get no
-signal.
+Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free, reboot after)
+when this PC has speakers or headphones that would play the same audio.
 
-That is worth having when the PC has speakers or headphones you would otherwise
-hear — a laptop with built-in speakers, or a desktop with something in the
-headphone jack. Without the cable the app still streams, and it mutes this PC's
-output device by default, so you normally will not hear it twice. The cable just
-makes "quiet PC" a property of how the audio is routed, not of that mute setting.
+On connect the app switches the default playback device to the cable, so system
+audio reaches the AirPlay device only.
 
-Skip it when there is nothing to hear from anyway: a machine whose only audio
-endpoint is a dummy or a remote-playback device, a headless mini PC, or a box
-whose speakers are always off. Install the app on its own and it just works.
+No audible output? Skip it — a dummy or remote-playback endpoint, a headless mini
+PC, or speakers that stay off. The app still streams, and mutes this PC by
+default.
 
-One exception — if Windows lists no playback device at all (every endpoint
-disabled), there is nothing for the app to capture, and the cable is what gives
-it one.
+One exception: if Windows lists no playback device at all, there is nothing to
+capture. The cable provides one.
 
 > The cable never changes what gets streamed — the audio is identical either way.
 
