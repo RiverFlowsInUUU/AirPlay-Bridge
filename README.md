@@ -95,22 +95,15 @@ When the rule is fine, **More settings › Connection check** says so.
 
 ## 🎛 Adjustable
 
-| Item | Range | Applies |
-|---|---|---|
-| Latency | 130 – 300 ms, 5 presets + continuous slider (100–300) | on reconnect |
-| Volume | 0 – 100%, Off / 30% / 50% / 70% / 100% + continuous slider | immediately |
-| Quality | 0 – 100%, 5 presets + slider | on reconnect |
-| Standby when silent | 0 – 20 s, 4 presets + slider (0 = off) | immediately |
+| Item | Presets | Range | Applies |
+|---|---|---|---|
+| Latency | 130 / 150 / 200 / **250** / 300 ms | continuous slider (100–300) | on reconnect |
+| Volume | Off / 30% / 50% / 70% / 100% | continuous slider (0–100) | immediately |
+| Quality | Fast / Standard / High / Very high / Maximum | continuous slider (0–100) | on reconnect |
+| Standby when silent | 5 / 10 / 15 / 20 s | continuous slider (0–20) | immediately |
 
-Latency presets: 130 / 150 / 200 / 250 (recommended) / 300 ms. Below 250 ms risks
-crackling; 130 ms is experimental.
-
-Volume presets: Off / 30% / 50% / 70% / 100%.
-
-Quality presets: Fast / Standard / High / Very high / Maximum (default).
-
-Standby presets: 5 / 10 / 15 / 20 s (5 s default). The slider is continuous
-0 – 20 s; 0 turns it off.
+Bold marks the default. Latency below 250 ms risks crackling; 130 ms is
+experimental. Standby at 0 turns the feature off.
 
 ## 🔇 No sound
 

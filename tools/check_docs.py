@@ -117,25 +117,43 @@ CORE = "src/app/airplay_bridge.cpp"
 DIALOG = "src/ui/latency_dialog.cpp"
 
 
+def table_row(rel, first_col):
+    """取 README 里「首列 == first_col」那一行的各单元格（去掉首尾的 |）。"""
+    text = read(rel)
+    if text is None:
+        return None
+    m = re.search(r"^\|\s*(?:%s)\s*\|(.*)\|\s*$" % first_col, text, re.M)
+    if not m:
+        return None
+    return [c.strip() for c in m.group(1).split("|")]
+
+
+# 2026-10-21：可调项原来「表格 + 四行 Presets 说明」各写一遍档位数字，
+# 同一批数字两处维护。现在合并成一张表 —— 表格是唯一来源。
+# 这带来一个必须盯住的风险：**锚点从「独立成行的说明」变成了表格单元格**，
+# 而表格的列是可以被重排的。所以下面按列名定位，不按列序号 ——
+# 谁把 Presets 列挪到别处都不会让检查静默失效。
+
+
 # -------------------------------------------------- ① 延迟档位
 
 truth = code_numbers(CORE, "kLatencyLevels")
 if truth is None:
     fail("延迟档位", "在 %s 里找不到 kLatencyLevels" % CORE)
 else:
-    for rel, pats in (
-        ("README.md", [r"Latency presets:\s*([^\n.]*)"]),
-        ("README.zh-CN.md", [r"延迟档位：\s*([^\n。]*)"]),
-    ):
-        m = find_any(rel, pats, "延迟档位 (%s)" % rel)
-        if m:
-            got = [int(x) for x in re.findall(r"\d+", m.group(1))]
-            got = [x for x in got if x >= 50]      # 滤掉 "5 presets" 这类噪声
-            if got == truth:
-                ok("延迟档位 (%s)" % rel, str(got))
-            else:
-                fail("延迟档位 (%s)" % rel,
-                     "文档写 %s，代码是 %s" % (got, truth))
+    for rel, hdr in (("README.md", "Latency"), ("README.zh-CN.md", "延迟")):
+        cells = table_row(rel, hdr)
+        if cells is None:
+            fail("延迟档位 (%s)" % rel, "可调项表格里找不到「%s」这一行" % hdr)
+            continue
+        # 档位是第 1 列；粗体标记（**250**）不影响取数
+        got = [int(x) for x in re.findall(r"\d+", cells[0])]
+        got = [x for x in got if x >= 50]      # 滤掉年份这类噪声
+        if got == truth:
+            ok("延迟档位 (%s)" % rel, str(got))
+        else:
+            fail("延迟档位 (%s)" % rel,
+                 "表格写 %s，代码是 %s" % (got, truth))
 
 # -------------------------------------------------- ② 延迟滑块范围
 
@@ -143,58 +161,40 @@ rng = slider_range(DIALOG, "LatencyDialog")
 if rng is None:
     fail("延迟滑块范围", "在 %s 里取不到 spec.minValue/maxValue" % DIALOG)
 else:
-    for rel in ("README.md", "README.zh-CN.md"):
-        m = find_any(rel, [
-            r"continuous slider\s*[（(]\s*(\d+\s*[–\-—~]\s*\d+)\s*[)）]",
-            r"无极滑块[（(]\s*(\d+\s*[–\-—~]\s*\d+)\s*[)）]",
-        ], "延迟滑块范围 (%s)" % rel)
-        if m:
-            got = dash_range(m.group(1))
-            if got == rng:
-                ok("延迟滑块范围 (%s)" % rel, "%d–%d" % got)
-            else:
-                fail("延迟滑块范围 (%s)" % rel,
-                     "文档写 %s，代码是 %s" % (got, rng))
+    for rel, hdr in (("README.md", "Latency"), ("README.zh-CN.md", "延迟")):
+        cells = table_row(rel, hdr)
+        if cells is None:
+            fail("延迟滑块范围 (%s)" % rel,
+                 "可调项表格里找不到「%s」这一行" % hdr)
+            continue
+        got = dash_range(cells[1])         # 第 2 列是滑块范围
+        if got == rng:
+            ok("延迟滑块范围 (%s)" % rel, "%d–%d" % got)
+        else:
+            fail("延迟滑块范围 (%s)" % rel,
+                 "表格写 %s，代码是 %s" % (got, rng))
 
 # -------------------------------------------------- ③ 音量档位
 
+# 原来拆成两条（明细行 + 表格行），现在表格是唯一来源，合成一条。
+# 2026-10-18 的教训仍适用：表格写「Off + 30% steps」而实际是 30/50/70/100
+# 非等距 —— 用户先看表格，所以表格必须被机器检查。
 vt = code_numbers(CORE, "kVolumeLevels")
 if vt is None:
     fail("音量档位", "在 %s 里找不到 kVolumeLevels" % CORE)
 else:
-    m = find_any("README.md", [r"Volume presets:\s*([^\n.]*)"],
-                 "音量档位 (README.md)")
-    if m:
-        items = [x.strip() for x in re.split(r"[/、]", m.group(1)) if x.strip()]
-        if len(items) == len(vt):
-            ok("音量档位 (README.md)", "%d 项" % len(items))
-        else:
-            fail("音量档位 (README.md)",
-                 "文档列 %d 项（%s），代码有 %d 档 %s"
-                 % (len(items), items, len(vt), vt))
-
-# -------------------------------------------------- ③b 音量档位（表格行）
-
-# 表格是用户扫读的地方，和下面那行明细说的是同一件事 —— 两处会漂移。
-# 2026-10-18 实例：表格写「Off + 30% steps」，而实际档位是 30/50/70/100
-# （不是 30% 等距）。明细行是对的，表格是错的 —— 而用户先看的是表格。
-if vt is not None:
     want_presets = " / ".join("%d%%" % v for v in vt if v != 0)
-    for rel in ("README.md", "README.zh-CN.md"):
-        text = read(rel)
-        if text is None:
-            fail("音量档位表格行 (%s)" % rel, "%s 不存在" % rel)
+    for rel, hdr in (("README.md", "Volume"), ("README.zh-CN.md", "音量")):
+        cells = table_row(rel, hdr)
+        if cells is None:
+            fail("音量档位 (%s)" % rel,
+                 "可调项表格里找不到「%s」这一行" % hdr)
             continue
-        m = re.search(r"^\|\s*(?:Volume|音量)\s*\|([^|]*)\|", text, re.M)
-        if not m:
-            fail("音量档位表格行 (%s)" % rel,
-                 "找不到音量那一行（措辞被改过？去更新 check_docs.py）")
-            continue
-        row = m.group(1).strip()
+        row = cells[0]
         if want_presets in row:
-            ok("音量档位表格行 (%s)" % rel, want_presets)
+            ok("音量档位 (%s)" % rel, want_presets)
         else:
-            fail("音量档位表格行 (%s)" % rel,
+            fail("音量档位 (%s)" % rel,
                  "表格写「%s」，应含「%s」" % (row[:60], want_presets))
 
 # -------------------------------------------------- ④ 待机档位
@@ -204,15 +204,19 @@ if st is None:
     fail("待机档位", "在 %s 里找不到 kStandbyLevels" % CORE)
 else:
     want = [x // 10 for x in st]          # 代码存的是十分之一秒
-    m = find_any("README.md", [r"Standby presets:\s*([^\n.]*)"],
-                 "待机档位 (README.md)")
-    if m:
-        got = [int(x) for x in re.findall(r"\d+", m.group(1))][:len(want)]
+    for rel, hdr in (("README.md", "Standby when silent"),
+                     ("README.zh-CN.md", "无声音时待机")):
+        cells = table_row(rel, hdr)
+        if cells is None:
+            fail("待机档位 (%s)" % rel,
+                 "可调项表格里找不到「%s」这一行" % hdr)
+            continue
+        got = [int(x) for x in re.findall(r"\d+", cells[0])][:len(want)]
         if got == want:
-            ok("待机档位 (README.md)", str(got))
+            ok("待机档位 (%s)" % rel, str(got))
         else:
-            fail("待机档位 (README.md)",
-                 "文档写 %s，代码是 %s" % (got, want))
+            fail("待机档位 (%s)" % rel,
+                 "表格写 %s，代码是 %s" % (got, want))
 
 # -------------------------------------------------- ⑤ 约束编号范围
 
