@@ -14,13 +14,11 @@ A replacement for TuneBlade, which stopped working on HomePod OS 27.
 
 Download `AirPlay-Bridge-Setup-vX.Y.Z.exe` from
 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
-and run it. The app works on its own — no virtual audio device needed.
+and run it. No virtual audio device needed.
 
-It installs to a fixed location (`Program Files\AirPlayBridge`).
-**Upgrades need no reconfiguration** — the firewall rule and startup entry follow
-that location, so they survive version changes.
-
-Windows 10 / 11, 64-bit. The installer bundles its runtime.
+Windows 10 / 11, 64-bit. The installer bundles its runtime and installs to
+`Program Files\AirPlayBridge` — **upgrades need no reconfiguration**, since the
+firewall rule and startup entry follow that location.
 
 > Windows may block it once on first run — click **More info** → **Run anyway**.
 
@@ -43,35 +41,27 @@ capture. The cable provides one.
 
 ## 🚀 First run
 
-- Asks which interface language to use (once; changeable later from the menu)
-- Asks whether to start at login (once; changeable later from the menu)
+- Asks for interface language and whether to start at login (once each)
 - Scans the local network and connects to what it finds
-- Checks the firewall rule and offers a one-click fix if it's missing
-
-
-## 🔊 Audio output
-
-While connected, sound comes out of the AirPlay device only and the PC stays
-quiet. Both are restored on disconnect.
+- Checks the firewall rule, with a one-click fix if it's missing
 
 ## ✨ Features
 
-- 🔎 Finds devices on the local network automatically
+- 🔎 Finds AirPlay devices on the local network
 - 🔄 Reconnects after a drop, even if the device changes IP
-- 🛟 Restores the audio device on next launch after being force-killed
-- 🌐 Interface in English or Chinese
-- 🎚 Adjustable latency / volume / quality / standby / capture device
-- 😴 Standby when silent: disconnects so the device screen turns off, and
-  reconnects the moment there's sound again
+- 🛟 Restores the audio device on next launch after a force-kill
+- 🔇 Mutes this PC on connect — sound comes from the AirPlay device only
+- 😴 Standby when silent — device screen off, back on the first sound
+- 🎚 Latency / volume / quality / standby / capture device, all adjustable
+- 🙈 Hide devices you don't want to see
+- 🌐 English or Chinese interface
 - 🖥 Starts at login, remembers your settings
 - ℹ️ Version and update check under **About**
-- 🔇 Mutes this PC on connect, so it no longer plays alongside the AirPlay device
-- 🙈 Hide devices you don't want to see
-- 1️⃣ Only one instance at a time, so two copies can't fight over a device
+- 1️⃣ One instance at a time, so two copies can't fight over a device
 
 ## 🖱 Usage
 
-Left- or right-click the tray icon to open the menu.
+Left- or right-click the tray icon.
 
 ```
 ✓ Connected
@@ -112,41 +102,40 @@ When the rule is fine, **More settings › Connection check** says so.
 | Quality | 0 – 100%, 5 presets + slider | on reconnect |
 | Standby when silent | 0 – 20 s, 4 presets + slider (0 = off) | immediately |
 
-Latency presets: 130 / 150 / 200 / 250 (recommended) / 300 ms. Below 250 ms risks crackling; 130 ms is experimental.
+Latency presets: 130 / 150 / 200 / 250 (recommended) / 300 ms. Below 250 ms risks
+crackling; 130 ms is experimental.
 
 Volume presets: Off / 30% / 50% / 70% / 100%.
 
 Quality presets: Fast / Standard / High / Very high / Maximum (default).
 
-Standby presets: 5 / 10 / 15 / 20 s (5 s default); the slider is continuous
-0 – 20 s, and 0 turns it off.
+Standby presets: 5 / 10 / 15 / 20 s (5 s default). The slider is continuous
+0 – 20 s; 0 turns it off.
 
 ## 🔇 No sound
 
 1. Confirm the tray menu shows **Connected**
-2. Open Windows sound settings and check the default playback device
+2. Check the default playback device in Windows sound settings
 3. Tray menu → More settings → Logs
 
 ## ⏳ Stuck on "Connecting"
 
-The receiver calls back into this PC for clock sync, so this app needs an
-inbound firewall rule on Windows.
-
-The app checks this at startup. If the rule is missing:
+The receiver calls back into this PC for clock sync, so the app needs an inbound
+firewall rule. It checks this at startup; if the rule is missing:
 
 | Step | Action |
 |---|---|
 | 1 | Tray menu → More settings → Connection check |
 | 2 | Approve the admin prompt |
 
-By hand: Windows Security → **Firewall & network protection** →
-**Allow an app through firewall** → find AirPlay Bridge → tick **Private**.
-Not listed? **Change settings** → **Allow another app** → **Browse**.
+By hand: Windows Security → **Firewall & network protection** → **Allow an app
+through firewall** → AirPlay Bridge → tick **Private**. Not listed? **Change
+settings** → **Allow another app** → **Browse**.
 
 ## ⚠️ Known limitations
 
-- Without a virtual audio cable, sound stays on this PC's output device (the app
-  mutes it by default — switchable from the menu)
+- Without a virtual audio cable, sound stays on this PC's output device (muted by
+  default — switchable from the menu)
 - Changing latency or quality requires one reconnect
 - Windows only
 - A few seconds of silence after a drop
