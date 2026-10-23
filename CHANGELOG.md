@@ -3,6 +3,27 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.33] - 2026-10-23
+
+**中文**
+
+### 变更
+
+- 鼠标悬停在托盘图标上，现在分行显示状态、设备名和 IP 地址 ——
+  连着哪台设备一眼可见，两台同型号设备也能分清。
+- 连接状态不再附带「未装虚拟声卡」的括号说明。
+
+**English**
+
+### Changed
+
+- Hovering the tray icon now shows the status, device name and IP on separate
+  lines, so you can tell which device is connected — including two units of the
+  same model.
+
+- The connected tooltip no longer appends a note about the missing virtual audio
+  device.
+
 ## [1.5.32] - 2026-10-19
 
 **中文**
