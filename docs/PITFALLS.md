@@ -550,6 +550,49 @@ if (hasArgs) {
 我曾被告知「下个版本起只发安装版」，40 分钟后发版时完全没想起来，
 还手动把便携版 cp 到了桌面。
 
+### 只在 CI 上编译的东西，改之前先查文档（2026-10-24）
+
+**本地跑不了的东西，改它就没有"改错了会立刻知道"这回事 —— 唯一的反馈是 CI 挂掉，
+而那时 tag 已经推上去、release 已经开始了。**
+
+**事故**：给安装器加"跟随系统语言"的开关，凭记忆写成
+
+```ini
+LanguagesDetection=auto          ; ← 这个指令不存在
+```
+
+Inno 不认，报「未知指令」当场中止打包。`build` job 挂在「打包安装程序」，
+`publish` job 被 skip —— **tag 推出去了，安装包没出来**。
+
+正确写法是 `LanguageDetectionMethod=uilanguage`（合法值只有
+`uilanguage / locale / none`，而且 `uilanguage` 本来就是默认值）。
+
+#### 为什么偏偏栽在这一类文件上
+
+| 文件 | 本地能验证吗 |
+|---|---|
+| `src/**` C++ | ✅ 能，`cmake --build` 秒报 |
+| `tools/check_docs.py` | ✅ 能，直接跑 |
+| `README` 数字 | ✅ 能，跑门禁 |
+| **`installer/*.iss`** | ❌ **CI 才有 Inno Setup** |
+| **`.github/workflows/*.yml`** | ❌ **只有 GitHub 认** |
+
+前四类的错误会被本地的编译/门禁拦下，我形成了"改完立刻知道对不对"的习惯；
+后两类**没有这一层**，习惯却照搬过来，就成了凭记忆裸奔。
+
+#### 所以
+
+1. **改 `.iss` / workflow 前，先查官方文档确认字段名**（`jrsoftware.org/ishelp`、
+   GitHub Actions 文档）。两分钟的事，比一次失败的 release 便宜得多
+2. **推 tag 前想一遍：这次改的文件，本地验证过吗？**
+   没验证过的，先用 `workflow_dispatch` 手动跑一次打包产物 ——
+   `release.yml` 支持手动触发且**只出产物不建 release**，就是为这个留的
+3. **tag 不是不可撤回的**：发错了 `git push origin :refs/tags/vX.Y.Z` 删掉、
+   修好重打即可。但**别把它当常规操作** —— 已经有人下载过坏包就等于发出去了
+
+> 同类问题的普适形式：**"我的验证手段覆盖不到我这次的改动"**。
+> 感觉"改完就行"的时候，先问一句「我改的东西，本地跑得起来吗？」
+
 
 ## ⑦ 算法与数值
 

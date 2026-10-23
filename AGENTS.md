@@ -54,6 +54,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | **改了 `third_party/` 里任何文件** | **必须同步重新生成 `patches/`** —— [docs/RULES.md](docs/RULES.md) 的 **C13**。不同步 = 你测的和用户装的不是同一份代码 |
 | 判断某个 bug 要不要修 | [docs/RULES.md](docs/RULES.md) 的 **C12**（低频 + 静默 = 按高频处理） |
 | **改了会变的事实**（档位 / 范围 / 编号 / 条数） | [docs/RULES.md](docs/RULES.md) 的 **C14** —— 能机械核对的钉进 `tools/check_docs.py`（CI 会跑） |
+| **改 `installer/*.iss` 或 `.github/workflows/`** | **先查官方文档确认字段名** —— 这两类本地编译不了，写错只知道 CI 挂。[docs/PITFALLS.md](docs/PITFALLS.md) ⑥ 有完整事故记录 |
 | 提交 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「提交」 |
 | 发版 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「发布」+ [docs/RULES.md](docs/RULES.md) 的发布纪律 |
 | 写 README / 发布说明 | [docs/STYLE.md](docs/STYLE.md) |

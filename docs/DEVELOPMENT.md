@@ -205,6 +205,16 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 （平时不烧分钟数，理由见 check-patch.yml 的注释）。
 它会从 `CMakeLists.txt` 读版本号、用 Inno 打安装包、建 release。
 
+**★ 改过 `installer/*.iss` 或 `.github/workflows/` 时，先手动触发一次再打 tag。**
+手动触发（`workflow_dispatch`）**只出产物、不建 release**，就是为这个留的：
+它是这两类文件唯一能"提前验证"的途径，而它们本地编译不了 ——
+`.iss` 要 Inno Setup、workflow 只有 GitHub 认。
+
+凭记忆写错一个字段名，CI 会在打包步骤中止，`publish` job 被 skip，
+**tag 已经推出去了、安装包却没出来**（2026-10-24 把 `LanguageDetectionMethod`
+写成 `LanguagesDetection`，实际踩到）。多花两分钟手动跑一遍，比一次失败的
+release 便宜得多。
+
 **这条流水线自带补丁校验**（LF 行尾 / 能 apply / 覆盖 4 个文件 / 防陈旧标志行），
 **在编译之前跑，失败即中止**。所以 tag 推上去不用再靠旁路的 `check-patch.yml`
 替它把关 —— 两个 workflow 是相互独立的，一个挂了不拦另一个（2026-10-17 踩过）。
