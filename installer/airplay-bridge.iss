@@ -72,20 +72,23 @@ PrivilegesRequired=admin
 CloseApplications=no
 RestartApplications=no
 
-; 语言选择跟随系统。Inno 默认只看 [Languages] 的**第一条**，
-; 与系统语言无关 —— 那样德语、日语用户都会被预选成中文或英文。
-; 这里按系统 UI 语言匹配：中文系统选 chinese，其余一律 english
-; （App 界面本身只有中英两种，多出来的语言没有对应译文）。
-LanguagesDetection=auto
+; 语言选择按系统「UI 语言」匹配（Inno 的默认行为，这里写出来是为了不被
+; 将来谁改成 none 而悄悄失效）：中文系统自动选 chinese，其余回落 english。
+; App 界面本身只有中英两种，别的语言没有对应译文。
+;
+; ★ 指令名是 LanguageDetectionMethod —— 曾误写成 LanguagesDetection，
+;   Inno 报「未知指令」直接中止打包，整个 release 卡在打包这一步。
+;   合法值只有 uilanguage / locale / none。
+LanguageDetectionMethod=uilanguage
 
 [Languages]
 ; 语言文件随仓库走 —— CI 上新装的 Inno 不自带简体中文
 ;
-; ★ 顺序 = 找不到匹配时的预选语言，所以 english 必须排第一。
-;   排在第一的是 chinese 时，德语/日语等任何非中英系统都会默认预选简体中文，
+; ★ 顺序 = 系统语言匹配不上时的回退，所以 english 必须排第一。
+;   原来 chinese 排第一，德语/日语等任何非中英系统都会默认预选简体中文，
 ;   用户第一眼看到的是看不懂的界面。
-;   实际选择交给 LanguagesDetection（见 [Setup]）：系统语言是中文就选中文，
-;   否则选英文 —— 这是 App 本身只有中英两种界面的事实决定的。
+;   正常情况由 [Setup] 的 LanguageDetectionMethod=uilanguage 决定：
+;   中文系统选 chinese，其余一律回落到这里的英文。
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinese"; MessagesFile: "ChineseSimplified.isl"
 
