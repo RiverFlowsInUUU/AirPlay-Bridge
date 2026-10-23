@@ -18,6 +18,22 @@
 
 namespace fxchain {
 
+// 按 UTF-8 字符边界截断：超过 maxBytes 就退到不切断多字节字符的位置，加 "..."。
+//
+// ★ 不能直接 s.substr(0, n)。中文一个字占 3 字节，切在第 2 个字节上
+//   就把这个字砍成半个，界面显示成「客厅 HomePod�...」。
+//   菜单状态区和托盘提示都要做同样的截断，所以抽成公共函数 ——
+//   之前只有 tooltip 这条路修了，菜单那条漏着（2026-10-23 外部审查发现）。
+inline std::string truncateUtf8(const std::string& s, std::size_t maxBytes) {
+    if (s.size() <= maxBytes) return s;
+    // UTF-8 的后续字节都是 10xxxxxx；往前退到字符起始字节。
+    std::size_t cut = maxBytes;
+    while (cut > 0 && (static_cast<unsigned char>(s[cut]) & 0xC0) == 0x80) {
+        --cut;
+    }
+    return s.substr(0, cut) + "...";
+}
+
 // 拼「已连接」提示的正文（不含 "AirPlay Bridge - " 前缀，那部分由 onStatus 加）。
 //
 // 输出形如：
@@ -31,9 +47,7 @@ namespace fxchain {
 //   - 只有**名字和 IP 都有**时才写第二行 IP —— 名字本身就是退回的 IP 时
 //     再写一遍就重复了
 //
-// ★ 截断按**UTF-8 字符边界**退让，不能直接 substr 字节数。
-//   中文一个字占 3 字节，按字节切会把最后一个字砍成半个 ——
-//   界面上显示成「一个名字特别特�...」，是乱码。
+// ★ 截断按**UTF-8 字符边界**退让，不能直接 substr 字节数 —— 见 truncateUtf8。
 //   （2026-10-20 实测发现：22 字节切在「设」字中间。）
 inline std::string connectedTipBody(const std::string& deviceName,
                                     const std::string& host,
@@ -45,18 +59,7 @@ inline std::string connectedTipBody(const std::string& deviceName,
     if (who.empty()) return out;
 
     out += '\n';
-    if (who.size() > maxBytes) {
-        // 退到不截断多字节字符的位置：UTF-8 的后续字节都是 10xxxxxx。
-        std::size_t cut = maxBytes;
-        while (cut > 0 &&
-               (static_cast<unsigned char>(who[cut]) & 0xC0) == 0x80) {
-            --cut;
-        }
-        out += who.substr(0, cut);
-        out += "...";
-    } else {
-        out += who;
-    }
+    out += truncateUtf8(who, maxBytes);
 
     // 只有「名字」和「IP」是两个不同的东西时才补 IP 行。
     if (!deviceName.empty() && !host.empty()) {

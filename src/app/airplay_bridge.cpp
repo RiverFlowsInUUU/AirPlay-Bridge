@@ -372,6 +372,19 @@ bool fetchLatestRelease(std::string& tag, std::string& url) {
 // 偏高则会"有声音也待机"（用户没有别的办法，只能关掉待机）。
 constexpr int kSilencePeak = 20;
 
+// 「静音后采集不到电平」要连续几个 5 秒窗口才动手撤销静音。
+//
+// 6 个窗口 = 30 秒。取这个数的理由：
+//   - 短于待机档位里最短的 5 秒没有意义（还没到待机就已经判定了）；
+//   - 太长则循环已经发生好几轮，用户已经听到断续了；
+//   - 30 秒也足够跨过"曲目之间的自然间隙"这类短暂静音，不会误撤销。
+// 只有「我们自己静的音 + 连着 + 电平持续为静音级」三条同时成立才计数，
+// 用户自己暂停播放走的是正常待机路径，不受影响。
+constexpr int kMuteNoSignalPasses = 6;
+
+// 「静音后采集不到电平」的连续窗口计数（主循环专用，仅主线程读写）。
+int muteNoSignalPasses = 0;
+
 BOOL WINAPI onCtrl(DWORD sig) {
     if (sig == CTRL_C_EVENT || sig == CTRL_BREAK_EVENT || sig == CTRL_CLOSE_EVENT) {
         g_stop.store(true);
@@ -1357,13 +1370,20 @@ bool elevateAndRunFixFirewall() {
     const char QC = '"';
     std::string params = "--fix-firewall";
 
+    // exePath() 按值返回 std::string —— 必须落到命名变量上再取 c_str()。
+    // 写成 sei.lpFile = exePath().c_str() 的话，临时对象在语句结束时析构，
+    // ShellExecuteExA 拿到的指针指向已释放的堆块（路径几乎总超过 SSO 的
+    // 15 字符，不可能是短字符串优化）。今天能跑只是因为那块内存还没被复用，
+    // 任何堆活动（杀软 hook、CRT 差异）都会让 UAC 拉起乱码路径。
+    const std::string exe = exePath();
+
     SHELLEXECUTEINFOA sei{};
     sei.cbSize = sizeof(sei);
     sei.fMask  = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
     // NULL = 当前显示的窗口，系统自己挑一个父窗口挂 UAC 弹窗
     sei.hwnd   = nullptr;
     sei.lpVerb = "runas";
-    sei.lpFile = exePath().c_str();
+    sei.lpFile = exe.c_str();
     sei.lpParameters = params.c_str();
     sei.nShow  = SW_SHOWNORMAL;
 
@@ -1407,12 +1427,15 @@ bool elevateAndRunFixFirewall() {
 bool elevateAndRunCleanFirewallRules() {
     std::string params = "--clean-firewall-rules";
 
+    // 同上：exePath() 是临时对象，必须先落到命名变量再取 c_str()。
+    const std::string exe = exePath();
+
     SHELLEXECUTEINFOA sei{};
     sei.cbSize = sizeof(sei);
     sei.fMask  = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
     sei.hwnd   = nullptr;
     sei.lpVerb = "runas";
-    sei.lpFile = exePath().c_str();
+    sei.lpFile = exe.c_str();
     sei.lpParameters = params.c_str();
     sei.nShow  = SW_SHOWNORMAL;
 
@@ -3419,13 +3442,17 @@ int main(int argc, char** argv) {
                 std::string line1, line2, line3;
                 if (sess.connected.load()) {
                     line1 = i18n::tr("已连接");
-                    // 设备名单独一行；过长则截断，避免把菜单撑宽
-                    std::string who = sess.deviceName.empty() ? sess.host : sess.deviceName;
-                    const size_t kMaxName = 22;
-                    if (who.size() > kMaxName) who = who.substr(0, kMaxName) + "...";
-                    line2 = who;
-                    // IP 再单独一行（短，不会撑宽菜单）
-                    line3 = sess.host;
+                    // 设备名单独一行；过长则截断，避免把菜单撑宽。
+                    // ★ 必须走 truncateUtf8 —— 直接 substr 按字节切会把
+                    //   中文设备名的最后一个字砍成半个，显示成「客厅 HomePod�...」。
+                    //   托盘提示那条路早就修过（tooltip_text.h），菜单这条漏着。
+                    const std::string who =
+                        sess.deviceName.empty() ? sess.host : sess.deviceName;
+                    line2 = fxchain::truncateUtf8(who, 22);
+                    // IP 再单独一行（短，不会撑宽菜单）。
+                    // 名字为空时 line2 已经是 host 了，别再写一遍 ——
+                    // 托盘提示里做了这个去重，菜单没有（两行同一个 IP）。
+                    line3 = (sess.deviceName.empty()) ? std::string() : sess.host;
                 } else if (sess.running.load()) {
                     line1 = i18n::tr("连接中...");
                 } else {
@@ -3722,7 +3749,13 @@ int main(int argc, char** argv) {
             tray.showMenu(menu, [&](int id) {
                 // 设备列表里点了一项：直接连它。
                 // 「隐藏设备」子菜单的点击 —— 切换该设备的显示/隐藏。
-                if (id >= kHideDeviceMenuBase) {
+                //
+                // ★ 必须带上界。原来只写 id >= kHideDeviceMenuBase（1600，无上界），
+                // 而「采集设备」的 ID 是 kCaptureDeviceMenuBase + i = 1700+i，
+                // 落进这个区间后会被当成 all[100+i] —— 家庭网络到不了 100 台设备，
+                // idx < all.size() 恒假，静默 return。结果：采集设备子菜单里
+                // 选任何具体端点都没反应，只有「跟随系统默认」还活着。
+                if (id >= kHideDeviceMenuBase && id < kCaptureDeviceMenuBase) {
                     std::vector<AirPlayDevice> all;
                     {
                         std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
@@ -4223,6 +4256,49 @@ int main(int argc, char** argv) {
                     const int pk = g_peakWindowMax.exchange(0);
                     logLine("采集电平：本 5 秒最大峰值 " + std::to_string(pk) +
                             "（静音阈值 " + std::to_string(kSilencePeak) + "）");
+
+                    // ★ 采集端点在静音后还采不采得到东西，**是驱动相关的**：
+                    //   WASAPI loopback 一般在端点静音之前抽信号（我们实测过，
+                    //   静音后峰值 11226/11629/11653 基本不变），但 TuneBlade 的
+                    //   FAQ 与部分声卡驱动里，静音会让环回停止供数或输出全零。
+                    //   一旦如此，后果是自我维持的循环：
+                    //     静音 → peak 恒 0 → 静音待机计时到期 → 拆会话
+                    //     → 断开时撤销静音 → 本机发声 → 唤醒重连 → 又静音
+                    //   每「待机秒数 + 重连时间」循环一次，接收端周期性无声。
+                    //
+                    //   判据要卡死三个条件，避免误伤「用户只是暂停了播放」：
+                    //   ① 是我们自己静的音（g_mutedByUs），不是用户设的
+                    //   ② 会话连着（真在推流，不是待机/未连）
+                    //   ③ 连续 kMuteNoSignalPasses 个窗口都是静音级电平
+                    //   第 ③ 条是最关键的一条：暂停播放也会 peak=0，但那样
+                    //   wantStandby 走的是正常待机路径，不该撤销用户的静音。
+                    //   真正病态的情形是「静音 + 静音级电平 + 还连着」持续到
+                    //   快要触发待机 —— 那时撤销静音是唯一能打破循环的动作。
+                    if (cfg.muteLocalOnConnect && g_mutedByUs.load() &&
+                        sess.running.load() && sess.connected.load() &&
+                        !standbyActiveConfig(cfg)) {
+                        if (pk < kSilencePeak) {
+                            ++muteNoSignalPasses;
+                        } else {
+                            muteNoSignalPasses = 0;
+                        }
+                        if (muteNoSignalPasses >= kMuteNoSignalPasses) {
+                            muteNoSignalPasses = 0;
+                            if (setSystemMuted(false)) {
+                                g_mutedByUs.store(false);
+                                if (cfg.localMutedByUs) {
+                                    cfg.localMutedByUs = false;
+                                    saveConfig(cfgPath, cfg);
+                                }
+                                logLine("采集端点在静音后收不到任何电平 —— "
+                                        "这台机器的驱动会把环回一起静掉。"
+                                        "已撤销静音以免断连循环；本次会话不再静音，"
+                                        "请在菜单里关掉「连接时静音电脑扬声器」。");
+                            }
+                        }
+                    } else {
+                        muteNoSignalPasses = 0;
+                    }
                 }
 
                 if (cNow != lastClipped) {
@@ -4255,7 +4331,15 @@ int main(int argc, char** argv) {
         //   因此改成：连接持续存活满 kBackoffResetSec 秒才算「真的连上了」。
         static std::chrono::steady_clock::time_point connSince{};
         static bool wasConnected = false;
+        // 本进程里是否**曾经建立过会话**（短暂连上也算）。
+        //
+        // 判据故意用「连上过」而不是「撑满 kBackoffResetSec」：被踢恰恰发生在
+        // 撑不满 10 秒的时候，用撑满做判据永远置不上位，加速就永远不生效 ——
+        // 那正是这个 bug 本身。这里要回答的是「用户是不是已经在用了、
+        // 现在被反复踢」，不是「这条链路健不健康」。
+        static bool everConnected = false;
         if (sess.connected.load()) {
+            everConnected = true;
             if (!wasConnected) { connSince = now; wasConnected = true; }
             if (std::chrono::duration_cast<std::chrono::seconds>(now - connSince).count()
                     >= kBackoffResetSec)
@@ -4295,6 +4379,23 @@ int main(int argc, char** argv) {
 
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastCheck).count() >= retryBackoffSec) {
             lastCheck = now;
+            // 两条重连路径（被踢 / 掉线）都要让退避增长 ——
+            // 原来只写在下面 else-if 里，而「握手成功、3~8 秒后被踢」这条路
+            // 全程 running == true，走的是上面这支，退避一次都不翻倍：
+            // 表现就是每 5 秒连一次、被踢、再 5 秒，两台设备抢同一个接收端时
+            // 永远停不下来。这与上面「连上」判据那段注释想解决的问题是同一个，
+            // 只是补在了错的一支上。
+            //
+            // 判据要区分「还没连上过」和「连上过又断了」：
+            //   - 从没连上过（开机时音箱还没通电）→ 保持 5 秒慢慢试，别加速，
+            //     用户刚开机就等 60 秒是骚扰；
+            //   - 连上过、又因为 wantReconnect 掉下来 → 说明在反复被踢，
+            //     这才是要加速的场景（两台设备抢同一个接收端）。
+            // everConnected 在下面 connected 分支里维护：只有会话真的建立过才置 true。
+            if (sess.running.load() && sess.wantReconnect.load() && everConnected &&
+                retryBackoffSec < 60) {
+                retryBackoffSec *= 2;
+            }
             if (sess.running.load() && sess.wantReconnect.load()) {
                 sess.wantReconnect.store(false);
                 sess.teardown();
@@ -4318,8 +4419,8 @@ int main(int argc, char** argv) {
                 // 采集线程还挂着。先收尾再连 —— 顺带把音频路由也恢复回去。
                 sess.teardown();
                 tryConnect();
-                // 退避翻倍，上限 60 秒
-                retryBackoffSec = (retryBackoffSec < 60) ? retryBackoffSec * 2 : 60;
+                // 退避翻倍已提到上面 retry 判据那里统一处理 ——
+                // 两支共用，避免只有「掉线」加速、「被踢」不加速。
             }
         }
 

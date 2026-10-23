@@ -97,13 +97,14 @@ When the rule is fine, **More settings › Connection check** says so.
 
 | Item | Presets | Range | Applies |
 |---|---|---|---|
-| Latency | 130 / 150 / 200 / **250** / 300 ms | continuous slider (100–300) | on reconnect |
+| Latency | 130 / 150 / **200** / 250 / 300 ms | continuous slider (100–300) | on reconnect |
 | Volume | Off / 30% / 50% / 70% / 100% | continuous slider (0–100) | immediately |
 | Quality | Fast / Standard / High / Very high / Maximum | continuous slider (0–100) | on reconnect |
 | Standby when silent | 5 / 10 / 15 / 20 s | continuous slider (0–20) | immediately |
 
-Bold marks the default. Latency below 250 ms risks crackling; 130 ms is
-experimental. Standby at 0 turns the feature off.
+Bold marks the default shipped with the app. Latency below 250 ms risks
+crackling; 250 ms is the tested sweet spot and 130 ms is experimental.
+Standby at 0 turns the feature off.
 
 ## 🔇 No sound
 

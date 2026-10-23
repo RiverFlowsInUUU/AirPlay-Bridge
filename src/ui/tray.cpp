@@ -288,9 +288,14 @@ struct TrayIcon::Impl {
         // 注意覆盖面：这条只处理「系统给了机会」的退出路径。
         // 任务管理器强杀 / 崩溃 / 断电不会给任何通知，进程没有一个字节能执行到 ——
         // 那种情况靠启动时的恢复逻辑兜底。
+        // WM_QUERYENDSESSION 只是「询问」：任何一个程序返回 FALSE 都能取消注销，
+        // 这时候本程序**不该已经退掉了** —— 否则会出现「关机被别的程序拦下，
+        // 但 AirPlay Bridge 已经自己关了」。所以这里只表态同意，不动手。
+        //
+        // 真正的收尾放在 WM_ENDSESSION 且 wParam 非零（确认结束会话）。
+        // wParam == 0 表示会话被取消，什么都不做。
         if (msg == WM_QUERYENDSESSION) {
-            if (g_quitRequest) g_quitRequest();
-            return TRUE;    // 同意结束会话
+            return TRUE;    // 同意结束会话，但先不退出
         }
         if (msg == WM_ENDSESSION) {
             if (wp && g_quitRequest) g_quitRequest();
@@ -430,8 +435,14 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     //
     // 用 102（已连接那枚，橘橙）而不是 d_->current：通知在任何状态下都可能
     // 发，图标不该随连接状态变 —— 它代表"这个程序"，不是"当前已连接"。
-    nid.uFlags = NIF_INFO | NIF_ICON;
-    nid.hIcon = d_->iconConnected;
+    //
+    // ★ 只给 hBalloonIcon，绝不能带 NIF_ICON。
+    // NIF_ICON + NIM_MODIFY 改的是**托盘图标本身**，不是气泡上那枚小图标；
+    // 带上去就等于"任何通知都把托盘改成已连接"。更糟的是 setConnected()
+    // 用 d_->connected 做去重缓存，内存里仍是 idle，后续 setConnected(false)
+    // 直接 early-return —— 图标再也修不回来，直到重启。
+    // 未连接时点「重新扫描」，图标就变成连接色、tooltip 却写着"未找到设备"。
+    nid.uFlags = NIF_INFO;
     nid.hBalloonIcon = d_->iconConnected;
     // ★ 必须带 NIIF_NOSOUND —— 我们自己弹的提示不能出声。
     //

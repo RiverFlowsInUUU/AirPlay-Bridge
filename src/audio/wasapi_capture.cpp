@@ -294,8 +294,22 @@ bool WasapiCapture::open(std::string* errOut) {
         // 用户指定了某个输出端点就用它；没指定（或那个设备已经不在了）
         // 就用系统默认。**回退而不是报错** —— 设备被拔掉、改名、
         // 或者用户换了台机器，都不该让整个程序采集不了。
-        if (!cfg_.deviceId.empty())
+        if (!cfg_.deviceId.empty()) {
             impl_->enumerator->GetDevice(cfg_.deviceId.c_str(), &dev);
+
+            // ★ 光看 GetDevice() 成功不够。被拔掉/停用的端点**仍留在注册表
+            //   里**，GetDevice 会照常返回一个 DEVICE_STATE_NOT_ACTIVE 的
+            //   对象 —— 于是回退分支被跳过，Activate/Initialize 才失败，
+            //   open() 整体报错。表现是「拔了 USB 声卡，每次连接都启动失败，
+            //   只能在菜单里手动重选」。
+            //   这里主动查一次状态，非 ACTIVE 就当作取不到，走回退。
+            if (dev) {
+                DWORD st = 0;
+                if (FAILED(dev->GetState(&st)) || st != DEVICE_STATE_ACTIVE) {
+                    dev.Reset();
+                }
+            }
+        }
         if (!dev) {
             if (FAILED(impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &dev)))
                 return fail("no default playback device");

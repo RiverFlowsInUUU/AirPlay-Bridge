@@ -156,6 +156,54 @@ int main() {
         }
     }
 
+    std::printf("\n8b. truncateUtf8 是菜单与提示共用的截断，单独钉住\n");
+    {
+        // 短串原样返回（不加 "..."）
+        const std::string shortCn = "客厅 HomePod";
+        expectLines(truncateUtf8(shortCn, 22), shortCn, "未超限就原样返回");
+
+        // 恰好等于上限也不截
+        const std::string exact(22, 'A');
+        expectLines(truncateUtf8(exact, 22), exact, "恰好等于上限不截断");
+
+        // 超限：结果必须是原串前缀 + "..."，且切点不在多字节字符中间
+        const std::string cn = "一个名字特别特别长的 AirPlay 音箱设备";
+        const std::string got = truncateUtf8(cn, 22);
+        const std::size_t ell = got.rfind("...");
+        ++g_checks;
+        if (ell == std::string::npos) {
+            ++g_fail;
+            std::printf("      FAIL  超限却没加省略号\n");
+        } else {
+            const std::string prefix = got.substr(0, ell);
+            ++g_checks;
+            if (cn.compare(0, prefix.size(), prefix) != 0) {
+                ++g_fail;
+                std::printf("      FAIL  截断结果不是原串的前缀\n");
+            }
+            ++g_checks;
+            if (prefix.size() > 22) {
+                ++g_fail;
+                std::printf("      FAIL  截断后仍超上限：%d 字节\n",
+                            int(prefix.size()));
+            }
+            ++g_checks;
+            if (prefix.size() < cn.size() &&
+                (static_cast<unsigned char>(cn[prefix.size()]) & 0xC0) == 0x80) {
+                ++g_fail;
+                std::printf("      FAIL  切点落在多字节字符中间（会显示成乱码）\n");
+            }
+        }
+
+        // 纯 ASCII 超限也要能用（不能因为只处理中文就崩）
+        const std::string ascii(40, 'B');
+        const std::string ga = truncateUtf8(ascii, 10);
+        expectLines(ga, std::string(10, 'B') + "...", "ASCII 超限截断");
+
+        // 空串
+        expectLines(truncateUtf8("", 22), "", "空串原样返回");
+    }
+
     std::printf("\n9. label 为空指针不崩（防御）\n");
     {
         const std::string got = connectedTipBody("x", "", nullptr);

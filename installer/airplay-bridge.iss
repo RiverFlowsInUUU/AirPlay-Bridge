@@ -72,10 +72,22 @@ PrivilegesRequired=admin
 CloseApplications=no
 RestartApplications=no
 
+; 语言选择跟随系统。Inno 默认只看 [Languages] 的**第一条**，
+; 与系统语言无关 —— 那样德语、日语用户都会被预选成中文或英文。
+; 这里按系统 UI 语言匹配：中文系统选 chinese，其余一律 english
+; （App 界面本身只有中英两种，多出来的语言没有对应译文）。
+LanguagesDetection=auto
+
 [Languages]
 ; 语言文件随仓库走 —— CI 上新装的 Inno 不自带简体中文
-Name: "chinese"; MessagesFile: "ChineseSimplified.isl"
+;
+; ★ 顺序 = 找不到匹配时的预选语言，所以 english 必须排第一。
+;   排在第一的是 chinese 时，德语/日语等任何非中英系统都会默认预选简体中文，
+;   用户第一眼看到的是看不懂的界面。
+;   实际选择交给 LanguagesDetection（见 [Setup]）：系统语言是中文就选中文，
+;   否则选英文 —— 这是 App 本身只有中英两种界面的事实决定的。
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinese"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -186,12 +198,20 @@ begin
     if (not Exec(Cleaner, '--uninstall-cleanup', '', SW_HIDE,
                  ewWaitUntilTerminated, ResultCode))
        or (ResultCode <> 0) then
-      MsgBox('系统集成清理未完成（防火墙规则 / 开机自启项可能残留）。' + #13#10 + #13#10 +
-             '不影响卸载，但建议在卸载后手动检查：' + #13#10 +
-             '  · Windows 防火墙 → 高级设置 → 入站规则' + #13#10 +
-             '  · 任务管理器 → 启动应用' + #13#10 + #13#10 +
-             '程序仍会被正常卸载。',
-             mbInformation, MB_OK);
+    begin
+      // ★ 静默卸载（/SILENT、/VERYSILENT）下绝不能弹 MsgBox ——
+      //   没人会点「确定」，安装程序会**永久挂起**，批量部署时卡死在那台机器上。
+      //   静默场景改为写一条卸载日志，用户可以事后查看。
+      if UninstallSilent then
+        Log('系统集成清理未完成：防火墙规则 / 开机自启项可能残留。')
+      else
+        MsgBox('系统集成清理未完成（防火墙规则 / 开机自启项可能残留）。' + #13#10 + #13#10 +
+               '不影响卸载，但建议在卸载后手动检查：' + #13#10 +
+               '  · Windows 防火墙 → 高级设置 → 入站规则' + #13#10 +
+               '  · 任务管理器 → 启动应用' + #13#10 + #13#10 +
+               '程序仍会被正常卸载。',
+               mbInformation, MB_OK);
+    end;
   end;
 end;
 // 卸载的最后一步：问要不要连配置和日志一起删。

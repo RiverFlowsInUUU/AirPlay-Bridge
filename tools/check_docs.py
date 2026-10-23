@@ -115,6 +115,20 @@ def dash_range(near):
 
 CORE = "src/app/airplay_bridge.cpp"
 DIALOG = "src/ui/latency_dialog.cpp"
+CONFIG = "src/app/config_store.h"
+
+
+def default_number(rel, field):
+    """取 `int field = 200;` 这类默认值声明里的数字。取不到返回 None。
+
+    只在结构体默认值声明上匹配（`= 数字;`），不会误抓注释里的数字 ——
+    注释里恰好写着「实测的推荐值 250」，那正是这个断言要区分开的东西。
+    """
+    text = read(rel)
+    if text is None:
+        return None
+    m = re.search(r"\b%s\s*=\s*(\d+)\s*;" % re.escape(field), text)
+    return int(m.group(1)) if m else None
 
 
 def table_row(rel, first_col):
@@ -154,6 +168,28 @@ else:
         else:
             fail("延迟档位 (%s)" % rel,
                  "表格写 %s，代码是 %s" % (got, truth))
+
+        # ①b 加粗的那个必须等于代码里的默认值。
+        #
+        # README 写「粗体为默认值」，而默认值在 config_store.h 里 ——
+        # 这两个数字谁也没核过谁。实际就出过事：把 250（「实测的推荐值」）
+        # 加粗当默认，代码却是 latencyMs = 200，新用户装完发现跑的是 200，
+        # 以为配置被动过。集合比对查不出来，因为它只关心「有这几个数」。
+        bold = re.findall(r"\*\*(\d+)\*\*", cells[0])
+        if not bold:
+            fail("延迟默认值加粗 (%s)" % rel,
+                 "档位列里没有任何 **加粗** 的值，读者无从知道默认是哪一档")
+        else:
+            want = default_number(CONFIG, "latencyMs")
+            if want is None:
+                fail("延迟默认值加粗 (%s)" % rel,
+                     "在 %s 里取不到 latencyMs 的默认值" % CONFIG)
+            elif int(bold[0]) == want:
+                ok("延迟默认值加粗 (%s)" % rel, "**%d**" % want)
+            else:
+                fail("延迟默认值加粗 (%s)" % rel,
+                     "表格把 **%s** 标成默认，代码默认是 %d" %
+                     (bold[0], want))
 
 # -------------------------------------------------- ② 延迟滑块范围
 

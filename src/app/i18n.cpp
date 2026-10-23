@@ -106,6 +106,10 @@ const Entry kEntries[] = {
     // ── 滑块窗口标题 ──
     {"AirPlay Bridge — 延迟调节", "AirPlay Bridge - Latency"},
     {"AirPlay Bridge — 音量调节", "AirPlay Bridge - Volume"},
+    // 「音质」窗口的标题原来漏在词条表外（英文界面会弹中文标题）。
+    // 注意它和上面两条的命名规则不同：不是「— 音质调节」，代码里写的就是
+    // 「— 音质」，key 必须逐字对上。
+    {"AirPlay Bridge — 音质", "AirPlay Bridge - Quality"},
     {"AirPlay Bridge — 无声音时待机", "AirPlay Bridge - Standby when silent"},
 
     // ── 「关于」弹窗（「关于」本身在菜单那节已有一条）──
@@ -115,6 +119,12 @@ const Entry kEntries[] = {
 
     // ── 首次运行：开机自启 ──
     {"不用", "No"},
+    {"要不要让 AirPlay Bridge 开机时自动启动？",
+     "Run AirPlay Bridge automatically when Windows starts?"},
+    {"选「是」之后，开机会自动运行并连上上次用过的音箱。",
+     "If you choose Yes, it starts with Windows and reconnects to the last device."},
+    {"以后随时可以在托盘菜单里改。",
+     "You can change this any time from the tray menu."},
 
     // ── 连接诊断 ──
     {"已修复，程序正在重连。", "Fixed. Reconnecting..."},
@@ -122,10 +132,21 @@ const Entry kEntries[] = {
      "If it still won't connect, disconnect and connect again (or restart)."},
     {"请确认在弹出的用户账户控制窗口中选择了「是」。",
      "Make sure you clicked Yes in the User Account Control prompt."},
+    {"本机已有本程序的放行规则，无需重复添加。",
+     "The firewall rule for this app already exists — nothing to add."},
+    {"若仍连不上，请确认接收端与本程序在同一网络下。",
+     "If it still won't connect, check that the receiver is on the same network."},
 
     // ── 更新 ──
     {"发现新版本", "New version available"},
     {"是否前往下载？", "Open the download page?"},
+    // 代码里是「发现新版本 」+ tag +「（当前 v」+ 版本 +「）。」拼出来的，
+    // 前缀带尾随空格 —— 查表按整串精确比对，含空格的词条必须单独列，
+    // 否则英文界面会在这里掉回中文（漏译 9 条里就有它）。
+    {"发现新版本 ", "New version available "},
+    {"（当前 v", " (current v"},
+    {"检查更新失败，请稍后重试。",
+     "Update check failed. Please try again later."},
 
     // ── 气泡提示（带数值的拆成前后缀两条）──
     {"已连接: ", "Connected: "},
@@ -210,7 +231,7 @@ const Entry kEntries[] = {
 
     // ── 滑块窗口：说明文字 ──
     {"拖到不爆音的最低位置就是最优解。低于 150ms 可能出现爆音，越低延迟越小，但接收端缓冲不足会爆音或卡顿。",
-     "Drag to the lowest position that doesn't crackle. Below 250 ms the receiver's buffer can run dry."},
+     "Drag to the lowest position that doesn't crackle. Below 150 ms the receiver's buffer can run dry."},
     {"声卡通常跑 48kHz，推给设备前要先转到 44.1kHz。越往右高频越干净，CPU 也越贵。",
      "Sound cards usually run at 48 kHz and must be converted to 44.1 kHz. Further right is cleaner but costs more CPU."},
     {"调节设备的播放音量，不影响电脑本身的音量。",
