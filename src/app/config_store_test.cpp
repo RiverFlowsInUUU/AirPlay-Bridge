@@ -194,6 +194,65 @@ int main() {
         removeFile(kFile);
     }
 
+    // ---- 4b. ★ 正式文件损坏时，从 .bak 恢复上一次的完好内容 ----
+    //
+    // 这是 2026-10-23 外部审查的 P3：原来损坏只留证、不恢复，
+    // 于是 deviceId 重新生成（接收端把电脑当新设备）、设置全部回落。
+    // 而一份完好的旧配置就在 .bak 里。
+    std::printf("\n4b. ★ 损坏时从 .bak 恢复\n");
+    {
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+
+        // 第一次保存：.bak 还生成不出来（正式文件不存在），正常
+        BridgeConfig first;
+        first.volume       = 33;
+        first.lastDeviceId = "DEV-AAA";
+        first.language     = "en";
+        check(saveConfig(kFile, first), "第一次保存应成功");
+
+        // 第二次保存：这次会把上一份复制成 .bak
+        BridgeConfig second;
+        second.volume       = 66;
+        second.lastDeviceId = "DEV-BBB";
+        second.language     = "zh";
+        check(saveConfig(kFile, second), "第二次保存应成功");
+
+        // 现在 .bak 里应该是**第一次**那份（DEV-AAA / volume 33）
+        {
+            BridgeConfig bak;
+            check(loadConfig(kFile + ".bak", bak), ".bak 应可独立加载");
+            checkStr(bak.lastDeviceId, "DEV-AAA", ".bak 里是上一份的内容");
+            checkInt(bak.volume, 33, ".bak 里是上一份的 volume");
+        }
+
+        // 把正式文件写坏（模拟断电留下的半份 JSON）
+        writeRaw(kFile, "{\"lastDeviceId\": \"DEV-BBB\", \"volume\": 66");
+
+        BridgeConfig out;
+        // ★ 关键断言：能加载，且拿到的是 .bak 里那台设备的身份
+        check(loadConfig(kFile, out), "损坏时应从 .bak 恢复成功");
+        checkStr(out.lastDeviceId, "DEV-AAA", "恢复出的是 .bak 里的 deviceId");
+        checkInt(out.volume, 33, "恢复出的是 .bak 里的 volume");
+
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+    }
+
+    // ---- 4c. 没有 .bak 时，损坏仍按失败处理（不硬编造配置）----
+    std::printf("\n4c. 无 .bak 时损坏仍失败\n");
+    {
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+        writeRaw(kFile, "{\"volume\": 50");
+        BridgeConfig out;
+        out.volume = 77;
+        check(!loadConfig(kFile, out), "无 .bak 时损坏仍应返回 false");
+        checkInt(out.volume, 77, "失败时不该改动传入值");
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+    }
+
     // ---- 5. 垃圾内容：不崩，缺的键保持传入值 ----
     std::printf("\n5. 垃圾内容（不崩，缺键保持传入值）\n");
     {

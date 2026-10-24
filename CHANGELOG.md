@@ -3,6 +3,41 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.40] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复设备名偶尔带着 `._AirPlay._TCP.local` 尾巴显示在菜单里的问题。
+- 修复设备列表里同一台音箱重复出现两次（有线 + WiFi 各算一台）的问题。
+- 修复扫描时把自己当成一台 AirPlay 设备列出来的问题。
+- 修复配置文件损坏后设置全部丢失、音箱需要重新授权的问题
+  —— 现在会从上一次保存成功的备份自动恢复。
+- 修复在副屏上打开设置窗口时，窗口跑到主屏的问题。
+- 修复手动「重新扫描」后，「隐藏设备」菜单里还是旧列表的问题。
+- 修复日志里把删除失败的防火墙规则也报成「已清理」的问题。
+- 修复从设备列表选设备连接后，掉线不再自动重连的问题。
+- 修复命令行模式掉线后停在「串流中」、实际早已断开的问题。
+- 修复启动时重复检查防火墙规则导致的开机卡顿。
+
+**English**
+
+### Fixed
+
+- Fixed device names occasionally showing with a `._AirPlay._TCP.local` suffix.
+- Fixed the same speaker appearing twice in the device list (wired + Wi-Fi).
+- Fixed the app listing itself as an AirPlay device during a scan.
+- Fixed losing all settings and needing to re-authorise the speaker after a
+  corrupted config file — the last good backup is now restored automatically.
+- Fixed the settings window jumping to the primary monitor when opened from a
+  secondary one.
+- Fixed the Hide devices submenu showing a stale list after Rescan.
+- Fixed failed firewall rule deletions being reported as cleaned.
+- Fixed auto-reconnect stopping after connecting from the device list.
+- Fixed console mode staying on "streaming" after the connection had dropped.
+- Fixed a startup delay caused by checking firewall rules three times.
+
 ## [1.5.39] - 2026-10-24
 
 **中文**

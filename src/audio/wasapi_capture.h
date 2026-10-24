@@ -3,12 +3,20 @@
 // wasapi_capture.h -- 用 WASAPI 环回模式采集 Windows 的输出声音。
 //
 // 两种模式：
-//   AllDevices  采集"所有活动的输出设备"并混音（默认）—— 这样即使
-//               某个应用被单独指到了别的声卡（Windows 支持按应用选输出），
-//               它的声音也能被抓到，用户不用去调音量合成器。
-//   DefaultOnly 只采集系统默认输出设备（旧行为，保留备用）。
+//   DefaultOnly 只采集一台输出设备（默认就是系统默认设备；配了
+//               captureDeviceId 时用那一台）。**这是当前的默认模式**，
+//               也是唯一验证过能正常工作的模式。
+//   AllDevices  采集"所有活动的输出设备"并混音 —— 设计意图是
+//               某个应用被单独指到别的声卡时也能抓到。**未启用**：
+//               实测多台同时打开采到的全是静音（见 wasapi_capture.cpp
+//               里的说明），且各设备采样率可能不同、按样本直接相加会出错。
+//               要启用必须先做逐路重采样。
 //
 // 输出统一为交错 16-bit 立体声。
+//
+// ★ 本文件原来把 AllDevices 标成"（默认）"、把 DefaultOnly 标成"旧行为，
+//   保留备用"，与实际相反 —— 那样读代码的人会以为默认走的是多设备混音。
+//   （2026-10-23 外部审查 P3，2026-10-24 改正）
 
 #pragma once
 
@@ -24,8 +32,8 @@ namespace fxchain {
 using AudioChunkCallback = std::function<void(const int16_t* data, size_t frames)>;
 
 enum class CaptureMode {
-    AllDevices,    // 所有活动输出设备混音（默认，最省心）
-    DefaultOnly,   // 仅默认输出设备
+    AllDevices,    // 所有活动输出设备混音（**未启用**，见文件头说明）
+    DefaultOnly,   // 仅一台输出设备（默认 / 当前唯一在用）
 };
 
 struct WasapiCaptureConfig {
@@ -72,7 +80,12 @@ public:
     // 采集到的设备名列表（用于日志）
     std::vector<std::string> deviceNames() const;
 
-    // 所有输出设备共用的采样率（取第一个设备的；不同设备会做简单适配）
+    // 采样率 / 声道数（取第一台设备的）。
+    //
+    // ★ 原注释写「不同设备会做简单适配」—— **没有这回事**。
+    //   AllDevices 模式下各设备按样本直接相加，采样率不同的设备混出来就是错的
+    //   （也正是它没能启用的原因之一）。要启用必须先做逐路重采样。
+    //   这句注释的存在会让人以为"混音这块已经处理好了"。
     uint32_t deviceSampleRate() const;
     uint32_t deviceChannels() const;
 

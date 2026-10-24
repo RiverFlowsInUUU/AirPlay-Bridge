@@ -32,6 +32,37 @@ namespace {
 // 取自托盘图标（HomePod mini 织物），让滑块和图标是一套色
 constexpr COLORREF kAccent = RGB(0xE0, 0x58, 0x38);
 
+// 光标所在显示器的矩形（工作区之外的整块屏幕）。
+//
+// ★ 为什么不能用 GetSystemMetrics(SM_CXSCREEN/…)：那两个只描述
+//   **主显示器**，而且原点永远是 (0,0)。副屏上点托盘时，窗口会
+//   直接跳到主屏中央 —— 用户明明在右边那块屏幕操作，窗口出现在左边。
+//   （2026-10-23 外部审查 P3，2026-10-24 修）
+//
+// 用光标所在显示器：用户点托盘那一刻，光标就在那块屏上。
+// 取不到就退回主屏尺寸，行为与原来一致。
+RECT screenRectForCursor() {
+    POINT pt{0, 0};
+    if (GetCursorPos(&pt)) {
+        HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (mon && GetMonitorInfoW(mon, &mi)) {
+            return mi.rcMonitor;
+        }
+    }
+    RECT r{};
+    r.right  = GetSystemMetrics(SM_CXSCREEN);
+    r.bottom = GetSystemMetrics(SM_CYSCREEN);
+    return r;
+}
+
+// 把尺寸为 (w,h) 的窗口居中到给定矩形里的左上角坐标。
+void centerIn(const RECT& area, int w, int h, int* x, int* y) {
+    *x = area.left + ((area.right - area.left) - w) / 2;
+    *y = area.top + ((area.bottom - area.top) - h) / 2;
+}
+
 struct Theme {
     COLORREF bg, text, muted, track, btnText, btnBorder, btnFill;
 };
@@ -362,10 +393,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             RECT wrc{0, 0, st->w, st->h};
             AdjustWindowRectEx(&wrc, WS_POPUP | WS_CAPTION | WS_SYSMENU,
                                FALSE, WS_EX_DLGMODALFRAME);
-            // 按实际 DPI 精修尺寸，并重新居中
+            // 按实际 DPI 精修尺寸，并重新居中到**光标所在那块屏**
             const int ww = wrc.right - wrc.left, wh = wrc.bottom - wrc.top;
-            const int sx = (GetSystemMetrics(SM_CXSCREEN) - ww) / 2;
-            const int sy = (GetSystemMetrics(SM_CYSCREEN) - wh) / 2;
+            int sx = 0, sy = 0;
+            centerIn(screenRectForCursor(), ww, wh, &sx, &sy);
             SetWindowPos(hwnd, nullptr, sx, sy, ww, wh, SWP_NOZORDER);
 
             setDarkTitleBar(hwnd, st->dark);
@@ -541,8 +572,9 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
 
     // 先按 96dpi 估一版窗口尺寸，WM_CREATE 里再按实际 DPI 精修
     const int W = 460, H = 292;
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
+    // 居中到光标所在那块屏，不是主屏（见 screenRectForCursor 的说明）
+    int x0 = 0, y0 = 0;
+    centerIn(screenRectForCursor(), W, H, &x0, &y0);
 
     std::wstring title = utf8ToWide(spec.title);
 
@@ -550,7 +582,7 @@ int showSliderDialog(const SliderDialogSpec& spec, int currentValue) {
         WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
         CLASS, title.c_str(),
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-        (sw - W) / 2, (sh - H) / 2, W, H,
+        x0, y0, W, H,
         nullptr, nullptr, hInst, &st);
     if (!hwnd) return -1;
 

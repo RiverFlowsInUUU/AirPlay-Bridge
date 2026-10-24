@@ -1059,6 +1059,24 @@ std::vector<std::wstring> findAllOurFirewallRules() {
     return out;
 }
 
+// 指定名字的规则还在不在（按名字精确比对，不看 program=）。
+//
+// 只用来复核"删掉了吗"，所以只看名字：删的判据是"这个名字没了"。
+// 放在这里而不是更大范围，是因为它只服务 deleteFirewallRuleByNameEx。
+bool firewallRuleNameExists(const std::wstring& name) {
+    if (name.empty()) return false;
+    bool found = false;
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR n = nullptr;
+        if (SUCCEEDED(rule->get_Name(&n)) && n) {
+            if (name == n) found = true;
+        }
+        if (n) SysFreeString(n);
+        return !found;      // 找到了就停
+    });
+    return found;
+}
+
 // 删掉一条指定名字的放行规则（**只能删我们自己的名字** ——
 // 传进来的名字必须先确认过前缀，调用方负责）。
 //
@@ -1095,8 +1113,25 @@ bool deleteFirewallRuleByNameEx(const std::wstring& name) {
     cmd += " advfirewall firewall delete rule name=";
     cmd += QC; cmd += narrow; cmd += QC;
     const int rc = runCommandLine(cmd);
-    // netsh 在"规则不存在"时也返回 0，这里只看负值（进程起不来）。
-    return rc >= 0;
+    if (rc < 0) return false;      // 进程都没起来
+
+    // ★ 不能只看退出码。
+    //
+    //   netsh 在"规则不存在"时返回 0，在**命令本身失败**（权限不足、
+    //   组策略禁写、参数被改）时返回 1 —— 而 `rc >= 0` 把 1 也当成了成功。
+    //   后果：cleanStaleFirewallRules 把没删掉的也计进"已清理 N 条"，
+    //   日志向用户报告了一件没发生的事。
+    //   （2026-10-23 外部审查 P3，2026-10-24 修）
+    //
+    //   ★ 但也不能简单改成 rc == 0：那会把"规则本来就不存在"（也是 0）
+    //   和"删掉了"混为一谈 —— 本来就是要删，等价，没问题。
+    //   真正的问题是 1。所以判据是 **rc == 0**，而不是 rc >= 0。
+    //   保险起见再用枚举复核一次：规则真的不在了才算删掉。
+    if (rc != 0) {
+        logLine("删除防火墙规则失败（netsh 退出码 " + std::to_string(rc) + "）");
+        return false;
+    }
+    return !firewallRuleNameExists(name);
 }
 
 // 删掉所有多余规则（重复的 / 指向旧文件的），返回删掉的条数。
@@ -1193,25 +1228,146 @@ void setHighResTimer(bool on) {
                : "时钟精度已恢复默认（停止播放）");
 }
 
+// 启动自检需要的三个结论，一次 COM 枚举算齐。
+//
+// 三个判据分别来自 firewallRuleExists / findStaleFirewallRules /
+// findOtherCopies —— 合并时**语义一字未改**，只是把「读 Name +
+// ApplicationName」这一遍复用给三处消费。原来那三个函数仍然保留：
+// 别处（清理、修复）还在用它们单独的版本。
+struct FirewallStartupFacts {
+    bool ruleOk = false;                      // 有没有指向当前 exe 的放行规则
+    std::vector<std::wstring> stale;          // 该删的规则名
+    std::vector<std::wstring> otherCopies;    // 指向另一份「确实存在」副本的路径
+};
+
+FirewallStartupFacts inspectFirewallRulesAtStartup() {
+    FirewallStartupFacts f;
+
+    // exe 路径（宽字符，ACP）—— 与 findStaleFirewallRules 里的取法一致
+    std::wstring curExe;
+    {
+        const std::string p = exePath();
+        const int need = MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, nullptr, 0);
+        if (need > 1) {
+            curExe.resize(static_cast<size_t>(need));
+            MultiByteToWideChar(CP_ACP, 0, p.c_str(), -1, curExe.data(), need);
+        }
+    }
+
+    const std::wstring prefix(
+        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+    const std::wstring exact(
+        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
+
+    // 一趟枚举：把三处需要的信息都收下
+    std::vector<std::wstring> ours;      // 前缀匹配的全部规则名
+    std::vector<bool>        isCurrent;  // 是否指向当前 exe
+    std::vector<bool>        aliveOther; // 指向的另一份文件是否仍存在
+    std::vector<std::wstring> otherPaths;// 指向的另一份的路径（去重后）
+
+    forEachFirewallRule([&](INetFwRule* rule) -> bool {
+        BSTR name = nullptr;
+        if (SUCCEEDED(rule->get_Name(&name)) && name) {
+            const std::wstring wide(name);
+            if (wide.size() >= prefix.size() &&
+                wide.compare(0, prefix.size(), prefix) == 0) {
+                BSTR appPath = nullptr;
+                bool sameAsCurrent = false;
+                bool otherFileExists = false;
+                std::wstring otherPath;
+                if (SUCCEEDED(rule->get_ApplicationName(&appPath)) && appPath) {
+                    sameAsCurrent = (_wcsicmp(appPath, curExe.c_str()) == 0);
+                    if (!sameAsCurrent) {
+                        otherPath = appPath;
+                        otherFileExists =
+                            (GetFileAttributesW(appPath) != INVALID_FILE_ATTRIBUTES);
+                        if (otherFileExists) {
+                            // 与 findOtherCopies 相同的去重
+                            if (std::find(otherPaths.begin(), otherPaths.end(),
+                                          otherPath) == otherPaths.end()) {
+                                otherPaths.push_back(otherPath);
+                            }
+                        }
+                    }
+                }
+                if (appPath) SysFreeString(appPath);
+                ours.push_back(wide);
+                isCurrent.push_back(sameAsCurrent);
+                aliveOther.push_back(otherFileExists);
+            }
+        }
+        if (name) SysFreeString(name);
+        return true;   // 收齐全部，不提前停
+    });
+
+    // ---- 判据 1：有没有指向当前 exe 的规则（= firewallRuleExists）----
+    // 原函数只认**名字恰好等于** kFirewallRuleName 且 program= 指向当前 exe 的那条。
+    // 注意它比下面分组 A 更严格：分组 A 也接受带序号的重复规则，
+    // 「已放行」这个结论只认真名字那条 —— 保持原语义。
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (isCurrent[i] && ours[i] == exact) {
+            f.ruleOk = true;
+            break;
+        }
+    }
+    // 注意：firewallRuleExists 的原实现里，名字匹配是在 get_Name 那层
+    // 用 `wide == L"AirPlay Bridge inbound UDP"` 比的，与 kFirewallRuleName 同值。
+    // 这里用 exact（同一个字符串的宽字符形式），等价。
+
+    // ---- 判据 2：哪些该删（= findStaleFirewallRules）----
+    std::vector<bool> keep(ours.size(), false);
+    // 分组 B：指向别的 exe —— 只有那个文件**已经不在了**才删
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (isCurrent[i]) continue;
+        keep[i] = aliveOther[i];
+    }
+    // 分组 A：只留一条，优先名字恰好是 kFirewallRuleName 的
+    size_t keepCurrentIdx = static_cast<size_t>(-1);
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (!isCurrent[i]) continue;
+        if (keepCurrentIdx == static_cast<size_t>(-1)) keepCurrentIdx = i;
+        if (ours[i] == exact) { keepCurrentIdx = i; break; }
+    }
+    if (keepCurrentIdx != static_cast<size_t>(-1)) keep[keepCurrentIdx] = true;
+
+    for (size_t i = 0; i < ours.size(); ++i) {
+        if (!keep[i]) f.stale.push_back(ours[i]);
+    }
+
+    // ---- 判据 3：另一份副本在哪（= findOtherCopies）----
+    f.otherCopies = std::move(otherPaths);
+
+    return f;
+}
+
 void checkFirewallRuleAtStartup() {
     // 一次启动最多弹**一个**窗口 —— 两个提示框叠着弹只会让用户烦。
-    // 所以两件事（"还没放行" / "有陈旧规则"）在这里先各自算出结论，
+    // 所以几件事（"还没放行" / "有陈旧规则" / "有另一份副本"）先各自算出结论，
     // 再合成一次 MessageBox。
-    const bool ruleOk = firewallRuleExists();
-    const int staleCount =
-        static_cast<int>(findStaleFirewallRules().size());
+    //
+    // ★ 一次枚举算齐三个答案。
+    //
+    //   原来这里连调三个函数（firewallRuleExists / findStaleFirewallRules /
+    //   findOtherCopies），每一个都独立做一遍**全量防火墙规则 COM 枚举** ——
+    //   启动时三次、每次遍历全部入站规则。规则多的机器（装过一堆软件的）
+    //   能感觉到启动那一下的顿挫。
+    //   （2026-10-23 外部审查 P3，2026-10-24 修）
+    //
+    //   合并时**三个判据一字未改**，只是把「读 Name + ApplicationName」
+    //   这一遍复用给三处消费。分组决策（哪个保留、哪个算陈旧）仍沿用
+    //   原来的两趟结构：先收齐再分组，因为「留哪条」得看全同组。
+    const FirewallStartupFacts facts = inspectFirewallRulesAtStartup();
+    const bool ruleOk = facts.ruleOk;
+    const int staleCount = static_cast<int>(facts.stale.size());
 
 
     // ★ 还要单独查「本机有没有另一份副本」——不能挂在 staleCount 上。
     //
-    // findStaleFirewallRules() 会把「指向另一份**仍存在**副本」的规则判为
-    // keep=true（那是刻意的：活着的另一份是条合法放行），所以两份并存时
-    // staleCount 恰好是 0。原来这里直接 return，于是「另一份在哪」的提示
-    // 永远不会出现 —— 而那正是它唯一该出现的场景。
-    //
-    // findOtherCopies() 会做 COM 枚举，比 firewallRuleExists() 贵；
-    // 但一次启动只调一次，且它本来就在同一个函数里被调用，成本可接受。
-    const std::vector<std::wstring> others = findOtherCopies();
+    // 分组逻辑会把「指向另一份**仍存在**副本」的规则判为保留（那是刻意的：
+    // 活着的另一份是条合法放行），所以两份并存时 staleCount 恰好是 0。
+    // 原来这里直接 return，于是「另一份在哪」的提示永远不会出现 ——
+    // 而那正是它唯一该出现的场景。
+    const std::vector<std::wstring> others = facts.otherCopies;
 
     // 三件都没问题才静默。绝大多数启动走这条路 —— 不能每次开机都弹框烦人。
     if (ruleOk && staleCount == 0 && others.empty()) return;
@@ -2029,12 +2185,30 @@ void fixAutoStartIfStale() {
 std::vector<AirPlayDevice> filterDevices(const std::vector<AirPlayDevice>& in,
                                          const BridgeConfig& cfg) {
     std::vector<AirPlayDevice> out;
+    // 已经收过的 deviceId —— 同一台设备会报多个地址。
+    //
+    // 一台设备同时有有线和 WiFi 时，mDNS 会从两个地址各答一次，
+    // deviceId 相同、host 不同。原来两条都进列表 ——
+    // 菜单里就是两台一模一样的 "客厅 HomePod"，点哪个都行但看着像重复。
+    // （2026-10-23 外部审查 P3，2026-10-24 修）
+    //
+    // deviceId 为空时**不去重**：没有可靠标识，按不同设备处理比误合并安全。
+    std::vector<std::string> seen;
     for (auto& d : in) {
         if (cfg.hideAppleTV && d.isAppleTV) continue;
         bool ignored = false;
         for (auto& id : cfg.ignoredDeviceIds)
             if (!id.empty() && id == d.deviceId) { ignored = true; break; }
         if (ignored) continue;
+
+        if (!d.deviceId.empty()) {
+            bool dup = false;
+            for (auto& s : seen) {
+                if (s == d.deviceId) { dup = true; break; }
+            }
+            if (dup) continue;
+            seen.push_back(d.deviceId);
+        }
         out.push_back(d);
     }
     return out;
@@ -3287,7 +3461,26 @@ int main(int argc, char** argv) {
 
         std::printf(">> 串流中，Ctrl+C 停止\n");
         std::fflush(stdout);
-        while (!g_stop.load()) sess.pump();
+        // ★ 掉线就退出，不能干挂着。
+        //
+        //   原来只判 g_stop（Ctrl+C）。接收端关闭连接后 sess.running 变 false，
+        //   pump() 什么都不做，而循环照转 —— 屏幕永远停在「>> 串流中」，
+        //   用户以为还在放，其实早就断了。console 是一次性直连工具，
+        //   掉线后继续假装工作没有任何价值。
+        //   （2026-10-23 外部审查 P3，2026-10-24 修）
+        //
+        //   不在这里做自动重连：命令行模式没有退避循环、没有托盘反馈，
+        //   静默重连反而会让用户分不清"真连上了"和"还在重试"。
+        while (!g_stop.load()) {
+            sess.pump();
+            if (!sess.running.load()) {
+                std::printf(">> 连接已断开，退出\n");
+                std::fflush(stdout);
+                break;
+            }
+            // pump() 本身不睡眠，裸转会把一个核跑满。
+            Sleep(8);
+        }
         sess.teardown();
 
         CoUninitialize();
@@ -3950,6 +4143,15 @@ int main(int argc, char** argv) {
                 if (id >= kDeviceMenuBase &&
                     id < kDeviceMenuBase + static_cast<int>(discovered.size())) {
                     const size_t idx = static_cast<size_t>(id - kDeviceMenuBase);
+                    // ★ 清掉「用户主动断开」标记 —— 从设备列表挑一台来连，
+                    //   和按「连接」是同一个意图，两条路必须一致。
+                    //
+                    //   原来只有 MENU_TOGGLE 的清零分支会动这个标志，
+                    //   设备列表这条路不清。后果：用户先手动断开（标志=true），
+                    //   再从列表点一台设备 → 这次连接如果失败（接收端忙/刚断电），
+                    //   标志还挡着，自动重连一次都不试，用户以为程序死了。
+                    //   （2026-10-23 外部审查 P3，2026-10-24 修）
+                    userDisconnected = false;
                     sess.teardown();
                     sess.host = discovered[idx].host;
                     sess.deviceId = discovered[idx].deviceId;
@@ -4162,7 +4364,24 @@ int main(int argc, char** argv) {
                         tray.notify("AirPlay Bridge", i18n::tr("正在扫描局域网设备…"));
                         // 用户点重新扫描就是要刷新 —— 必须真扫，不能被缓存挡住。
                         setPhase(PHASE_SCAN);
-                        discovered = filterDevices(discoverAirPlayDevices(2000), cfg);
+                        {
+                            // ★ 必须留一份**未过滤**的结果给「隐藏设备」子菜单。
+                            //
+                            //   原来只更新了 discovered（已按 ignoredDeviceIds 过滤），
+                            //   而隐藏子菜单读的是 g_lastScanAll —— 那份还是
+                            //   resolveDevice 上次扫的。后果：
+                            //     · 手动重扫扫到的新设备，在隐藏菜单里看不到，藏不了
+                            //     · 已经消失的设备还挂在隐藏菜单里，点了没意义
+                            //   两条都和「刷新」的预期相反。
+                            //   （2026-10-23 外部审查 P3，2026-10-24 修）
+                            std::vector<AirPlayDevice> all =
+                                discoverAirPlayDevices(2000);
+                            {
+                                std::lock_guard<std::mutex> lk(g_lastScanAllMutex);
+                                g_lastScanAll = all;
+                            }
+                            discovered = filterDevices(all, cfg);
+                        }
                         // 刷新缓存年龄：这是最新的一份设备列表
                         lastScanMs = steadyNowMs();
                         {
@@ -4626,7 +4845,16 @@ int main(int argc, char** argv) {
             if (sess.running.load() && sess.wantReconnect.load()) {
                 sess.wantReconnect.store(false);
                 sess.teardown();
-                tryConnect();
+                // ★ 用户主动断开之后不该被任何路径连回来 —— 包括「被踢」这一支。
+                //
+                //   下面那支（掉线）一直带着 !userDisconnected，这一支原来没有。
+                //   目前 teardown() 会顺手清 wantReconnect，所以实际触发不了；
+                //   但这是**依赖别人的副作用**，不是这里的判据 —— 任何一处回调
+                //   在断开后置回 true（比如延迟的 launched(false)），用户就会
+                //   在自己断开之后被莫名其妙连回去。
+                //   （2026-10-23 外部审查 P3，2026-10-24 修：补显式守卫，
+                //    不再依赖 teardown 的副作用。）
+                if (!userDisconnected) tryConnect();
                 // 待机也要排除掉：待机是主动断开，running 会是 false，
                 // 不排除的话 5 秒后的下一次重连检查会立刻把它连回来 ——
                 // 表现就是「一待机就秒醒」，屏幕反复亮。

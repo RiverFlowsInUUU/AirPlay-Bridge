@@ -197,9 +197,20 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
                     instance = target;
                     gotInstance = true;
                     out.name = target;
-                    auto dot = out.name.find("._airplay._tcp.local");
+
+                    // ★ DNS 名字**大小写不敏感**，设备回什么写法都可能：
+                    //   "_AirPlay._TCP.local"（苹果设备常见）、"_airplay._tcp.local"、
+                    //   以及各种混写。原来只 find 小写形式，剥不掉尾巴 ——
+                    //   菜单里就是一台叫「客厅 HomePod._AirPlay._TCP.local」的设备。
+                    //   （2026-10-23 外部审查 P3，2026-10-24 修）
+                    std::string lower = out.name;
+                    for (char& c : lower) {
+                        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+                    }
+                    auto dot = lower.find("._airplay._tcp.local");
                     if (dot == std::string::npos)
-                        dot = out.name.find("._raop._tcp.local");
+                        dot = lower.find("._raop._tcp.local");
+                    // 用 lower 里找到的位置去切原串：两者等长、逐字节对齐。
                     if (dot != std::string::npos) out.name = out.name.substr(0, dot);
                     out.isAirPlay2 = true;
                 }
@@ -287,10 +298,38 @@ std::vector<std::string> scanPort7000(uint32_t base, uint32_t mask) {
     std::vector<SOCKET> socks;
     std::vector<std::string> ips;
 
+    // 本机所有 IPv4 地址 —— 下面跳过它们。
+    //
+    // ★ 原来的注释写着「跳过本机」，**下面什么都没有**。
+    //   后果是每轮扫描都对自己发 254 个 SYN 里的一个，等超时；
+    //   更糟的是如果本机恰好有程序监听 7000，它会把自己当成一台
+    //   AirPlay 设备出现在列表里，点连接必然失败。
+    //   （2026-10-23 外部审查 P3，2026-10-24 修）
+    std::vector<uint32_t> selfIps;
+    {
+        char host[256] = {0};
+        if (gethostname(host, sizeof(host) - 1) == 0) {
+            addrinfo* ai = nullptr;
+            if (getaddrinfo(host, nullptr, nullptr, &ai) == 0) {
+                for (addrinfo* p = ai; p; p = p->ai_next) {
+                    if (p->ai_family == AF_INET) {
+                        auto* sa = reinterpret_cast<sockaddr_in*>(p->ai_addr);
+                        selfIps.push_back(ntohl(sa->sin_addr.s_addr));
+                    }
+                }
+                freeaddrinfo(ai);
+            }
+        }
+    }
+
     for (uint32_t h = 1; h < 255; ++h) {
         uint32_t ip = (base & mask) | h;
-        // 跳过本机
-        // （由调用方保证 base 是本网段）
+        // 跳过本机（见上面 selfIps 的说明）
+        bool isSelf = false;
+        for (uint32_t s : selfIps) {
+            if (s == ip) { isSelf = true; break; }
+        }
+        if (isSelf) continue;
 
         sockaddr_in dst{};
         dst.sin_family = AF_INET;

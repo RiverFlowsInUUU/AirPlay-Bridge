@@ -365,6 +365,23 @@ uint32_t WasapiCapture::deviceChannels() const { return 2; }
 void WasapiCapture::run(const AudioChunkCallback& cb) {
     if (!impl_ || impl_->devices.empty()) return;
 
+    // ★ 这里不再无条件下 running_。
+    //
+    //   原来是 run() 开头 running_.store(true) —— 如果调用方先 stop()
+    //   再 run()（stop 立刻返回到另一次 run 开始之间），那一行会把
+    //   刚下的停止请求整个吞掉，线程永远退不出去。
+    //   当前调用序不会触发（stop 之后不会马上再 run），但这是类的
+    //   API 契约地雷：契约写在注释里，不是写在这里的运气里。
+    //   （2026-10-23 外部审查 P3）
+    //
+    //   现在的规则：**run() 之前必须先 stop()**，stop() 负责把上一轮的
+    //   停止意图清干净并等线程退出；run() 只负责在「确实该跑」时把标志
+    //   立起来。已经处于停止意图时不重启（由调用方决定要不要重来）。
+    if (running_.load()) {
+        // 上一轮还在跑 —— 不并发起第二轮，直接返回。
+        // 调用方应当先 stop() 并等 worker 退出（见 stop() 的说明）。
+        return;
+    }
     running_.store(true);
 
     // ---- 每台设备一个采集线程 ----
@@ -375,9 +392,38 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
 
     for (size_t i = 0; i < impl_->devices.size(); ++i) {
         workers.emplace_back([this, i]() {
+            // ★ 这个线程要直接用 COM 接口（IAudioClient / IAudioCaptureClient）。
+            //   不初始化就调，在当前实践里能跑（WASAPI 的共享模式对象是
+            //   进程内自由线程的），但那是**未承诺的行为** —— 一旦某个
+            //   驱动把它们标成单元线程，就会拿到 RPC_E_WRONG_THREAD。
+            //   每个线程一行 CoInitializeEx/MTA 是标准动作，成本为零。
+            //   （2026-10-23 外部审查 P3，2026-10-24 补）
+            //
+            //   用 MTA（COINIT_MULTITHREADED）：这些接口不碰 UI，
+            //   多线程单元省掉消息泵，正好适合采集线程。
+            const HRESULT hrCom = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            const bool comOk = SUCCEEDED(hrCom);
+            // S_FALSE = 本线程已经初始化过；那种情况**不该**由我们再
+            // CoUninitialize（会少减一次引用计数）。用 RAII 保证各条
+            // return 路径都还原，不靠每处手写。
+            const bool comOwned = (hrCom == S_OK);
+
+            // 这个 lambda 有 3 条提前 return，手写 CoUninitialize 必漏。
+            struct ComGuard {
+                bool owned;
+                ~ComGuard() { if (owned) CoUninitialize(); }
+            } comGuard{comOwned};
+
             DeviceCapture* dc = impl_->devices[i].get();
             DeviceQueue*   q  = impl_->queues[i].get();
             std::vector<int16_t> local;
+
+            if (!comOk) {
+                // 初始化失败就没法用这些接口，按「启动失败」上报，
+                // 让上层走重连，而不是在这里静默退化成"采不到数据"。
+                startFailures_.fetch_add(1);
+                return;
+            }
 
             HRESULT hr = dc->client->Start();
             if (FAILED(hr)) {

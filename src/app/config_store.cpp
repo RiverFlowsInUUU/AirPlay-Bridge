@@ -191,10 +191,46 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         }
         const bool complete = t.size() > 1 && t.front() == char(123) && t.back() == char(125);
         if (!complete) {
+            // ★ 顺序很重要：**先读旧的 .bak，再覆盖它**。
+            //
+            //   原来这里只做「把坏内容另存 .bak + 拒绝加载」，调用方按
+            //   "没有配置"处理：deviceId 重新生成（接收端会把电脑当成
+            //   一台新设备，用户得在 HomePod 上重新授权）、首启引导重新弹、
+            //   设置全部回落默认 —— 而一份完好的旧配置明明就在旁边躺着。
+            //   （2026-10-23 外部审查 P3，2026-10-24 修）
+            //
+            //   能救的前提是写坏之前有过一次成功保存留下的 .bak。
+            //   没有就照旧失败 —— 不硬编造配置。
             const std::string bak = path + ".bak";
-            std::ofstream b(bak, std::ios::binary | std::ios::trunc);
-            if (b) b << j;                 // 留证：事后能看出是不是被截断的
-            return false;
+
+            std::string bakText;
+            {
+                std::ifstream bf(bak, std::ios::binary);
+                if (bf) {
+                    std::stringstream bs;
+                    bs << bf.rdbuf();
+                    bakText = bs.str();
+                }
+            }
+
+            // 留证：把这次的坏内容写进 .bak（覆盖旧的 —— 旧的马上要被用掉）
+            {
+                std::ofstream b(bak, std::ios::binary | std::ios::trunc);
+                if (b) b << j;
+            }
+
+            // 试着用旧备份顶上：它自己也得是一份完整 JSON
+            std::string bt = bakText;
+            while (!bt.empty()) {
+                const char c = bt.back();
+                if (c == 10 || c == 13 || c == 32 || c == 9) { bt.pop_back(); continue; }
+                break;
+            }
+            if (bt.size() > 1 && bt.front() == char(123) && bt.back() == char(125)) {
+                j.swap(bakText);     // 用备份当这次的内容，往下走正常解析
+            } else {
+                return false;
+            }
         }
     }
 
@@ -366,6 +402,25 @@ const std::string tmpPath = path + ".tmp";
         CloseHandle(h);
     }
 }
+// ★ 换名之前，把**当前的正式文件**复制成 .bak。
+//
+//   这样 .bak 永远是「上一次保存成功的内容」。loadConfig 发现正式文件
+//   损坏时可以从它恢复 —— 否则用户会丢掉 deviceId（接收端把这台电脑
+//   当成新设备，得在 HomePod 上重新授权）和全部设置。
+//   （2026-10-23 外部审查 P3，2026-10-24 补：原来 .bak 只在"发现损坏"
+//    那一刻才写，而那时写的正是坏内容 —— 永远没有可恢复的备份。）
+//
+//   第三个参数是 bFailIfExists：传 FALSE = **允许覆盖**。
+//   必须覆盖 —— 否则 .bak 会永远停在第一次保存的那份，越用越旧。
+//   要的正是"上一次成功保存的内容"。
+//   失败不致命（只影响恢复能力），不能因此让保存失败。
+//   第一次保存时正式文件还不存在，CopyFile 失败，正常。
+{
+    const std::wstring wpath = acpToWide(path);
+    const std::wstring wbak  = acpToWide(path + ".bak");
+    CopyFileW(wpath.c_str(), wbak.c_str(), FALSE);
+}
+
 // 同一目录内换名是原子的：要么旧文件完整、要么新文件完整，不存在半份。
 // MOVEFILE_WRITE_THROUGH：等这次换名真正落到磁盘才返回。
 if (!MoveFileExW(acpToWide(tmpPath).c_str(), acpToWide(path).c_str(),
