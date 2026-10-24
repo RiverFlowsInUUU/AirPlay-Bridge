@@ -9,7 +9,7 @@
 Streams Windows system audio to AirPlay 2 devices, from the tray.
 
 A replacement for TuneBlade, which stopped working on HomePod OS 27 —
-and a free, open-source option alongside WinAirCast.
+and a free, open-source option alongside WinAirCast, ToneRelay and SoundHop.
 
 ## 📦 Install
 
