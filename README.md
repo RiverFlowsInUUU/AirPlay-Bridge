@@ -8,7 +8,8 @@
 
 Streams Windows system audio to AirPlay 2 devices, from the tray.
 
-A replacement for TuneBlade, which stopped working on HomePod OS 27.
+A replacement for TuneBlade, which stopped working on HomePod OS 27 —
+and a free, open-source option alongside WinAirCast.
 
 ## 📦 Install
 
@@ -47,6 +48,7 @@ capture. The cable provides one.
 
 ## ✨ Features
 
+- 🆓 Free and open source (Apache-2.0)
 - 🔎 Finds AirPlay devices on the local network
 - 🔄 Reconnects after a drop, even if the device changes IP
 - 🛟 Restores the audio device on next launch after a force-kill

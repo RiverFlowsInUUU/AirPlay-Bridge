@@ -8,7 +8,8 @@
 
 把 Windows 的系统声音实时串流到 AirPlay 2 设备，跑在托盘里。
 
-TuneBlade 在 HomePod OS 27 失效后的替代方案。
+TuneBlade 在 HomePod OS 27 失效后的替代方案；
+也是 WinAirCast 之外一个免费开源的选择。
 
 ## 📦 安装
 
@@ -42,6 +43,7 @@ Windows 10 / 11，64 位。安装包自带运行库，装到 `Program Files\AirP
 
 ## ✨ 特性
 
+- 🆓 免费开源（Apache-2.0）
 - 🔎 自动发现局域网内的 AirPlay 设备
 - 🔄 断线自动重连，设备换 IP 也能找回
 - 🛟 被强杀后，下次启动自动恢复音频设备
