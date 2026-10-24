@@ -213,9 +213,17 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
                 }
             }
 
-            // 留证：把这次的坏内容写进 .bak（覆盖旧的 —— 旧的马上要被用掉）
+            // ★ 留证写到 .corrupt，**不要覆盖 .bak**。
+            //
+            //   v1.5.40 那版是覆盖 .bak 的，结果恢复是"自消耗"的：
+            //   唯一的好副本恰在使用的同一刻被坏内容顶掉。于是
+            //     · 恢复只发生在内存，主文件仍是坏的
+            //     · 程序退出前若没再保存过（不改设置、非接管模式完全可能）
+            //       下次启动读到「主文件坏 + .bak 也坏」→ 恢复失败，
+            //       而好副本已经没了 —— 正撞在这个修复要防的损失上。
+            //   （2026-10-24 复查指出）
             {
-                std::ofstream b(bak, std::ios::binary | std::ios::trunc);
+                std::ofstream b(path + ".corrupt", std::ios::binary | std::ios::trunc);
                 if (b) b << j;
             }
 
@@ -227,6 +235,34 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
                 break;
             }
             if (bt.size() > 1 && bt.front() == char(123) && bt.back() == char(125)) {
+                // ★ 恢复成功后**立刻写回主文件**，让这次修复自己站得住。
+                //
+                //   只改内存的话，坏的主文件还在原地；只要下次启动前
+                //   没发生过一次保存（很可能），就会再读一次坏文件 ——
+                //   那时 .bak 可能也变了，链式损坏无法续命。
+                //
+                //   用 .tmp + 换名，和 saveConfig 同一套原子写法；
+                //   这里不调 saveConfig，因为它会先 CopyFile 把**坏的**
+                //   主文件复制成 .bak —— 正好毁掉我们刚用上的好副本。
+                // ★ 必须先把主文件的读句柄关掉，否则换名一定失败。
+                //
+                //   本函数开头 `std::ifstream f(path)` 一直活到 return，
+                //   期间主文件被持读写共享（默认 _SH_DENYNO 但 Windows 上
+                //   替换仍要求没有其他句柄持有它）。不放的话
+                //   MoveFileExW 返回 FALSE / GetLastError()==5（拒绝访问），
+                //   整个写回静默失效 —— 表现就是"恢复看起来成功了，
+                //   下次启动照样读到坏文件"。
+                //   （2026-10-24 实测踩到：加了写回却没生效，err=5。）
+                f.close();
+
+                const std::string tmp = path + ".tmp";
+                {
+                    std::ofstream tf(tmp, std::ios::binary | std::ios::trunc);
+                    if (tf) tf << bakText;
+                }
+                MoveFileExW(acpToWide(tmp).c_str(), acpToWide(path).c_str(),
+                            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+
                 j.swap(bakText);     // 用备份当这次的内容，往下走正常解析
             } else {
                 return false;

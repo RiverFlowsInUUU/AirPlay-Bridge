@@ -305,19 +305,54 @@ std::vector<std::string> scanPort7000(uint32_t base, uint32_t mask) {
     //   更糟的是如果本机恰好有程序监听 7000，它会把自己当成一台
     //   AirPlay 设备出现在列表里，点连接必然失败。
     //   （2026-10-23 外部审查 P3，2026-10-24 修）
+    // ★ 用 GetAdaptersAddresses 而不是 gethostname + getaddrinfo。
+    //
+    //   gethostname 拿的是主机名，再靠 DNS/hosts 解析回来 —— 一旦 hosts
+    //   里有覆盖、或者机器有多个网卡而解析顺序只返回其中一个，
+    //   就会漏掉本机的某些地址。漏掉的后果正是这段要防的事：
+    //   扫描打到自己、如果本机有程序监听 7000 还会把自己列成设备。
+    //   （2026-10-24 复查建议；gethostname 那版是 2026-10-24 上午的修法）
+    //
+    //   GetAdaptersAddresses 直接枚举本机所有接口的全部 IPv4，
+    //   不经过任何名字解析，不漏。
     std::vector<uint32_t> selfIps;
     {
-        char host[256] = {0};
-        if (gethostname(host, sizeof(host) - 1) == 0) {
-            addrinfo* ai = nullptr;
-            if (getaddrinfo(host, nullptr, nullptr, &ai) == 0) {
-                for (addrinfo* p = ai; p; p = p->ai_next) {
-                    if (p->ai_family == AF_INET) {
-                        auto* sa = reinterpret_cast<sockaddr_in*>(p->ai_addr);
+        ULONG size = 0;
+        // 第一次调用只为拿所需缓冲区大小（预期返回 ERROR_BUFFER_OVERFLOW）
+        GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                         GAA_FLAG_SKIP_DNS_SERVER,
+                             nullptr, nullptr, &size);
+        if (size > 0) {
+            std::vector<BYTE> buf(size);
+            auto* addrs = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data());
+            if (GetAdaptersAddresses(AF_INET,
+                                     GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                                     GAA_FLAG_SKIP_DNS_SERVER,
+                                     nullptr, addrs, &size) == NO_ERROR) {
+                for (auto* a = addrs; a; a = a->Next) {
+                    for (auto* ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
+                        if (!ua->Address.lpSockaddr) continue;
+                        if (ua->Address.lpSockaddr->sa_family != AF_INET) continue;
+                        auto* sa = reinterpret_cast<sockaddr_in*>(ua->Address.lpSockaddr);
                         selfIps.push_back(ntohl(sa->sin_addr.s_addr));
                     }
                 }
-                freeaddrinfo(ai);
+            }
+        }
+        // 兜底：枚举失败时退回主机名解析（比"全不跳"强）
+        if (selfIps.empty()) {
+            char host[256] = {0};
+            if (gethostname(host, sizeof(host) - 1) == 0) {
+                addrinfo* ai = nullptr;
+                if (getaddrinfo(host, nullptr, nullptr, &ai) == 0) {
+                    for (addrinfo* p = ai; p; p = p->ai_next) {
+                        if (p->ai_family == AF_INET) {
+                            auto* sa2 = reinterpret_cast<sockaddr_in*>(p->ai_addr);
+                            selfIps.push_back(ntohl(sa2->sin_addr.s_addr));
+                        }
+                    }
+                    freeaddrinfo(ai);
+                }
             }
         }
     }

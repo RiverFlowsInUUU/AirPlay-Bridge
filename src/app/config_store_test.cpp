@@ -20,6 +20,8 @@
 #include <chrono>
 #include <windows.h>
 #include <cstdio>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -235,8 +237,60 @@ int main() {
         checkStr(out.lastDeviceId, "DEV-AAA", "恢复出的是 .bak 里的 deviceId");
         checkInt(out.volume, 33, "恢复出的是 .bak 里的 volume");
 
+        // ★ 恢复必须写回主文件 —— 否则下次启动又读到坏文件
+        //   （2026-10-24 复查指出"自消耗"，这一条正是它的回归测试）
+        //
+        //   注意这条断言必须**绕过 .bak** 才有效：只要 .bak 还在，
+        //   下次 load 仍能从它恢复，看不出主文件到底修没修好。
+        //   所以这里读完 .bak 的内容后把它删掉，再读主文件 ——
+        //   模拟"恢复后没再保存过就退出，而 .bak 因为别的原因没了"
+        //   那种链式场景。
+        {
+            // 先看主文件当前的实际字节（不经过任何恢复逻辑）
+            std::string mainNow;
+            {
+                std::ifstream mf(kFile, std::ios::binary);
+                std::stringstream ms;
+                ms << mf.rdbuf();
+                mainNow = ms.str();
+            }
+            check(mainNow.find("DEV-AAA") != std::string::npos,
+                  "恢复后主文件里应写着 DEV-AAA（直接读字节）");
+
+            std::string bakSnap;
+            {
+                std::ifstream bf(kFile + ".bak", std::ios::binary);
+                std::stringstream bs;
+                bs << bf.rdbuf();
+                bakSnap = bs.str();
+            }
+            removeFile(kFile + ".bak");   // 备份没了，只剩主文件
+
+            BridgeConfig again;
+            check(loadConfig(kFile, again), "备份没了也能从主文件读出来");
+            checkStr(again.lastDeviceId, "DEV-AAA",
+                     "恢复后的主文件内容就是 .bak 那份");
+
+            // 还原 .bak，后面还要验它没被毁
+            writeRaw(kFile + ".bak", bakSnap);
+        }
+
+        // ★ .bak 不能被这次恢复毁掉（留证改写到 .corrupt）
+        {
+            BridgeConfig bak2;
+            check(loadConfig(kFile + ".bak", bak2), ".bak 恢复后仍应可用");
+            checkStr(bak2.lastDeviceId, "DEV-AAA", ".bak 仍是好的");
+        }
+
+        // 坏内容留证在 .corrupt
+        {
+            std::ifstream cf(kFile + ".corrupt", std::ios::binary);
+            check(static_cast<bool>(cf), "坏内容应留在 .corrupt 里");
+        }
+
         removeFile(kFile);
         removeFile(kFile + ".bak");
+        removeFile(kFile + ".corrupt");
     }
 
     // ---- 4c. 没有 .bak 时，损坏仍按失败处理（不硬编造配置）----
@@ -420,12 +474,15 @@ int main() {
         check(!loadConfig(kFile, out), "截断文件应被拒绝（返回 false）");
         checkInt(out.volume, 55, "拒绝时不动 out");
 
-        std::FILE* b = std::fopen((kFile + ".bak").c_str(), "rb");
-        check(b != nullptr, "留了一份 .bak 供事后查证");
+        // 留证现在写到 .corrupt（不覆盖 .bak —— 那是恢复用的好副本）。
+        // 见 loadConfig 里的说明（2026-10-24 复查：恢复不能自消耗）。
+        std::FILE* b = std::fopen((kFile + ".corrupt").c_str(), "rb");
+        check(b != nullptr, "留了一份 .corrupt 供事后查证");
         if (b) std::fclose(b);
 
-        // 完全不是 JSON 也一样
+        // 完全不是 JSON 也一样（备份清掉 → 只能走失败路径）
         removeFile(kFile + ".bak");
+        removeFile(kFile + ".corrupt");
         writeRaw(kFile, "这不是 JSON 乱码");
         BridgeConfig o2;
         o2.volume = 66;
@@ -434,6 +491,7 @@ int main() {
 
         removeFile(kFile);
         removeFile(kFile + ".bak");
+        removeFile(kFile + ".corrupt");
     }
 
     // ---- 14. ★ loadConfig 幂等：同一对象读两次结果不变 ----

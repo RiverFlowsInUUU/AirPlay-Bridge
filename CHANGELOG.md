@@ -3,6 +3,31 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.41] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复点「连接诊断」后，防火墙放行规则反而被删光、彻底连不上的问题
+  —— 1.5.39 起的三个版本都有。现在只在规则确实不对时才添加，加完不再误删。
+- 修复配置文件损坏、从上一次备份恢复后，下次启动又变回坏的那份的问题。
+- 修复放行规则检查在提权等待期间处理界面消息过慢的问题。
+- 修复扫描时可能漏掉本机某些网卡地址、把自己当成设备的问题。
+
+**English**
+
+### Fixed
+
+- Fixed Connection check wiping out the firewall rule entirely, leaving the app
+  unable to connect — present since 1.5.39. The rule is now only added when
+  genuinely missing, and no longer deleted right after.
+- Fixed the recovered config being lost again on the next launch after a
+  corrupted file was restored from the last good backup.
+- Fixed slow UI message handling while waiting for the elevated process.
+- Fixed the scan occasionally missing some local adapter addresses, which let
+  the app list itself as a device.
+
 ## [1.5.40] - 2026-10-24
 
 **中文**

@@ -636,16 +636,17 @@ bool anotherInstanceIsRunning() {
 // 放行规则，加规则必须管理员权限 —— 所以这条路径是：托盘菜单提权拉起
 // 自己（带 --fix-firewall），被拉起的那一份加规则、弹提示、退出。
 //
-// 规则名固定。加之前先删同名旧规则：这样重复点菜单不会堆出一串规则，
-// 而且用户把 exe 挪了位置之后，规则里的 program 路径也会更新到当前 exe
-// （同名规则只留一条，就是刚加的那条）。
+// 规则名固定。重复点菜单不会堆出一串规则、exe 挪位置后 program 路径会更新，
+// 靠的是**加之前先判「当前这条对不对」**（firewallRuleExists 会核对 program=），
+// 以及加完之后由 cleanStaleFirewallRules() 精确清掉多余的。
+//
+// ★ 不再有「加之前先按名字全删」这一步 —— v1.5.39 那版把顺序改成先加后删，
+//   而删除函数是按名字全删的，于是刚加的也被删掉，规则归零。
+//   详见 runFixFirewall 里的说明。
 const char* const kFirewallRuleName = "AirPlay Bridge inbound UDP";
 
-// 前置声明：deleteFirewallRuleByName() 要用这两个，
-// 而它们的定义在下面（findStaleFirewallRules 依赖上面的常量与 exePath）。
+// 前置声明：它们的定义在下面（findStaleFirewallRules 依赖上面的常量与 exePath）。
 std::vector<std::wstring> findStaleFirewallRules();
-// 所有前缀匹配的规则名（不只「多余的」）—— 加规则前清场用。
-std::vector<std::wstring> findAllOurFirewallRules();
 bool deleteFirewallRuleByNameEx(const std::wstring& name);
 
 // netsh 的**完整路径** —— 不能只写 "netsh"。
@@ -711,50 +712,6 @@ std::string netshAddRuleArgs(bool useFullNetshPath) {
     cmd += QC; cmd += exePath();                      cmd += QC;
     cmd += " remoteip=localsubnet profile=any";
     return cmd;
-}
-
-// 删掉**所有前缀匹配**的旧规则（不只是精确同名的那条）。
-// 返回 false 表示 netsh 执行失败（多数是没管理员权限）。
-//
-// 为什么必须连带序号的一起删：netsh 遇到重名会自动加序号，于是同一台
-// 机器上会攒出 "... UDP"、"... UDP 1"、"... UDP 2"……。只按精确名字删
-// 的话，带序号的一条都删不掉 —— 这正是序号堆积的根源。
-// 这里是「加之前先清干净」的语义：清完之后系统里只会剩下面新加的那一条。
-//
-// 用 netsh 而不是 INetFwPolicy2：写规则走 COM 需要管理员权限时
-// 一样会失败，而 netsh 的命令行跟上面日志里给用户看的那条完全一致，
-// 出问题时日志和用户手册能对得上。
-//
-// 删的是"我们前缀匹配"的那些 —— 别的 AirPlay 规则（"AirPlay Bridge UDP
-// Range" 等）名字对不上前缀，一条都不会被碰到。用 findStaleFirewallRules()
-// 而不是自己拼 netsh 通配：它走 INetFwPolicy2 枚举 + 前缀比较，判据与
-// 启动检查完全同一套，不会出现"检查时算一条、删的时候删另一批"的错位。
-// ⚠️ 这个函数必须删掉**所有**前缀匹配的规则，不能只删「多余的」。
-//
-// 原因（实测踩到，导致放行规则归零）：
-//   1. netsh 的 `delete rule name="X"` 会把**同名的所有规则一起删**，
-//      没法只删其中一条 —— 所以「精确地只删多余那条」本来就做不到。
-//   2. 更糟的是加规则前若不把同名规则清干净，netsh add 会**再产生一条同名**。
-//      于是先删一条（结果两条都没了）、或者保留一条再新增（变成两条同名），
-//      两种情况最后都是一场空。
-//
-// 真实表现：覆盖安装时旧规则还在 → 加规则前没删掉它 → 变成两条同名 →
-// 随后「清理多余规则」按名字删 → **两条一起消失** → 放行规则 0 条 →
-// 接收端 UDP 回连被丢 → 连不上 + 每次启动都提示未被防火墙放行。
-//
-// 所以这里的语义就是「加规则前先把同名规则全部清掉」，然后干净地加一条。
-bool deleteFirewallRuleByName() {
-    // ⚠️ 必须用「全部」而不是「多余的」。理由见上方那段长注释：
-    //   - netsh 按名字删会把同名的**一起删**，做不到"只删多余那条"
-    //   - 加规则前若不清干净同名规则，netsh add 会再产生一条同名 →
-    //     随后任何按名字的删除都会把它们一起删光 → 放行规则归零
-    const std::vector<std::wstring> ours = findAllOurFirewallRules();
-    if (ours.empty()) return true;   // 本来就没有，等价于删成功
-    bool ok = true;
-    for (const std::wstring& name : ours) {
-        if (!deleteFirewallRuleByNameEx(name)) ok = false;
-    }
-    return ok;
 }
 
 // 遍历所有防火墙规则，对每条调用 fn(rule)。
@@ -1037,27 +994,6 @@ std::vector<std::wstring> findOtherCopies() {
     return out;
 }
 
-// 列出**所有**前缀匹配的放行规则名（不只「多余的」）。
-//
-// 加规则前的清场要用它 —— 理由见 deleteFirewallRuleByName 上方那段。
-// 前缀比较的写法与 findStaleFirewallRules 完全一致，避免两处判据漂移。
-std::vector<std::wstring> findAllOurFirewallRules() {
-    std::vector<std::wstring> out;
-    const std::wstring prefix(
-        kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
-    forEachFirewallRule([&](INetFwRule* rule) -> bool {
-        BSTR name = nullptr;
-        if (SUCCEEDED(rule->get_Name(&name)) && name) {
-            const std::wstring w(name);
-            if (w.size() >= prefix.size() &&
-                w.compare(0, prefix.size(), prefix) == 0)
-                out.push_back(w);
-        }
-        if (name) SysFreeString(name);
-        return true;   // 收齐全部
-    });
-    return out;
-}
 
 // 指定名字的规则还在不在（按名字精确比对，不看 program=）。
 //
@@ -1192,9 +1128,23 @@ bool waitProcessPumping(HANDLE proc, DWORD totalMs) {
         if (r == WAIT_OBJECT_0) return true;      // 结束了
         if (r != WAIT_TIMEOUT) return false;      // 句柄异常
 
-        // 派发一条消息。不抽干：与 TrayIcon::pump 同样的理由（防重入）。
+        // 派发消息：**有上限地排空**，不是只取一条、也不无限抽干。
+        //
+        //   · 只取一条（原来的写法）：每个 100ms 片只处理 1 条，
+        //     消息密集时排空速度只有 10 条/秒，界面会明显迟钝。
+        //   · 无限抽干：TrayIcon::pump 的注释解释过风险 ——
+        //     菜单回调调 TrackPopupMenu（自带模态循环），抽干会让
+        //     下一条 WM_TRAY_CALLBACK 在菜单里被派发，嵌套弹菜单，
+        //     且"断开"分支会拆掉正在跑着的会话，有 use-after-free 风险。
+        //
+        //   16 条/片的上限：正常 UI 消息远达不到，足以保持响应；
+        //   又不会在极端情况下一次钻进很深的嵌套。
+        //   （2026-10-24 复查建议改成 while 排空；这里取有界版本，
+        //    兼顾排空速度与既有的防重入约束。）
+        constexpr int kMaxMsgsPerSlice = 16;
         MSG msg;
-        if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        for (int i = 0; i < kMaxMsgsPerSlice; ++i) {
+            if (!PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) break;
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -1498,13 +1448,27 @@ int runFixFirewall(bool quiet = false) {
     } else {
         logLine("--fix-firewall: 执行 " + cmd);
         rc = runCommandLine(cmd);
-        // 加成功之后，才允许删掉同名旧规则（那些指向旧路径的）。
-        // 加失败就保留它们 —— 它们虽然不指向当前 exe，但至少没让规则归零，
-        // 用户下次换个位置装回来还能用。
-        if (rc == 0) {
-            if (!deleteFirewallRuleByName())
-                logLine("--fix-firewall: 删除同名旧规则失败，继续（新规则已加好）");
-        } else {
+        // ★ 这里**绝对不能**再调 deleteFirewallRuleByName()。
+        //
+        //   v1.5.39 我把它从「先删后加」改成「先加后删」，本意是让 add 失败时
+        //   别把规则删光。但 deleteFirewallRuleByName() 的语义是
+        //   「按名字前缀删掉**全部**」—— 它不看 program=，
+        //   所以刚 add 成功的那一条也名列其中，紧接着就被删掉了。
+        //
+        //   后果链（2026-10-24 复查指出，P1）：
+        //     无规则的机器（首次安装 / 换了位置 —— 正是「连接诊断」的主场景）
+        //       add 成功 → 删光 → 规则 0 条
+        //     而 rc 取自 add（成功），界面弹出「已添加防火墙入站规则」。
+        //     用户看到"修好了"，实际连不上，且每次启动都被提示未放行。
+        //   **比原来那个缺陷更糟**：原缺陷只在 add 失败时归零（窄），
+        //   这个在 add 成功时归零（几乎所有人）。
+        //
+        //   而且它本来就是**冗余**的：紧接着的 cleanStaleFirewallRules()
+        //   已经正确处理「指向旧路径 / 已删除副本」的规则（分组 B）
+        //   和「同指向的重复规则」（分组 A），并且它读 program=、
+        //   能精确到"只删该删的"。按名字全删做不到这件事 ——
+        //   deleteFirewallRuleByName 自己的注释里就写着这一点。
+        if (rc != 0) {
             logLine("--fix-firewall: 添加失败，保留原有规则不动");
         }
     }
@@ -1715,13 +1679,17 @@ bool elevateAndRunCleanFirewallRules() {
 // 卸载时托盘里那个实例可能还开着，不能被自己挡住。
 // 删掉本程序的**全部**防火墙规则（卸载时用）。
 //
-// 别拿 deleteFirewallRuleByName() 顶替 —— 那个的语义是
-// 「删掉多余的、**保留**正在起作用的那条」（v1.2.39 为启动自检设计的）。
-// 卸载时那条正好也指向要被删掉的 exe，必须一起清，
-// 否则系统里就留下一条指向不存在文件的死规则。
+// ★ 唯一正确的「全删」入口。要删全部就调这个，别自己再写一个。
 //
-// 这种「两个函数名字像、语义不同」的地方最容易用错。所以这里单开一个，
-// 名字也写清楚是 All。
+//   历史：这里原来还有个 deleteFirewallRuleByName()，语义注释写着
+//   「删掉多余的、**保留**正在起作用的那条」，**但实现是按前缀全删** ——
+//   注释和代码根本不是一回事。v1.5.39 我在 runFixFirewall 里按那句注释
+//   的意图用了它（以为只会删旧的），结果把刚 add 成功的那条一起删了，
+//   规则归零 —— 比它想修的缺陷更糟（v1.5.41 修）。
+//   那个函数已整个删除：它没有任何调用点了，留着就是下次再踩的坑。
+//
+//   真正「只删该删的」是 cleanStaleFirewallRules() —— 它读 program=
+//   分组（分组 A 留一条、分组 B 按文件是否存在判断），能做到精确。
 void removeAllFirewallRules() {
     const std::wstring prefix(
         kFirewallRuleName, kFirewallRuleName + std::strlen(kFirewallRuleName));
