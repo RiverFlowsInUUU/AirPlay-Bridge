@@ -3,6 +3,21 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.37] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复日志里同一条诊断每 5 秒重复写一次、长时间收听会把日志刷满的问题。
+
+**English**
+
+### Fixed
+
+- Fixed the same diagnostic being written every 5 seconds, flooding the log
+  during long listening sessions.
+
 ## [1.5.36] - 2026-10-24
 
 **中文**

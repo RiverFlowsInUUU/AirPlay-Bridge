@@ -394,6 +394,12 @@ bool muteGaveUp = false;
 // 变成足以定案的证据，不必等 30 秒（默认 5 秒待机根本等不到）。
 bool muteFromWake = false;
 
+// 「静音后仍有电平」那条诊断日志说过没有（每次静音重置）。
+//
+// 独立于 muteFromWake：后者决定判据严不严（1 窗口 / 6 窗口），
+// 不能为了少写日志把它清掉，否则会把判据悄悄降级。
+bool muteNoSignalLogged = false;
+
 BOOL WINAPI onCtrl(DWORD sig) {
     if (sig == CTRL_C_EVENT || sig == CTRL_BREAK_EVENT || sig == CTRL_CLOSE_EVENT) {
         g_stop.store(true);
@@ -3290,6 +3296,8 @@ int main(int argc, char** argv) {
                     // 驱动把环回也静掉了（见主循环健康检查那段）。
                     muteFromWake = sess.muteCheckFromWake.load();
                     sess.muteCheckFromWake.store(false);   // 一次性
+                    // 新的一次静音 = 新的一轮观测，那条诊断日志可以再说一次。
+                    muteNoSignalLogged = false;
                     // ★★ 必须在这里把峰值累积清零 —— 这是整个判据能否生效的前提。
                     //
                     //   g_peakWindowMax 是 producer 线程**无条件**累积的
@@ -4368,19 +4376,36 @@ int main(int argc, char** argv) {
                         if (pk < kSilencePeak) {
                             ++muteNoSignalPasses;
                         } else {
-                            // 窗口里有电平 → 判据被"污染"或驱动正常（静音不影响采集）。
-                            // 这条日志只在与静音相关时写，正常播放不会走这里
-                            // （外层要求 g_mutedByUs）。留着是为了现场取证：
-                            // 如果用户报"还是在断连"，日志里能看到每个窗口的 pk
-                            // 和 fromWake，一眼分辨是判据被静音前音频污染，
-                            // 还是这台驱动根本不受影响。
-                            // （2026-10-24 复查建议：这类时序缺陷本地无法复现，
-                            //   只能靠现场日志证明判据有没有被污染。）
-                            if (fromWake && pk >= kSilencePeak) {
-                                logLine("静音后首个窗口仍有电平（峰值 " +
+                            // 窗口里有电平 → 说明静音**没有**掐断采集
+                            // （要么驱动不受影响，要么判据被静音前的音频污染）。
+                            // 留一条日志是为了现场取证：用户报"还是在断连"时，
+                            // 日志里能看到峰值，一眼分辨是哪种情况 ——
+                            // 这两种的修法完全不同。
+                            //
+                            // ★ 每条会话只记一次（记完清掉 muteFromWake）。
+                            //
+                            //   第一版这里写着「正常播放不会走这里（外层要求
+                            //   g_mutedByUs）」—— **那句注释是错的**：
+                            //   g_mutedByUs 恰恰在这个功能**正常工作**期间恒为真，
+                            //   而"撤销永不发生"是健康机器的常态。
+                            //   于是健康驱动 + 默认配置的用户，每次暂停后唤醒，
+                            //   之后每个有声音的 5 秒窗口都会命中外层条件，
+                            //   一小时能刷 ~720 条同样的日志。
+                            //   （2026-10-24 第三次复查指出 —— 与上一轮
+                            //     muteGaveUp 文档承诺是同一个错：把"需要静音相关"
+                            //     当成了"正常状态不会发生"。发生在同一份提交里。）
+                            //
+                            // ★ 用独立的 once 标志，**不能清 muteFromWake**。
+                            //   muteFromWake 还决定着 need（1 窗口还是 6 窗口）：
+                            //   清掉它等于把这条会话的判据从 1 降级到 6，
+                            //   下次真出问题时反而要多等 30 秒。
+                            //   两个语义分开：一个管"判据多严"，一个管"日志说过没有"。
+                            if (fromWake && pk >= kSilencePeak && !muteNoSignalLogged) {
+                                logLine("静音后窗口仍有电平（峰值 " +
                                         std::to_string(pk) +
                                         "）—— 这台机器的采集不受静音影响，"
                                         "无需撤销静音");
+                                muteNoSignalLogged = true;   // 只记一次
                             }
                             muteNoSignalPasses = 0;
                         }
