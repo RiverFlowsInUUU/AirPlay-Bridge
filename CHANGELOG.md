@@ -3,6 +3,40 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.35] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 1.5.34 里「静音导致采集不到声音」的检测在默认设置下不会生效 —— 默认开着
+  的「无声音时待机」正好是这条检测被排除的条件，等于没修。现在改为：从待机
+  唤醒的会话若在静音后立刻收不到声音，马上撤销静音（待机 5 秒就会断开，
+  等不到更长）；待机关闭时仍按 30 秒判断。
+- 撤销过一次静音后，本次运行不再自动静音 —— 否则重连后又静上，来回抖。
+- 重连间隔在「连上过、之后设备掉线」时不再增长（1.5.34 引入）：
+  会一直卡在 10 秒反复重试，而每一轮都带一次网络扫描。
+- 英文界面仍有 4 处中文：「尚未扫描到设备」「未找到设备」
+  「请确认 HomePod 已通电」「且与电脑在同一 WiFi」。
+
+**English**
+
+### Fixed
+
+- The detection added in 1.5.34 for "muting also silences the capture" never
+  ran under default settings — standby is on by default, and that was exactly
+  the condition the check excluded. A session resumed from standby now has its
+  mute lifted as soon as the first 5-second window shows no signal (standby
+  disconnects after 5 s, so waiting longer was pointless); with standby off the
+  30-second rule still applies.
+- After lifting the mute once, it is not re-applied for the rest of the run —
+  otherwise reconnecting muted again and the two fought each other.
+- Reconnect interval stopped growing when a device that had connected dropped
+  off (introduced in 1.5.34): it stayed at 10 s forever, each attempt including
+  a network scan.
+- Four Chinese strings remained in the English UI: the empty scan results and
+  the device-hiding submenu.
+
 ## [1.5.34] - 2026-10-24
 
 **中文**

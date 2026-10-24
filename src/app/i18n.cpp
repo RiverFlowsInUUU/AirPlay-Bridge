@@ -39,6 +39,13 @@ const Entry kEntries[] = {
     {"尚未扫描到设备", "No devices found yet"},
     {"重新扫描", "Scan again"},
 
+    // ── 重新扫描结果为空时的说明（菜单里直接显示）──
+    // 这三条原来以中文字面量硬编码在 push_back 里，没过 tr()，
+    // 英文界面会冒出中文。菜单文字不走任何翻译层，必须自己调 tr()。
+    {"未找到设备", "No devices found"},
+    {"请确认 HomePod 已通电", "Make sure the HomePod is powered on"},
+    {"且与电脑在同一 WiFi", "and on the same Wi-Fi as this PC"},
+
     // ── 托盘菜单：设备 ──
     {"设备", "Devices"},
     {"隐藏设备", "Hide devices"},

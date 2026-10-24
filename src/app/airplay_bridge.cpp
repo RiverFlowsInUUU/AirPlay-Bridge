@@ -372,18 +372,27 @@ bool fetchLatestRelease(std::string& tag, std::string& url) {
 // 偏高则会"有声音也待机"（用户没有别的办法，只能关掉待机）。
 constexpr int kSilencePeak = 20;
 
-// 「静音后采集不到电平」要连续几个 5 秒窗口才动手撤销静音。
+// 「静音后采集不到电平」在**待机关闭**时，要连续几个 5 秒窗口才撤销静音。
 //
-// 6 个窗口 = 30 秒。取这个数的理由：
-//   - 短于待机档位里最短的 5 秒没有意义（还没到待机就已经判定了）；
-//   - 太长则循环已经发生好几轮，用户已经听到断续了；
-//   - 30 秒也足够跨过"曲目之间的自然间隙"这类短暂静音，不会误撤销。
-// 只有「我们自己静的音 + 连着 + 电平持续为静音级」三条同时成立才计数，
-// 用户自己暂停播放走的是正常待机路径，不受影响。
+// 6 个窗口 = 30 秒，够跨过"曲目之间的自然间隙"。
+// ★ 待机**开着**时不用这个数 —— 那时必须在第一个窗口就动手，
+//   因为 5 秒待机就会拆会话（详见下方主循环里的判据说明）。
 constexpr int kMuteNoSignalPasses = 6;
 
 // 「静音后采集不到电平」的连续窗口计数（主循环专用，仅主线程读写）。
 int muteNoSignalPasses = 0;
+
+// 已经因为「采集不到电平」放弃过静音：本次进程内不再自动静音。
+//
+// 不加这个 latch 的话，会话一重建（被踢、掉线重连）就会又静上，
+// 再等一个窗口再撤销，表现成静音开关来回抖。
+// 只影响「自动静音」，用户手动在菜单里开关仍然生效。
+bool muteGaveUp = false;
+
+// 本次静音是否发生在「待机唤醒」建起的会话里。
+// 唤醒说明用户正在播放 —— 这条判据把「静音后第一个窗口就无电平」
+// 变成足以定案的证据，不必等 30 秒（默认 5 秒待机根本等不到）。
+bool muteFromWake = false;
 
 BOOL WINAPI onCtrl(DWORD sig) {
     if (sig == CTRL_C_EVENT || sig == CTRL_BREAK_EVENT || sig == CTRL_CLOSE_EVENT) {
@@ -2058,6 +2067,13 @@ struct Session {
     // 待机期间不做任何周期性重连试探：那会让屏幕反复亮起，正是要避免的。
     std::atomic<bool> standbyActive{false};   // 已进入待机
     std::atomic<bool> standbyWake{false};     // 待机中听到声音了
+    // 本次会话是「待机唤醒」建起来的吗。
+    //
+    // 能唤醒说明 standbyEar 刚听到声音 —— 用户此刻**正在播放**。
+    // 这种会话里静音后第一个 5 秒窗口就没电平，只能是驱动把环回一起静掉了；
+    // 而暂停播放不会产生唤醒，所以这条判据天然不会误伤。
+    // 用于「静音掐断采集」的检测，见主循环 5 秒健康检查那段。
+    std::atomic<bool> muteCheckFromWake{false};
     // 最近一次"有声音"的 steady_clock 毫秒时间戳。
     // 初值 0 是"从没响过"，主循环会立刻判成静音 —— 所以连接成功时
     // 必须重置为当前时间（见 ev.launched）。
@@ -3232,7 +3248,8 @@ int main(int argc, char** argv) {
         logLine(forLog);
     };
     // 捕获 cfgPath：下面「静音扬声器」那几条要落盘（崩溃恢复用）。
-    sess.onConnected = [&tray, &cfg, &cfgPath](bool ok) {
+    // &sess：静音那一段要读 sess.muteCheckFromWake（本次会话是不是唤醒来的）。
+    sess.onConnected = [&tray, &cfg, &cfgPath, &sess](bool ok) {
         tray.setConnected(ok);
         // tooltip 的"基础文案"跟着图标一起走 —— 这两者必须始终一致，
         // 分成两条独立的路就一定会有一条被漏掉。
@@ -3250,11 +3267,18 @@ int main(int argc, char** argv) {
         //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
         //     已经静音的端点也必须还回去。
         if (ok) {
+            // muteGaveUp：本次运行已经因为「静音后采不到电平」放弃过自动静音，
+            // 不再重试 —— 否则会话一重建就又静上，来回抖。
             if (cfg.muteLocalOnConnect && cfg.preCaptureDevice.empty() &&
-                !g_mutedByUs.load()) {
+                !muteGaveUp && !g_mutedByUs.load()) {
                 g_wasMutedBefore.store(isSystemMuted());
                 if (!g_wasMutedBefore.load() && setSystemMuted(true)) {
                     g_mutedByUs.store(true);
+                    // 记下「这次静音是发生在唤醒会话里吗」。
+                    // 唤醒 = 用户正在播放，静音后第一个窗口无电平即可断定
+                    // 驱动把环回也静掉了（见主循环健康检查那段）。
+                    muteFromWake = sess.muteCheckFromWake.load();
+                    sess.muteCheckFromWake.store(false);   // 一次性
                     // 落盘：万一进程被强杀，下次启动能据此把端点还回去。
                     cfg.localMutedByUs = true;
                     saveConfig(cfgPath, cfg);
@@ -3542,7 +3566,11 @@ int main(int argc, char** argv) {
                     all = g_lastScanAll;
                 }
                 if (all.empty()) {
-                    hideItem.children.push_back({"尚未扫描到设备", 0, false, false, false});
+                    // ★ 必须过 tr()：菜单文字是直接进原生菜单的，不走任何翻译层。
+                    //   同一个词组在上面「设备」子菜单里走的是 i18n::tr()，
+                    //   这里漏了 —— 英文界面会显示中文（2026-10-24 复查指出）。
+                    hideItem.children.push_back(
+                        {i18n::tr("尚未扫描到设备"), 0, false, false, false});
                 } else {
                     for (size_t i = 0; i < all.size(); ++i) {
                         TrayMenuItem d;
@@ -4037,11 +4065,13 @@ int main(int argc, char** argv) {
                         std::vector<TrayMenuItem> sub;
 
                         if (discovered.empty()) {
-                            // 扫不到也给个明确交代，并提示该查什么
-                            sub.push_back({"未找到设备", 0, false, false, false});
+                            // 扫不到也给个明确交代，并提示该查什么。
+                            // ★ 三条都要过 tr() —— 原来直接写中文，
+                            //   英文界面的重新扫描结果里会冒出中文（2026-10-24 复查）。
+                            sub.push_back({i18n::tr("未找到设备"), 0, false, false, false});
                             sub.push_back({"", 0, true, true, false});
-                            sub.push_back({"请确认 HomePod 已通电", 0, false, false, false});
-                            sub.push_back({"且与电脑在同一 WiFi", 0, false, false, false});
+                            sub.push_back({i18n::tr("请确认 HomePod 已通电"), 0, false, false, false});
+                            sub.push_back({i18n::tr("且与电脑在同一 WiFi"), 0, false, false, false});
                             tray.setTooltip(i18n::tr("AirPlay Bridge - 未找到设备"));
                         } else {
                             for (size_t i = 0; i < discovered.size(); ++i) {
@@ -4266,34 +4296,60 @@ int main(int argc, char** argv) {
                     //     → 断开时撤销静音 → 本机发声 → 唤醒重连 → 又静音
                     //   每「待机秒数 + 重连时间」循环一次，接收端周期性无声。
                     //
-                    //   判据要卡死三个条件，避免误伤「用户只是暂停了播放」：
-                    //   ① 是我们自己静的音（g_mutedByUs），不是用户设的
-                    //   ② 会话连着（真在推流，不是待机/未连）
-                    //   ③ 连续 kMuteNoSignalPasses 个窗口都是静音级电平
-                    //   第 ③ 条是最关键的一条：暂停播放也会 peak=0，但那样
-                    //   wantStandby 走的是正常待机路径，不该撤销用户的静音。
-                    //   真正病态的情形是「静音 + 静音级电平 + 还连着」持续到
-                    //   快要触发待机 —— 那时撤销静音是唯一能打破循环的动作。
+                    // ★★ 第一版这段是错的，别再犯（2026-10-24 复查指出）：
+                    //   当时只写了「连续 6 个 5 秒窗口无电平」一条判据，还加了
+                    //   !standbyActiveConfig(cfg) 做防误伤。可这个循环**恰恰只在
+                    //   待机开启时存在**（拆会话那一步就是待机），而待机默认
+                    //   开着（standbyEnabled=true、5 秒）——
+                    //     ① 默认配置下 !standbyActiveConfig 恒假，一次都不执行
+                    //     ② 就算去掉它，5 秒待机就把 running 打成 false，
+                    //        计数器每轮清零，30 秒永远攒不齐
+                    //   防误伤的判据（待机开着）与检查生效的条件（待机关着）
+                    //   恰好互斥 —— 等于没修。
+                    //
+                    //   现在的判据分两种场景，覆盖真正的循环：
+                    //
+                    //   【甲】待机**开着**（默认）：只看「刚从待机唤醒」的会话。
+                    //     能唤醒说明 standbyEar 刚听到声音 —— 用户此刻**正在播放**，
+                    //     不是暂停。这种情况下静音后第一个 5 秒窗口就没电平，
+                    //     唯一的解释是驱动把环回一起静掉了。默认 5 秒待机意味着
+                    //     必须在**第一个窗口**就动手，等 30 秒循环早发生了。
+                    //     暂停时不产生唤醒，所以天然不会误伤。
+                    //
+                    //   【乙】待机**关着**：没有待机路径可走，回到连续窗口判据。
+                    //     这种配置下「暂停 ≥30 秒」确实会被误撤销 —— 接受它：
+                    //     静音本来就是为了不打扰，而这里根本没在播放，撤销的
+                    //     代价只是扬声器出声，比整机周期断连轻得多。
                     if (cfg.muteLocalOnConnect && g_mutedByUs.load() &&
-                        sess.running.load() && sess.connected.load() &&
-                        !standbyActiveConfig(cfg)) {
+                        sess.running.load() && sess.connected.load()) {
+                        const bool fromWake = muteFromWake;
+                        const int  need = fromWake ? 1 : kMuteNoSignalPasses;
                         if (pk < kSilencePeak) {
                             ++muteNoSignalPasses;
                         } else {
                             muteNoSignalPasses = 0;
                         }
-                        if (muteNoSignalPasses >= kMuteNoSignalPasses) {
+                        if (muteNoSignalPasses >= need) {
                             muteNoSignalPasses = 0;
                             if (setSystemMuted(false)) {
                                 g_mutedByUs.store(false);
+                                // ★ latch：本次进程内不再自动静音。
+                                //   不加这个的话，会话一重建（被踢、重连）就
+                                //   又静上，再等一个窗口再撤销，来回抖。
+                                muteGaveUp = true;
                                 if (cfg.localMutedByUs) {
                                     cfg.localMutedByUs = false;
                                     saveConfig(cfgPath, cfg);
                                 }
-                                logLine("采集端点在静音后收不到任何电平 —— "
-                                        "这台机器的驱动会把环回一起静掉。"
-                                        "已撤销静音以免断连循环；本次会话不再静音，"
-                                        "请在菜单里关掉「连接时静音电脑扬声器」。");
+                                logLine(fromWake
+                                    ? "待机唤醒后静音状态下采不到任何电平 —— "
+                                      "这台机器的驱动会把环回一起静掉。"
+                                      "已撤销静音，本次运行不再自动静音。"
+                                    : "采集端点在静音后收不到电平已超过 30 秒 —— "
+                                      "可能是这台机器的驱动会把环回一起静掉。"
+                                      "已撤销静音，本次运行不再自动静音；"
+                                      "如果不需要这个行为，"
+                                      "请在菜单里关掉「连接时静音电脑扬声器」。");
                             }
                         }
                     } else {
@@ -4358,6 +4414,11 @@ int main(int argc, char** argv) {
                 // 听到声音了：立刻醒回来。此时 running 是 false，
                 // 能过 tryConnect 的 guard。
                 sess.leaveStandby();
+                // 标记这条会话是「唤醒」来的 —— 用户正在播放。
+                // 静音检测据此把阈值降到 1 个窗口（见上面健康检查那段）。
+                // 必须在 tryConnect 之前置位：连接一旦建立，
+                // 第一个 5 秒窗口就会开始计。
+                sess.muteCheckFromWake.store(true);
                 tryConnect(true);   // skipResolve：不等那 2.5 秒扫描
                 lastCheck = now;
             } else {
@@ -4389,11 +4450,21 @@ int main(int argc, char** argv) {
             // 判据要区分「还没连上过」和「连上过又断了」：
             //   - 从没连上过（开机时音箱还没通电）→ 保持 5 秒慢慢试，别加速，
             //     用户刚开机就等 60 秒是骚扰；
-            //   - 连上过、又因为 wantReconnect 掉下来 → 说明在反复被踢，
-            //     这才是要加速的场景（两台设备抢同一个接收端）。
-            // everConnected 在下面 connected 分支里维护：只有会话真的建立过才置 true。
-            if (sess.running.load() && sess.wantReconnect.load() && everConnected &&
-                retryBackoffSec < 60) {
+            //   - 连上过、又断了 → 说明在反复被踢或在反复掉线，这才该加速。
+            //
+            // ★ 两条路径都要算进去（2026-10-24 复查指出这里曾漏一支）：
+            //   【被踢】running && wantReconnect —— 会话还活着但已被要求重连
+            //   【掉线】!running && 未待机 && autoReconnect && !userDisconnected
+            //   上一版只在【被踢】那支翻倍，还在【掉线】那支写了句
+            //   「翻倍已提到上面统一处理、两支共用」—— 而条件里带着
+            //   running.load()，掉线时恒假，等于把掉线那支原有的翻倍删掉了。
+            //   后果：连上过之后设备断电，先翻倍到 10 秒，然后永远卡在 10 秒
+            //   （修复前会涨到 60）。每轮还带 ~2.5 秒设备扫描 + 全网段端口扫描。
+            //   注释说"两支共用"而代码只覆盖一支，比不写注释更坏。
+            const bool kicked   = sess.running.load() && sess.wantReconnect.load();
+            const bool dropped  = !sess.running.load() && !sess.standbyActive.load() &&
+                                  cfg.autoReconnect && !userDisconnected;
+            if (everConnected && (kicked || dropped) && retryBackoffSec < 60) {
                 retryBackoffSec *= 2;
             }
             if (sess.running.load() && sess.wantReconnect.load()) {
@@ -4419,8 +4490,8 @@ int main(int argc, char** argv) {
                 // 采集线程还挂着。先收尾再连 —— 顺带把音频路由也恢复回去。
                 sess.teardown();
                 tryConnect();
-                // 退避翻倍已提到上面 retry 判据那里统一处理 ——
-                // 两支共用，避免只有「掉线」加速、「被踢」不加速。
+                // 退避翻倍在进入这个块之前统一处理（kicked / dropped 两支），
+                // 这里不要再翻一次 —— 会变成每轮 ×4。
             }
         }
 

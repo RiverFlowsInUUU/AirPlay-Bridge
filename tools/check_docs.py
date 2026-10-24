@@ -318,8 +318,16 @@ else:
 # 这类问题机器能查：只看「传给用户可见出口的字面量里有没有中文」。
 #
 # 出口名单是故意写死的（窄）：新增一个面向用户的出口时，要把它加进来。
+#
+# ★ 2026-10-24 补上菜单出口（复查报告指出这里原本是盲区）：
+#   托盘菜单项是 `TrayMenuItem{文字, id, ...}` 直接进原生菜单的，
+#   不经过任何翻译层。原来只盯 setTooltip/notify/MessageBox 这几个，
+#   `push_back({"未找到设备", 0, false, false, false})` 这种裸中文
+#   永远不会进扫描视野 —— 于是"漏译 0"这个口径是假的。
+#   现在 children.push_back( / sub.push_back( / menu.push_back( 都算出口。
 _SINKS = ["setTooltip(", "onStatus(", "tray.notify(", "notify(", "MessageBox",
-          "promptUser("]
+          "promptUser(",
+          "children.push_back(", "sub.push_back(", "menu.push_back(", "hideItem.children"]
 _SRC = ["src/app/airplay_bridge.cpp", "src/ui/tray.cpp",
         "src/ui/latency_dialog.cpp", "src/app/i18n.cpp"]
 _CJK = re.compile("[一-鿿]")
