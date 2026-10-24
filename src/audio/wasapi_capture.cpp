@@ -281,7 +281,28 @@ bool WasapiCapture::open(std::string* errOut) {
                                   IID_PPV_ARGS(&impl_->enumerator));
     if (FAILED(hr)) return fail("CoCreateInstance(MMDeviceEnumerator) failed");
 
+    // ★ open() 幂等 + 契约收紧。
+    //
+    //   下面两个容器是**追加式**的：同一对象二次 open 会把同一端点再采
+    //   一路、样本直接相加 —— 音量翻倍、限幅失真。当前全部调用方都是
+    //   新对象只 open 一次；这里给未来的调用方封死这颗地雷。
+    //   但清空有前提：采集 worker 持有 devices[i] 的裸指针，**跑着的时候
+    //   清就是悬垂** —— 所以 open() 只服务「没在跑」的对象（要先 stop()
+    //   并等 worker 退出，join 由调用方负责，与 run() 的契约一致）。
+    //   顺带清掉上一轮可能残留的停止意图（见 stopRequested_）。
+    //   （2026-10-24 二次全面复审 R1/R2）
+    if (running_.load()) {
+        return fail("open() while capture is running");
+    }
+    if (!impl_->devices.empty()) {
+        impl_->devices.clear();
+        impl_->queues.clear();
+    }
+    stopRequested_.store(false);
+
     std::vector<ComPtr<IMMDevice>> targets;
+    // 配置端点打不开时允许回退系统默认（DefaultOnly 且真用上了配置端点）。
+    bool configuredFallback = false;
 
     // 目前固定走单设备模式（默认输出设备）。
     //
@@ -309,6 +330,9 @@ bool WasapiCapture::open(std::string* errOut) {
                     dev.Reset();
                 }
             }
+            // 真取到了配置端点：它要是下面打不开（独占占用 / 驱动卡死），
+            // 还有一次回退默认的机会（见打开循环里的 configuredFallback）。
+            configuredFallback = (dev != nullptr);
         }
         if (!dev) {
             if (FAILED(impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &dev)))
@@ -332,8 +356,27 @@ bool WasapiCapture::open(std::string* errOut) {
     for (auto& dev : targets) {
         auto dc = std::make_unique<DeviceCapture>();
         std::string err;
-        if (!dc->open(dev, err)) continue;
-        impl_->devices.push_back(std::move(dc));
+        if (dc->open(dev, err)) {
+            impl_->devices.push_back(std::move(dc));
+            continue;
+        }
+        // ★ 配置端点状态是 ACTIVE、真打开却失败（被独占模式占用 /
+        //   AUDCLNT_E_DEVICE_IN_USE、驱动卡死）→ 回退系统默认再试一次。
+        //   上面的 GetState 检查只能挡「已拔/已禁用」，这一类要真打开
+        //   才知道。头文件承诺「拔掉、改名、换机器都不该让整个程序
+        //   采集不了」—— 这一支原来没兑现：每次重连弹「启动失败」，
+        //   用户只能手动重选设备。默认端点也打不开才真正失败
+        //   （由下面判空统一报错，错误信息仍然准确）。
+        //   （2026-10-24 二次全面复审 N2）
+        if (!configuredFallback) continue;
+        ComPtr<IMMDevice> def;
+        if (FAILED(impl_->enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &def)))
+            continue;
+        auto dc2 = std::make_unique<DeviceCapture>();
+        std::string err2;
+        if (dc2->open(def, err2)) {
+            impl_->devices.push_back(std::move(dc2));
+        }
     }
 
     if (impl_->devices.empty()) return fail("no playback device could be opened");
@@ -368,18 +411,22 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
     // ★ 这里不再无条件下 running_。
     //
     //   原来是 run() 开头 running_.store(true) —— 如果调用方先 stop()
-    //   再 run()（stop 立刻返回到另一次 run 开始之间），那一行会把
+    //   再 run()（stop 立即返回到另一次 run 开始之间），那一行会把
     //   刚下的停止请求整个吞掉，线程永远退不出去。
-    //   当前调用序不会触发（stop 之后不会马上再 run），但这是类的
-    //   API 契约地雷：契约写在注释里，不是写在这里的运气里。
     //   （2026-10-23 外部审查 P3）
     //
-    //   现在的规则：**run() 之前必须先 stop()**，stop() 负责把上一轮的
-    //   停止意图清干净并等线程退出；run() 只负责在「确实该跑」时把标志
-    //   立起来。已经处于停止意图时不重启（由调用方决定要不要重来）。
-    if (running_.load()) {
-        // 上一轮还在跑 —— 不并发起第二轮，直接返回。
-        // 调用方应当先 stop() 并等 worker 退出（见 stop() 的说明）。
+    //   2026-10-24 二次全面复审 R2 补上另一半：只看 running_ 仍然不够 ——
+    //   running_==false 区分不出「从未跑过」和「已请求停止」，
+    //   stop() 先到的停止意图会被这次 run() 吞掉（最坏：调用方 join
+    //   永远不返回）。停止意图单独记在 stopRequested_ 里：
+    //     · stop() 置位（并清 running_）
+    //     · run() 看到「还在跑」**或**「已请求停止」都不启动
+    //     · open() 清位 —— 想复用对象就重新 open，这是唯一的重置入口
+    //   当前调用序（每对象恰好一次 run、stop 总在其后）不会触发，
+    //   但契约现在由代码保证，不再靠调用顺序。
+    if (running_.load() || stopRequested_.load()) {
+        // 上一轮还在跑，或停止请求先于 run() 到达 —— 都不启动。
+        // 想再跑就重新 open()（它会清掉停止意图）。
         return;
     }
     running_.store(true);
@@ -437,8 +484,16 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
             dc->running.store(true);
 
             while (running_.load() && dc->running.load()) {
-                DWORD w = WaitForSingleObject(dc->event, 200);
-                if (w != WAIT_OBJECT_0) continue;
+                // ★ 等 200ms,无论事件到没到都往下拉一次 —— 不能超时就 continue。
+                //   设备失效（AUDCLNT_E_DEVICE_INVALIDATED）只能从 GetBuffer 拿到，
+                //   而 MSDN 不保证失效时引擎一定补发一次事件：只等事件的话，
+                //   失效后这个线程每 200ms 空转，lastError_ 永远是 0，
+                //   runtimeFailures 不涨，看门狗看不见 ——「已连接但无声」
+                //   要一直拖到接收端 RTP 超时才被兜底。
+                //   正常无数据时 pull 返回 0 帧，开销可忽略；这里把
+                //   「事件 + 轮询」的混合模式做实（文件头本就自称 hybrid）。
+                //   （2026-10-24 二次全面复审 N1）
+                WaitForSingleObject(dc->event, 200);
 
                 UINT32 got = dc->pull(local);
                 if (got == 0) {
@@ -531,6 +586,10 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
 }
 
 void WasapiCapture::stop() {
+    // 停止意图先置位再清 running_ —— 顺序无所谓（run() 两个都看），
+    // 但必须置位：这是「这个对象被要求停过」的唯一记录，
+    // 之后没重新 open() 就 run() 会被挡下（见 run() 里的说明）。
+    stopRequested_.store(true);
     running_.store(false);
     if (impl_) {
         for (auto& d : impl_->devices) d->running.store(false);

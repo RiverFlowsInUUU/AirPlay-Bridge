@@ -96,6 +96,15 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::atomic<bool> running_{false};
+    // 「停止意图」—— 和 running_ 分开记。
+    //
+    // running_ == false 同时表示「从未跑过 / 已正常退出 / 已请求停止」三种
+    // 状态，区分不出第三种：stop() 先于 run() 到达时，run() 里只看 running_
+    // 会把刚下的停止请求整个吞掉（线程照跑，调用方的 join 永远不返回）。
+    // 单独记停止意图后，stop 过的对象要么丢弃、要么重新 open()（open 会清
+    // 掉这个标志）才能再 run() —— 契约由代码保证，不再靠调用顺序的运气。
+    // （2026-10-24 二次全面复审 R2）
+    std::atomic<bool> stopRequested_{false};
     // 有多少路设备 Start() 失败了。非 0 表示「跑着但没在收音频」——
     // 原来这种失败被直接 return 吞掉，running_ 仍是 true，
     // 界面显示「已连接」却没有声音，也没有任何提示（P2-1）。

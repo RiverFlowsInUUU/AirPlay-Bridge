@@ -83,8 +83,12 @@ int main() {
         check(w.observe(1, 0).act, "第一轮：动作");
         check(!w.observe(1, 0).act, "第一轮：不重复");
         w.reset();                       // 会话重建
+        // ★ 复位必须清掉 handled —— 否则新会话永远不会再触发。
+        //   原来那句写成 `!w.handled() || true` —— 恒真，什么都没断言；
+        //   断言要放在 observe 之前（act 一旦触发 handled 就又为 true 了）。
+        //   （2026-10-24 二次全面复审 T1）
+        check(!w.handled(), "复位后 handled 已清");
         check(w.observe(1, 0).act, "复位后：可以再次动作");
-        check(!w.handled() || true, "—");
     }
 
     std::printf("\n6. 先正常后失效：中途失效也要能被发现\n");

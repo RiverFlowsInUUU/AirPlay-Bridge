@@ -3365,8 +3365,11 @@ int main(int argc, char** argv) {
         logLine("检测到上次异常退出时电脑扬声器仍处于静音，正在恢复");
         // ★ 只有恢复成功才清标记（D4 同一条原则，2026-10-18 审查 P2-4）。
         //   失败就留着 —— 下次启动还能再试，否则用户永久静音且无人再管。
-        if (setSystemMuted(false)) {
+        //   恢复按静音时落盘的端点 id 找回（N3）：上次静的端点和这次的
+        //   默认端点不一定是同一个，认错了会把恢复打在别人的端点上。
+        if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
             cfg.localMutedByUs = false;
+            cfg.localMutedEndpointId.clear();
             saveConfig(cfgPath, cfg);
         } else {
             logLine("恢复电脑扬声器失败：保留标记，下次启动重试");
@@ -3594,6 +3597,14 @@ int main(int argc, char** argv) {
                     //     fromWake 会话 → pk=0 → 计数 1 ≥ need=1 → 立刻撤销，
                     //     且发生在 t1 < 静音+5s，恒早于待机拆会话。
                     g_peakWindowMax.store(0);
+                    // ★ 记下「静的是哪个端点」—— 恢复要按 id 找回。
+                    //   setSystemMuted 操作的是**取的那一刻的默认端点**：
+                    //   会话中途用户换了默认设备（或拔出触发自动迁移），
+                    //   断开时的「默认」已不是现在静的这个 —— 按默认恢复
+                    //   会打在别人的端点上（原来那个永久静着，新默认上
+                    //   用户自己的静音反而被打开）。
+                    //   （2026-10-24 二次全面复审 N3；见 sysvolume.h 配对说明）
+                    cfg.localMutedEndpointId = defaultRenderEndpointId();
                     // 落盘：万一进程被强杀，下次启动能据此把端点还回去。
                     cfg.localMutedByUs = true;
                     saveConfig(cfgPath, cfg);
@@ -3602,8 +3613,10 @@ int main(int argc, char** argv) {
             }
         } else if (g_mutedByUs.load()) {
             // 同 ①：成功才清，失败保留标记等下次（P2-4）。
-            if (setSystemMuted(false)) {
+            // 恢复按静音时记下的端点 id 找回（N3，见上面静音处的说明）。
+            if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
                 g_mutedByUs.store(false);
+                cfg.localMutedEndpointId.clear();
                 if (cfg.localMutedByUs) {
                     cfg.localMutedByUs = false;
                     saveConfig(cfgPath, cfg);
@@ -3889,9 +3902,14 @@ int main(int argc, char** argv) {
                 } else {
                     for (size_t i = 0; i < all.size(); ++i) {
                         TrayMenuItem d;
-                        d.label = all[i].name.empty()
-                                      ? std::string(i18n::tr("(未命名设备)"))
-                                      : all[i].name;
+                        // ★ 用和「选择设备」一样的 deviceMenuLabel（名字 + IP）。
+                        //   这里读的是**未过滤**的 g_lastScanAll：一台设备
+                        //   同时有有线 + WiFi 时会有两条同名条目（按 deviceId
+                        //   去重只作用在选择列表的 filterDevices）—— 光写
+                        //   名字就是两条一模一样的「客厅 HomePod」，点哪条
+                        //   都一样，用户分不清也分不出。带上 IP 至少能区分。
+                        //   （2026-10-24 二次全面复审 N6）
+                        d.label = deviceMenuLabel(all[i]);
                         d.id = static_cast<int>(kHideDeviceMenuBase + i);
                         // 勾选 = 显示中。取消勾选即隐藏。
                         bool ignored = false;
@@ -4322,8 +4340,10 @@ int main(int argc, char** argv) {
                         //   本次会话不会再试，只能等下个进程启动（落盘标记还在）。
                         //   （2026-10-19 第五轮复核 P3-B）
                         if (!cfg.muteLocalOnConnect && g_mutedByUs.load()) {
-                            if (setSystemMuted(false)) {
+                            // 恢复按静音时记下的端点 id 找回（N3）。
+                            if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
                                 g_mutedByUs.store(false);
+                                cfg.localMutedEndpointId.clear();
                                 // ★ 落盘标记也要清 —— 只清内存的话，配置里还留着
                                 //   localMutedByUs=true，下次启动会再取消一次静音，
                                 //   覆盖用户退出后手动设置的静音。
@@ -4712,8 +4732,10 @@ int main(int argc, char** argv) {
                         }
                         if (muteNoSignalPasses >= need) {
                             muteNoSignalPasses = 0;
-                            if (setSystemMuted(false)) {
+                            // 撤销按静音时记下的端点 id 找回（N3）。
+                            if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
                                 g_mutedByUs.store(false);
+                                cfg.localMutedEndpointId.clear();
                                 // ★ latch：本次进程内不再自动静音。
                                 //   不加这个的话，会话一重建（被踢、重连）就
                                 //   又静上，再等一个窗口再撤销，来回抖。
@@ -4919,8 +4941,10 @@ int main(int argc, char** argv) {
     //   但落盘那份是下次启动重试的唯一依据。
     //   （2026-10-19 第五轮复核 P3-B）
     if (g_mutedByUs.load()) {
-        if (setSystemMuted(false)) {
+        // 恢复按静音时记下的端点 id 找回（N3）。
+        if (setSystemMutedOn(false, cfg.localMutedEndpointId)) {
             g_mutedByUs.store(false);
+            cfg.localMutedEndpointId.clear();
             // ★ 同样要清落盘标记（第六轮复核 P3-B）：不清的话下次启动会
             //   再取消一次静音 —— 那会覆盖用户退出后手动设的静音。
             if (cfg.localMutedByUs) {

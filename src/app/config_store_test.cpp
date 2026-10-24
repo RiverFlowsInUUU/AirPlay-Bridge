@@ -370,6 +370,41 @@ int main() {
         removeFile(kFile + ".bak");
     }
 
+    // ---- 4d. ★ 配平判据：字符串里的花括号不算；截断在 '}' 上的半份要拦 ----
+    //
+    // 原来的判据只查「首尾都是花括号」：截断恰好落在字符串值里那个 '}' 的
+    // 后面时（设备名 / deviceId 可以含花括号），半份文件首尾都是 '{' '}'，
+    // 照样放行 —— 字段悄悄缺失、deviceId 重新生成，恢复机制根本不触发。
+    // （2026-10-24 二次全面复审 N7）
+    std::printf("\n4d. 花括号配平判据\n");
+    {
+        // (a) 值里带 { } 的**完整**配置：合法，必须原样加载
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+        BridgeConfig c;
+        c.lastDeviceId   = "DEV-{X}";
+        c.lastDeviceName = "客厅 {Home}Pod";
+        check(saveConfig(kFile, c), "带花括号的配置应能保存");
+        BridgeConfig out;
+        check(loadConfig(kFile, out), "带花括号的配置应能加载");
+        checkStr(out.lastDeviceId, "DEV-{X}", "花括号值原样读回（id）");
+        checkStr(out.lastDeviceName, "客厅 {Home}Pod", "花括号值原样读回（名字）");
+
+        // (b) 截断在字符串内 '}' 上：首尾恰好都是花括号（旧判据放行），
+        //     但字符串没闭合 —— 配平判据必须拦
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+        writeRaw(kFile, "{\"lastDeviceId\": \"DEV-{X}");
+        BridgeConfig out2;
+        out2.volume = 55;
+        check(!loadConfig(kFile, out2), "截断在字符串内 '}' 上的半份必须被拦下");
+        checkInt(out2.volume, 55, "被拦时传入值不动");
+
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+        removeFile(kFile + ".corrupt");
+    }
+
     // ---- 5. 垃圾内容：不崩，缺的键保持传入值 ----
     std::printf("\n5. 垃圾内容（不崩，缺键保持传入值）\n");
     {

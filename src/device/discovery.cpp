@@ -191,8 +191,17 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
             std::string lname = toLower(rname);
 
             if (rtype == 12) {                       // PTR -> 实例名
-                size_t p = 0;
-                std::string target = readName(rd, rdlen, p);
+                // ★ 压缩指针按**整报文**坐标解析，不能把 rdata 窗口当世界。
+                //   RFC 1035 允许 rdata 里的名字用指针指向报文内**任意**位置
+                //   （典型：实例名的后半段压到 offset 12 起的问题区）。
+                //   原来传 (rd, rdlen) 给 readName：合法的跨区指针要么因
+                //   off >= len 被截断（设备名只剩实例标签、丢了尾巴），
+                //   要么指进 rdata 窗口内部把随机字节拼成乱码尾巴。
+                //   自限：depth<=8、边界检查完备，不崩不越界 —— 表现只是
+                //   设备名偶发缺尾巴 / 带一小段乱码。
+                //   （2026-10-24 二次全面复审 N5）
+                size_t p = static_cast<size_t>(rd - buf);
+                std::string target = readName(buf, got, p);
                 if (!target.empty() && instance.empty()) {
                     instance = target;
                     gotInstance = true;
@@ -418,6 +427,18 @@ std::vector<AirPlayDevice> discoverAirPlayDevices(uint32_t timeoutMs) {
         return result;
     }
 
+    // ★ 计时起点必须放在端口扫描**之前** —— 端口扫描也花时间。
+    //
+    //   scanPort7000 内含 700ms 的定格等待 + 对 /24 全网段 254 台的
+    //   非阻塞 connect，系统调用开销加起来 0.8~1.2 秒。原来 scanStart
+    //   在它**之后**才取，等于这段全程免检 —— 注释写着「timeoutMs 是
+    //   总预算、必须当硬性截止时间用」，实际停摆却是 预算 + 1 秒左右，
+    //   比承诺长约 40%，而这段跑在主线程上（音频会断）。
+    //   现在从端口扫描起算，mDNS 阶段只用**剩余**的预算，总停摆时间
+    //   真正被 timeoutMs 兜住。（2026-10-24 二次全面复审 N4）
+    const ULONGLONG scanStart = GetTickCount64();
+    const ULONGLONG totalBudget = timeoutMs;
+
     // 1) 端口扫描找候选
     auto candidates = scanPort7000(base, mask);
 
@@ -446,8 +467,7 @@ std::vector<AirPlayDevice> discoverAirPlayDevices(uint32_t timeoutMs) {
         // 谁删掉外层 cast、或者把 scanStart 升成 64 位混算，就会造出
         // 「开机 49.7 天后设备搜索永远返回空」这种新 bug，而且极难复现。
         // 直接把比对和差值都放在 64 位里，语义就无需解释。
-        const ULONGLONG scanStart = GetTickCount64();
-        const ULONGLONG totalBudget = timeoutMs;
+        // （预算的起点在上面端口扫描之前取过了 —— N4。）
 
         for (auto& ip : candidates) {
             const ULONGLONG used = GetTickCount64() - scanStart;

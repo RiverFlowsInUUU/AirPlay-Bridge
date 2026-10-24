@@ -167,6 +167,46 @@ std::wstring acpToWide(const std::string& s) {
 
 }  // namespace
 
+// 「完整 JSON」的判据：**字符串感知**的花括号配平。
+//
+// ★ 原来只查「去尾部空白后首尾都是花括号」—— 截断恰好落在字符串里的
+//   '}' 后面（设备名等用户数据可以含花括号）时，半份文件也能通过：
+//   解析按缺失字段回落默认值，deviceId 悄悄重新生成，恢复机制根本
+//   不触发。配平把它挡住：那种文件的字符串没闭合，一眼假。
+//   字符串内的 { } 一律不计；\" 等转义不当字符串边界（本程序写出的
+//   JSON 都经 escapeJson，转义规范）。
+//   （2026-10-24 二次全面复审 N7；主文件与 .bak 校验共用本判据）
+bool jsonBracesBalanced(const std::string& s) {
+    // 去尾部空白（与原检查的口径一致）
+    size_t end = s.size();
+    while (end > 0) {
+        const char c = s[end - 1];
+        if (c == 10 || c == 13 || c == 32 || c == 9) { --end; continue; }
+        break;
+    }
+    if (end < 2) return false;
+    if (s[0] != char(123)) return false;        // 首必须是 {
+    if (s[end - 1] != char(125)) return false;  // 尾必须是 }
+    int depth = 0;
+    bool inStr = false;
+    for (size_t i = 0; i < end; ++i) {
+        const char c = s[i];
+        if (inStr) {
+            if (c == '\\') { ++i; continue; }   // 跳过转义字符本身
+            if (c == '"') inStr = false;
+            continue;
+        }
+        if (c == '"') { inStr = true; continue; }
+        if (c == char(123)) {
+            ++depth;
+        } else if (c == char(125)) {
+            --depth;
+            if (depth < 0) return false;        // '}' 比 '{' 先出现
+        }
+    }
+    return depth == 0 && !inStr;                // 没闭合的字符串 = 截断
+}
+
 bool loadConfig(const std::string& path, BridgeConfig& out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
@@ -179,21 +219,15 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
     //   原来会被当成有效配置 —— deviceId 缺失就重新生成、设置全部回落默认。
     //   这与本项目的红线（v1.5.4「fallback 悄悄改掉用户存下的值」）是同一类。
     //
-    //   这里只做最小健全性检查：去掉尾部空白后，首尾必须是花括号。
-    //   不通过 → 把内容另存一份 .bak 留证，然后拒绝加载。
-    //   调用方按「没有配置」处理（保持默认值），不拿半份文件当真。
+    //   检查用 jsonBracesBalanced（字符串感知的花括号配平，见其说明）。
+    //   不通过 → 把内容另存一份 .corrupt 留证、尝试从 .bak 恢复，
+    //   都不行才拒绝加载。调用方按「没有配置」处理（保持默认值），
+    //   不拿半份文件当真。
     //
     //   空白判断用数字字面量（10/13/32/9），不写反斜杠转义 ——
     //   本文件顶部注释说明过：反斜杠转义在这条工具链里会被吃掉。
     {
-        std::string t = j;
-        while (!t.empty()) {
-            const char c = t.back();
-            if (c == 10 || c == 13 || c == 32 || c == 9) { t.pop_back(); continue; }
-            break;
-        }
-        const bool complete = t.size() > 1 && t.front() == char(123) && t.back() == char(125);
-        if (!complete) {
+        if (!jsonBracesBalanced(j)) {
             // ★ 顺序很重要：**先读旧的 .bak，再覆盖它**。
             //
             //   原来这里只做「把坏内容另存 .bak + 拒绝加载」，调用方按
@@ -230,14 +264,11 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
                 if (b) b << j;
             }
 
-            // 试着用旧备份顶上：它自己也得是一份完整 JSON
-            std::string bt = bakText;
-            while (!bt.empty()) {
-                const char c = bt.back();
-                if (c == 10 || c == 13 || c == 32 || c == 9) { bt.pop_back(); continue; }
-                break;
-            }
-            if (bt.size() > 1 && bt.front() == char(123) && bt.back() == char(125)) {
+            // 试着用旧备份顶上：它自己也得是一份完整 JSON。
+            // 用与主文件同一套 jsonBracesBalanced 判据 —— 备份要是
+            // 「花括号合法但字段损坏」的半份，恢复出来还是丢字段的
+            // 配置，不如不恢复（N7）。
+            if (jsonBracesBalanced(bakText)) {
                 // ★ 恢复成功后**立刻写回主文件**，让这次修复自己站得住。
                 //
                 //   只改内存的话，坏的主文件还在原地；只要下次启动前
@@ -349,6 +380,9 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         jsonGetBool(j, "muteLocalOnConnect", out.muteLocalOnConnect);
     out.captureDeviceId = jsonGetString(j, "captureDeviceId");
     out.localMutedByUs = jsonGetBool(j, "localMutedByUs", out.localMutedByUs);
+    // 静音端点 id：缺键 = 旧版本配置 → 空串 → 恢复时退回默认端点（见
+    // config_store.h 的字段说明）。
+    out.localMutedEndpointId = jsonGetString(j, "localMutedEndpointId");
     // 缺键 → 保持传入值（与上面的 volume / latencyMs 一致）；
     // 键在但值为空 → 才回退 "en"（空语言会让界面一条词条都匹配不上）。
     //
@@ -433,6 +467,10 @@ const std::string tmpPath = path + ".tmp";
           << escapeJson(cfg.captureDeviceId) << QC << "," << char(10);
         f << "  " << QC << "localMutedByUs" << QC << ": "
           << (cfg.localMutedByUs ? "true" : "false") << "," << char(10);
+        // 端点 id 是 "{0.0.0.00000000}.{guid}" 形式的纯 ASCII，仍走
+        // escapeJson 保持与其它字符串字段同一套转义约定。
+        f << "  " << QC << "localMutedEndpointId" << QC << ": " << QC
+          << escapeJson(cfg.localMutedEndpointId) << QC << "," << char(10);
         f << "  " << QC << "language" << QC << ": " << QC
           << escapeJson(cfg.language) << QC << "," << char(10);
     }

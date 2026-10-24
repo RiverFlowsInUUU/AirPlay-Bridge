@@ -37,6 +37,24 @@ bool isSystemMuted();
 // 设置静音
 bool setSystemMuted(bool muted);
 
+// ★ 静音端点身份 —— 静音时记下「静的是哪个端点」，恢复时按 id 找回。
+//
+//   setSystemMuted 操作的是**取的那一刻的默认端点**：会话中途默认设备
+//   漂移（用户手切 / 拔出自动迁移）后，断开时的「默认」已不是静音时
+//   那个 —— 恢复会打在别人的端点上（原来那个永久静着，新默认上用户
+//   自己的静音反而被打开）。配对使用这两个函数就没有错位。
+//   （2026-10-24 二次全面复审 N3）
+
+// 当前默认输出端点的 IMMDevice::GetId（UTF-8）。取不到返回空串。
+// 在静音成功的那一刻调用、把结果存起来（配置里的 localMutedEndpointId）。
+std::string defaultRenderEndpointId();
+
+// 按端点 id 静音 / 取消静音。id 为空 = 退回当时的默认端点（旧行为，
+// 兼容旧配置）；指定的端点已不存在 = 返回 true 且什么都不做
+// （端点没了静音状态随之作废，绝不去碰新默认端点上用户的设置）；
+// SetMute 真失败返回 false，调用方按既有约定保留标记重试。
+bool setSystemMutedOn(bool muted, const std::string& endpointIdUtf8);
+
 // ---- 默认播放设备切换 ----
 
 // 取当前默认播放设备的 ID（设备名中的 GUID 部分）。失败返回空串。

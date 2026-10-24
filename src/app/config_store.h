@@ -63,6 +63,15 @@ struct BridgeConfig {
     // （退出兜底没跑到），下次启动也能看出「上次我们把端点静音了、
     // 但没来得及恢复」并把它还回去。否则用户会以为电脑没声音了。
     bool        localMutedByUs = false;
+    // 静音那一刻记下的端点 id（IMMDevice::GetId，UTF-8）。
+    //
+    // ★ 恢复要按 id 找回，不能认「当时的默认端点」：会话中途默认设备
+    //   漂移（用户手切 / 拔出自动迁移）后，默认已不是静音时那个 ——
+    //   按默认恢复会把恢复打在别的端点上（原来那个永久静着，新默认上
+    //   用户自己的静音反而被打开）。见 sysvolume.h 的配对说明。
+    //   空 = 旧版本配置（按 id 记录之前静的音），恢复退回默认端点。
+    //   （2026-10-24 二次全面复审 N3）
+    std::string localMutedEndpointId;
     // 界面语言："en" / "zh"。默认英文 —— 仓库面向英文用户。
     // 未知值一律按 "en" 处理（见 i18n::fromConfigValue）。
     std::string language = "en";

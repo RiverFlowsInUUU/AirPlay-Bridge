@@ -22,13 +22,23 @@ using Microsoft::WRL::ComPtr;
 namespace fxchain {
 namespace {
 
-ComPtr<IAudioEndpointVolume> getEndpointVolume() {
+// endpointId：null / 空 = 系统默认端点（原行为）；非空 = 按
+// IMMDevice::GetId 的端点 id 打开。
+//
+// ★ 被拔掉但仍在注册表里的端点这里**照样取得到**（DEVICE_STATE_NOT_ACTIVE）。
+//   对「取消静音」这恰好是对的：被拔端点的静音状态仍可改，插回来时
+//   不会莫名静着。
+ComPtr<IAudioEndpointVolume> getEndpointVolume(const wchar_t* endpointId = nullptr) {
     ComPtr<IMMDeviceEnumerator> en;
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                 IID_PPV_ARGS(&en)))) return nullptr;
 
     ComPtr<IMMDevice> dev;
-    if (FAILED(en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) return nullptr;
+    if (endpointId && endpointId[0]) {
+        if (FAILED(en->GetDevice(endpointId, &dev))) return nullptr;
+    } else {
+        if (FAILED(en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) return nullptr;
+    }
 
     ComPtr<IAudioEndpointVolume> vol;
     if (FAILED(dev->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
@@ -41,6 +51,15 @@ std::string wideToUtf8(const wchar_t* w) {
     char b[512] = {};
     WideCharToMultiByte(CP_UTF8, 0, w, -1, b, 511, nullptr, nullptr);
     return b;
+}
+
+std::wstring utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    const int need = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (need <= 1) return {};
+    std::wstring w(static_cast<size_t>(need - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), need);
+    return w;
 }
 
 // ---- 未公开的 IPolicyConfigVista（切默认设备用，Windows Vista+ 一直可用）----
@@ -159,6 +178,48 @@ bool isSystemMuted() {
 bool setSystemMuted(bool muted) {
     auto vol = getEndpointVolume();
     if (!vol) return false;
+    return SUCCEEDED(vol->SetMute(muted ? TRUE : FALSE, nullptr));
+}
+
+std::string defaultRenderEndpointId() {
+    ComPtr<IMMDeviceEnumerator> en;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                IID_PPV_ARGS(&en)))) return {};
+    ComPtr<IMMDevice> dev;
+    if (FAILED(en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) return {};
+    LPWSTR id = nullptr;
+    if (FAILED(dev->GetId(&id)) || !id) return {};
+    std::string out = wideToUtf8(id);
+    CoTaskMemFree(id);
+    return out;
+}
+
+// ★ 按**端点 id**静音/取消静音 —— 静音时记下 id、恢复时按 id 找回。
+//
+//   setSystemMuted 系列操作的都是「取的那一刻的默认端点」：会话中途
+//   用户换了默认设备（或拔掉设备触发自动迁移）的话，断开时的「默认」
+//   已经不是静音时的那个 —— 恢复会打在别的端点上：原来那个永久静着，
+//   新默认上用户自己设的静音反而被打开。按 id 找回就没有这个错位。
+//   （2026-10-24 二次全面复审 N3）
+//
+//   返回值的三种情况：
+//     · id 为空          → 退回 setSystemMuted（旧行为，兼容旧配置）
+//     · 指定端点不存在   → 返回 **true**（视为成功）：端点都没了，它上面
+//                          的静音状态也随之作废，没什么可恢复的；绝不去碰
+//                          「当时的新默认」—— 用户可能自己把它静着。
+//     · SetMute 真失败   → false，调用方按既有约定保留标记重试
+bool setSystemMutedOn(bool muted, const std::string& endpointIdUtf8) {
+    if (endpointIdUtf8.empty()) return setSystemMuted(muted);
+    const std::wstring w = utf8ToWide(endpointIdUtf8);
+    if (w.empty()) return setSystemMuted(muted);   // 转换失败（id 实为 ASCII，理论不到这）
+    ComPtr<IMMDeviceEnumerator> en;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                IID_PPV_ARGS(&en)))) return false;
+    ComPtr<IMMDevice> dev;
+    if (FAILED(en->GetDevice(w.c_str(), &dev))) return true;   // 端点彻底不存在 → 无事可做
+    ComPtr<IAudioEndpointVolume> vol;
+    if (FAILED(dev->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
+                             &vol))) return false;
     return SUCCEEDED(vol->SetMute(muted ? TRUE : FALSE, nullptr));
 }
 

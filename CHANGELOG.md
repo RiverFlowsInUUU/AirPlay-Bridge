@@ -3,6 +3,46 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.46] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复「连接时静音电脑扬声器」在串流期间切换默认播放设备后，断开时把
+  静音恢复到错误设备上的问题 —— 被静音的那台设备会一直没声音。
+- 修复采集设备被其他程序独占占用时，每次连接都失败、必须手动重选设备的
+  问题 —— 现在会自动改用系统默认设备继续。
+- 修复个别声卡上拔掉正在使用的设备后，程序长时间停留在「已连接但没有
+  声音」状态、不自动重连的问题。
+- 修复配置文件的损坏检测可能漏掉「截断处恰好是花括号」的半份文件 ——
+  之前会静默丢失设备身份，接收端把电脑当成新设备。
+- 修复设备搜索的耗时比设定上限多出约 1 秒的问题（搜索期间的卡顿窗口
+  相应变短）。
+- 修复个别情况下设备名显示不全或结尾带一小段乱码的问题。
+- 「隐藏设备」列表里的条目现在带上 IP，同名设备（例如有线 + 无线
+  同时在线）能分清了。
+
+**English**
+
+### Fixed
+
+- Fixed un-muting the wrong device after switching the default playback
+  device during streaming — the originally muted one used to stay silent.
+- Fixed startup failing on every connect when the selected capture device
+  is held in exclusive mode by another app — it now falls back to the
+  system default device.
+- Fixed staying in a silent "connected" state for too long on some sound
+  cards after unplugging the device mid-stream instead of reconnecting.
+- Fixed the config corruption check missing truncations that happen to end
+  on a brace, which silently lost the device identity.
+- Fixed device discovery taking about a second longer than its configured
+  budget (the UI freeze window during a scan is shorter accordingly).
+- Fixed device names occasionally shown truncated or with a short garbled
+  tail.
+- Entries in the "hide devices" list now show the IP address, so same-name
+  devices (e.g. wired + wireless) can be told apart.
+
 ## [1.5.45] - 2026-10-24
 
 **中文**
