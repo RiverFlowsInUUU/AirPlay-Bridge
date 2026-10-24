@@ -73,14 +73,14 @@ capture. The cable provides one.
 
 **Everyday use**
 
-- 🔎 Finds AirPlay devices on the local network · 🙈 hide the ones you
-  don't want to see
+- 🔎 Finds AirPlay devices on the local network
+- 🙈 Hide devices you don't want to see
 - 🔇 Mutes this PC on connect — and un-mutes the right device, even if
   the default output changed mid-session
 - 😴 Standby when silent — device screen off, back on the first sound
 - 🖥 Starts at login, remembers your settings, one instance at a time
-- 🌐 English or Chinese interface · ℹ️ version and update check under
-  **About**
+- 🌐 English or Chinese interface
+- ℹ️ Version and update check under **About**
 
 ## 🖱 Usage
 
