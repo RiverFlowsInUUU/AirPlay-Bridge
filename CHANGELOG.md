@@ -9,32 +9,22 @@
 
 ### 修复
 
-- 1.5.35 里那套「静音导致采集不到声音」的检测，在默认设置下**仍未生效**：
-  它读的峰值统计从连接握手之前就开始累积，第一个统计窗口里混着静音之前的
-  响亮片段，于是每个窗口都会被判成"有声音"。现在改为在静音那一刻重新开始
-  统计，第一个窗口只反映静音之后的电平。默认待机 5 秒与统计窗口同为 5 秒，
-  之前正是这个巧合让检测永远慢一拍。
-- 撤销过静音之后，即使从菜单里把开关关掉再打开，自动静音也不会恢复，
-  只能重启程序。
-- 待机唤醒后若连接失败，唤醒标记会残留，让之后不相关的会话也用最灵敏的
-  判断阈值。
-- 重连间隔的实际上限是 80 秒，而说明里写 60 秒。现已改为真正的 60 秒。
+- 修复部分声卡在静音后收不到声音、周期性断连仍未解决的问题。
+- 修复把「连接时静音电脑扬声器」关掉再打开后，自动静音不恢复、需重启的问题。
+- 修复待机唤醒后连接失败时，之后不相关的会话会沿用最灵敏判断的问题。
+- 修复重连间隔最长会到 80 秒、与说明不符的问题（现在最长 60 秒）。
 
 **English**
 
 ### Fixed
 
-- The detection added in 1.5.35 that lifts the mute when capture goes silent
-  still never ran under default settings: the peak statistics it reads start
-  accumulating before the handshake completes, so the first window always
-  contains loud audio from before the mute. Statistics now restart at the moment
-  of muting, so the first window reflects only post-mute levels. With standby at
-  its 5 s default and the window also 5 s, the check was always one window late.
-- After the mute had been lifted once, toggling the menu switch off and on did
-  not restore automatic muting — only a restart did.
-- A wake-from-standby flag could linger when the reconnect failed, making later,
-  unrelated sessions use the most sensitive threshold.
-- The reconnect interval actually capped at 80 s while the docs said 60 s.
+- Fixed periodic disconnects on sound cards that stop capturing while muted
+  still not being resolved.
+- Fixed automatic muting not coming back after toggling Mute local output off
+  and on, requiring a restart.
+- Fixed sessions unrelated to a failed wake-from-standby reconnect using the
+  most sensitive detection afterwards.
+- Fixed the reconnect interval capping at 80 s instead of the documented 60 s.
 
 ## [1.5.35] - 2026-10-24
 
@@ -42,33 +32,22 @@
 
 ### 修复
 
-- 1.5.34 里「静音导致采集不到声音」的检测在默认设置下不会生效 —— 默认开着
-  的「无声音时待机」正好是这条检测被排除的条件，等于没修。现在改为：从待机
-  唤醒的会话若在静音后立刻收不到声音，马上撤销静音（待机 5 秒就会断开，
-  等不到更长）；待机关闭时仍按 30 秒判断。
-- 撤销过一次静音后，本次运行不再自动静音 —— 否则重连后又静上，来回抖。
-- 重连间隔在「连上过、之后设备掉线」时不再增长（1.5.34 引入）：
-  会一直卡在 10 秒反复重试，而每一轮都带一次网络扫描。
-- 英文界面仍有 4 处中文：「尚未扫描到设备」「未找到设备」
-  「请确认 HomePod 已通电」「且与电脑在同一 WiFi」。
+- 修复部分声卡在静音后收不到声音的问题没被检测到、周期性断连依旧的问题。
+- 修复撤销静音后重连又立刻静音、造成来回抖动的问题。
+- 修复设备掉线后重连间隔不再增长、一直每 10 秒重试的问题。
+- 修复英文界面下重新扫描为空时仍显示中文的问题。
 
 **English**
 
 ### Fixed
 
-- The detection added in 1.5.34 for "muting also silences the capture" never
-  ran under default settings — standby is on by default, and that was exactly
-  the condition the check excluded. A session resumed from standby now has its
-  mute lifted as soon as the first 5-second window shows no signal (standby
-  disconnects after 5 s, so waiting longer was pointless); with standby off the
-  30-second rule still applies.
-- After lifting the mute once, it is not re-applied for the rest of the run —
-  otherwise reconnecting muted again and the two fought each other.
-- Reconnect interval stopped growing when a device that had connected dropped
-  off (introduced in 1.5.34): it stayed at 10 s forever, each attempt including
-  a network scan.
-- Four Chinese strings remained in the English UI: the empty scan results and
-  the device-hiding submenu.
+- Fixed periodic disconnects on sound cards that stop capturing while muted
+  still not being detected.
+- Fixed the mute being re-applied right after reconnecting, causing the two to
+  fight each other.
+- Fixed the reconnect interval no longer growing after a device dropped off,
+  retrying every 10 seconds indefinitely.
+- Fixed Chinese still showing in the English UI when a rescan finds nothing.
 
 ## [1.5.34] - 2026-10-24
 
@@ -76,50 +55,37 @@
 
 ### 修复
 
-- **「采集设备」子菜单选不中具体设备** —— 点任何一个端点都没有反应，
-  只有「跟随系统默认」有效。
-- **任何通知都会把托盘图标变成「已连接」** —— 未连接时点「重新扫描」，
-  图标变连接色而提示写着「未找到设备」，且此后无法自行恢复。
-- **拔掉 USB 声卡后每次连接都失败** —— 配置的采集端点被拔出时不回退到默认设备。
-- 「连接诊断」和「清理防火墙规则」两个提权入口在地址字符串被释放后仍在使用它。
-- **两台设备抢同一个接收端时每 5 秒断连重连、永不停止** —— 被踢后的重连间隔
-  从不会拉长。
-- 某些声卡在静音后无法采集，导致「静音 → 待机断开 → 恢复静音听到声音 → 重连
-  → 又静音」的循环。检测到这种情况会自动撤销静音并在日志里说明。
-- 英文界面下仍有 9 处中文提示（音质窗口标题、开机自启询问、检查更新等）。
-- 延迟设置的英文说明写「低于 250 ms 会缺缓冲」，与中文的 150 ms 矛盾，也与
-  滑块上的档位评价不一致。
-- 关机时其他程序取消了注销，本程序却已经先行退出。
-- 中文设备名在托盘菜单里被截断成半个字，显示成乱码。
-- 静默卸载时若系统集成清理失败会弹框，无人应答导致卸载**永久挂起**。
-- 非中文系统安装时被默认预选成简体中文界面。
+- 修复「采集设备」子菜单里选具体设备时没有反应的问题。
+- 修复未连接时收到通知后，托盘图标一直显示为已连接、且不会自行恢复的问题。
+- 修复拔掉 USB 声卡后每次连接都失败、需要手动重选设备的问题。
+- 修复「连接诊断」和「清理防火墙规则」在部分机器上无法启动的问题。
+- 修复两台设备争用同一个接收端时，每 5 秒断连重连且不会停止的问题。
+- 修复部分声卡在静音后收不到声音、导致周期性断连的问题。
+- 修复英文界面下仍有 9 处中文提示的问题。
+- 修复延迟设置的英文说明与中文阈值不一致的问题。
+- 修复其他程序取消注销时，本程序提前退出的问题。
+- 修复中文设备名在托盘菜单里被截断成乱码的问题。
+- 修复静默卸载在清理失败时会卡住、无人应答导致永久挂起的问题。
+- 修复非中文系统安装时默认预选简体中文界面的问题。
 
 **English**
 
 ### Fixed
 
-- **The capture-device submenu did not respond** — picking a specific endpoint
-  did nothing; only "Follow system default" worked.
-- **Every notification turned the tray icon into the connected one** — clicking
-  Rescan while disconnected left the icon showing connected next to a
-  "no devices found" tooltip, and it could not recover on its own.
-- **Unplugging a USB sound card broke every connection attempt** — a configured
-  capture endpoint that is no longer active now falls back to the default device.
-- The elevated firewall actions used a freed path string.
-- **Two devices competing for one receiver looped connect/disconnect every 5 s**
-  — the reconnect interval never grew back off after being kicked.
-- On sound cards that stop producing loopback data while muted, this caused a
-  mute → standby → unmute-hears-sound → reconnect → mute loop. That state is now
-  detected, the mute is lifted, and the reason is written to the log.
-- Nine remaining Chinese strings in the English UI (quality window title, startup
-  prompt, update check).
-- The English latency note said "below 250 ms" while the Chinese one said 150 ms,
-  contradicting the slider's own ratings.
-- The app quit on its own when another program cancelled the shutdown.
-- Chinese device names were cut mid-character in the tray menu.
-- A failed system-integration cleanup during a **silent** uninstall popped a
-  message box, hanging unattended uninstalls forever.
-- Non-Chinese systems were defaulted to the Simplified Chinese installer.
+- Fixed picking a specific device in the Capture from submenu doing nothing.
+- Fixed the tray icon staying on "connected" after a notification while
+  disconnected, with no way to recover.
+- Fixed every connection attempt failing after a USB sound card was unplugged.
+- Fixed Connection check and Clean firewall rules failing to start on some PCs.
+- Fixed reconnecting every 5 seconds without stopping when two devices compete
+  for the same receiver.
+- Fixed periodic disconnects on sound cards that stop capturing while muted.
+- Fixed nine remaining Chinese strings in the English UI.
+- Fixed the English latency note disagreeing with the Chinese one.
+- Fixed the app closing itself when another program cancelled the shutdown.
+- Fixed Chinese device names showing as garbage in the tray menu.
+- Fixed silent uninstalls hanging forever when cleanup failed.
+- Fixed non-Chinese systems defaulting to the Simplified Chinese installer.
 
 ## [1.5.33] - 2026-10-23
 
