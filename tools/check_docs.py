@@ -717,6 +717,66 @@ else:
         ok("发布说明文风", "最近 3 版无叙事/实现细节（%s）"
            % "、".join(s.split("\n", 1)[0].strip() for s in _recent))
 
+# -------------------------------------------------- ㉔ 发布说明的骨架
+#
+# ㉓ 管"文风"（禁用词），这条管"骨架" —— STYLE 里那些**结构上可判定**的条款：
+#
+#   第 10 条  日期 ISO 格式            → `## [1.5.36] - 2026-10-24`
+#   第 2 条   按 Added/Changed/… 分组  → 每块至少一个 `### 分组`
+#   双语      中英文两块             → `**中文**` 与 `**English**` 都要在
+#   第 6 条   可扫读                  → 条目长度作提示（不判 FAIL）
+#
+# ### 为什么不把 STYLE 十条全变成检查
+#
+# 剩下六条是**语义判断**，正则做不了：
+#   「面向用户不面向自己」「从用户视角描述」「技术数据服务于判断」
+#   「破坏性变更显眼」「一条一个改动」「禁止解释为什么的段落」——
+# 半吊子的正则只会误报。已经有实例：第一版把「导致」当叙事词，
+# 结果「静音后收不到声音、导致周期性断连」这种**描述症状因果**的
+# 正确写法被误报 2 条。
+#
+# **宁可少查一条，也不要查错一条** —— 误报会训练人忽略这个检查。
+# 语义条款留在文档里靠人判断，机器只干机器能干的。
+
+_STRUCT_BAD = []
+_STRUCT_HINT = []
+
+for _sec in _recent:
+    _ver = _sec.split("\n", 1)[0].strip()
+    _m = re.match(r"## \[([0-9]+\.[0-9]+\.[0-9]+)\] - (\d{4}-\d{2}-\d{2})$", _ver)
+    if not _m:
+        _STRUCT_BAD.append("%s 标题格式不对（要 `## [x.y.z] - YYYY-MM-DD`）" % _ver)
+    # 双语两块
+    if "**中文**" not in _sec:
+        _STRUCT_BAD.append("%s 缺 `**中文**` 块" % _ver)
+    if "**English**" not in _sec:
+        _STRUCT_BAD.append("%s 缺 `**English**` 块" % _ver)
+    # 分组：去掉标题行后至少要有一个 `### `
+    if not re.search(r"(?m)^### \S", _sec):
+        _STRUCT_BAD.append("%s 没有任何 `### 分组`（STYLE 第 2 条）" % _ver)
+
+    # 长度提示（不判 FAIL）：把每条拼好量字数
+    _b = None
+    for _ln in _sec.split("\n"):
+        _t = _ln.strip()
+        if _t.startswith("- "):
+            if _b and len(_b) > 120:
+                _STRUCT_HINT.append(len(_b))
+            _b = _t
+        elif _b is not None and _t:
+            _b += " " + _t
+    if _b and len(_b) > 120:
+        _STRUCT_HINT.append(len(_b))
+
+if _STRUCT_BAD:
+    fail("发布说明骨架",
+         "%d 处：%s" % (len(_STRUCT_BAD), "；".join(_STRUCT_BAD[:3])))
+elif _STRUCT_HINT:
+    ok("发布说明骨架", "结构合规；%d 条偏长（最长 %d 字，STYLE 第 6 条是提示项）"
+       % (len(_STRUCT_HINT), max(_STRUCT_HINT)))
+else:
+    ok("发布说明骨架", "%d 版均含日期/双语/分组，条目长度正常" % len(_recent))
+
 # ---------------------------------------------------------------- 输出
 
 print("")
