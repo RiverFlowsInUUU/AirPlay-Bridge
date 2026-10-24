@@ -48,18 +48,39 @@ capture. The cable provides one.
 
 ## ✨ Features
 
+**Audio & connection**
+
 - 🆓 Free and open source (Apache-2.0)
-- 🔎 Finds AirPlay devices on the local network
-- 🔄 Reconnects after a drop, even if the device changes IP
-- 🛟 Restores the audio device on next launch after a force-kill
-- 🔇 Mutes this PC on connect — sound comes from the AirPlay device only
+- 🎵 AirPlay 2 with secure pairing (plus legacy AirPlay 1) — HomePod,
+  Apple TV and other AirPlay receivers
+- 🎚 Lossless 16-bit/44.1 kHz; latency (100–300 ms), volume, resampler
+  quality and standby are all adjustable
+- 💪 Glitch-resistant under load — audio threads run under MMCSS
+  Pro Audio scheduling, and the 1 ms timer stays honored on Windows 11
+  even when the app is in the background
+
+**Reliability**
+
+- 🔄 Auto-reconnect — after drops, IP changes, or when another device
+  steals the receiver
+- ⏰ Sleep/wake — streaming resumes on its own after the PC wakes
+- 🛟 Force-kill safe — the audio device and mute state are restored on
+  next launch
+- 💾 Config is written atomically and auto-recovered from a backup if
+  the file ever gets corrupted
+- 🩺 Capture watchdog — an unplugged or busy capture device falls back
+  to the default or reconnects automatically
+
+**Everyday use**
+
+- 🔎 Finds AirPlay devices on the local network · 🙈 hide the ones you
+  don't want to see
+- 🔇 Mutes this PC on connect — and un-mutes the right device, even if
+  the default output changed mid-session
 - 😴 Standby when silent — device screen off, back on the first sound
-- 🎚 Latency / volume / quality / standby / capture device, all adjustable
-- 🙈 Hide devices you don't want to see
-- 🌐 English or Chinese interface
-- 🖥 Starts at login, remembers your settings
-- ℹ️ Version and update check under **About**
-- 1️⃣ One instance at a time, so two copies can't fight over a device
+- 🖥 Starts at login, remembers your settings, one instance at a time
+- 🌐 English or Chinese interface · ℹ️ version and update check under
+  **About**
 
 ## 🖱 Usage
 
