@@ -3,6 +3,39 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.36] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 1.5.35 里那套「静音导致采集不到声音」的检测，在默认设置下**仍未生效**：
+  它读的峰值统计从连接握手之前就开始累积，第一个统计窗口里混着静音之前的
+  响亮片段，于是每个窗口都会被判成"有声音"。现在改为在静音那一刻重新开始
+  统计，第一个窗口只反映静音之后的电平。默认待机 5 秒与统计窗口同为 5 秒，
+  之前正是这个巧合让检测永远慢一拍。
+- 撤销过静音之后，即使从菜单里把开关关掉再打开，自动静音也不会恢复，
+  只能重启程序。
+- 待机唤醒后若连接失败，唤醒标记会残留，让之后不相关的会话也用最灵敏的
+  判断阈值。
+- 重连间隔的实际上限是 80 秒，而说明里写 60 秒。现已改为真正的 60 秒。
+
+**English**
+
+### Fixed
+
+- The detection added in 1.5.35 that lifts the mute when capture goes silent
+  still never ran under default settings: the peak statistics it reads start
+  accumulating before the handshake completes, so the first window always
+  contains loud audio from before the mute. Statistics now restart at the moment
+  of muting, so the first window reflects only post-mute levels. With standby at
+  its 5 s default and the window also 5 s, the check was always one window late.
+- After the mute had been lifted once, toggling the menu switch off and on did
+  not restore automatic muting — only a restart did.
+- A wake-from-standby flag could linger when the reconnect failed, making later,
+  unrelated sessions use the most sensitive threshold.
+- The reconnect interval actually capped at 80 s while the docs said 60 s.
+
 ## [1.5.35] - 2026-10-24
 
 **中文**

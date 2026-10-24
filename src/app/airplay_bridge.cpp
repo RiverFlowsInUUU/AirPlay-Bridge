@@ -2632,6 +2632,17 @@ struct Session {
         // 下一个检查点会把这个健康的会话当成"待重连"再拆一次，
         // 表现为约 5 秒闪断一次。
         wantReconnect.store(false);
+        // ★ muteCheckFromWake 也要清。
+        //
+        //   它只在「静音成功」那一刻被消费（一次性）。如果唤醒后连接失败
+        //   （接收端忙、已断电），标志会滞留，然后在下一次**不相干的**
+        //   会话里以 1 窗口阈值参与判定 —— 把误撤销面放大到那些
+        //   本来该走 6 窗口判据的场景。
+        //   放在 teardown 而不是 start：start 开头就调 clearStandbyState()，
+        //   而唤醒路径是「先 leaveStandby() 置位、再 tryConnect → start()」，
+        //   在 start 里清等于刚置上就抹掉。
+        //   （2026-10-24 第三次复查指出标志无清理路径。）
+        muteCheckFromWake.store(false);
         producer = std::thread();   // 清掉已 join 的线程句柄
         sender.reset();
         loop.reset();
@@ -3279,6 +3290,27 @@ int main(int argc, char** argv) {
                     // 驱动把环回也静掉了（见主循环健康检查那段）。
                     muteFromWake = sess.muteCheckFromWake.load();
                     sess.muteCheckFromWake.store(false);   // 一次性
+                    // ★★ 必须在这里把峰值累积清零 —— 这是整个判据能否生效的前提。
+                    //
+                    //   g_peakWindowMax 是 producer 线程**无条件**累积的
+                    //   （见上面那行），而 start() 的顺序是
+                    //     开采集(:2186) → 起 producer(:2352) → 握手(:2419)
+                    //   —— 采集和累积都**早于**握手完成。
+                    //   而静音发生在 launched(true) 里，也就是握手之后。
+                    //
+                    //   于是静音那一刻，g_peakWindowMax 里已经攒着握手期间
+                    //   （0.5~2 秒）的**静音前响亮帧**。不清它的话，连接后的
+                    //   第一个 5 秒窗口必然读到 pk >= kSilencePeak，
+                    //   计数器被重置成 0 —— 而默认待机也是 5 秒，
+                    //   第二个"干净"窗口永远晚于拆会话。
+                    //   结果：判据在默认配置下**确定性失效**，循环照旧。
+                    //   （2026-10-24 第三次复查指出；前两次分别败于
+                    //     条件互斥、计数攒不齐，这次败于窗口没锚定到事件。）
+                    //
+                    //   清零后第一个窗口只含静音后的电平：
+                    //     fromWake 会话 → pk=0 → 计数 1 ≥ need=1 → 立刻撤销，
+                    //     且发生在 t1 < 静音+5s，恒早于待机拆会话。
+                    g_peakWindowMax.store(0);
                     // 落盘：万一进程被强杀，下次启动能据此把端点还回去。
                     cfg.localMutedByUs = true;
                     saveConfig(cfgPath, cfg);
@@ -4013,6 +4045,15 @@ int main(int argc, char** argv) {
                                 logLine("开关关闭后恢复电脑扬声器失败，保留标记稍后重试");
                             }
                         }
+                    // ★ 用户重新打开开关 = 明确的"我要这个功能"，清掉放弃标记。
+                    //
+                    //   没有这一句的话，muteGaveUp 一旦置位就再没有复位路径
+                    //   （本进程内），用户把开关关掉再打开也不生效，
+                    //   只能重启程序 —— 而撤销可能本来就源自误诊
+                    //   （待机关闭 + 暂停 ≥30 秒那条判据）。
+                    //   承诺了"手动开关仍然生效"，就得让"开"这个方向真的生效。
+                    //   （2026-10-24 第三次复查指出：只兑现了一半。）
+                    if (cfg.muteLocalOnConnect) muteGaveUp = false;
                     return;
                 }
 
@@ -4327,6 +4368,20 @@ int main(int argc, char** argv) {
                         if (pk < kSilencePeak) {
                             ++muteNoSignalPasses;
                         } else {
+                            // 窗口里有电平 → 判据被"污染"或驱动正常（静音不影响采集）。
+                            // 这条日志只在与静音相关时写，正常播放不会走这里
+                            // （外层要求 g_mutedByUs）。留着是为了现场取证：
+                            // 如果用户报"还是在断连"，日志里能看到每个窗口的 pk
+                            // 和 fromWake，一眼分辨是判据被静音前音频污染，
+                            // 还是这台驱动根本不受影响。
+                            // （2026-10-24 复查建议：这类时序缺陷本地无法复现，
+                            //   只能靠现场日志证明判据有没有被污染。）
+                            if (fromWake && pk >= kSilencePeak) {
+                                logLine("静音后首个窗口仍有电平（峰值 " +
+                                        std::to_string(pk) +
+                                        "）—— 这台机器的采集不受静音影响，"
+                                        "无需撤销静音");
+                            }
                             muteNoSignalPasses = 0;
                         }
                         if (muteNoSignalPasses >= need) {
@@ -4464,8 +4519,14 @@ int main(int argc, char** argv) {
             const bool kicked   = sess.running.load() && sess.wantReconnect.load();
             const bool dropped  = !sess.running.load() && !sess.standbyActive.load() &&
                                   cfg.autoReconnect && !userDisconnected;
-            if (everConnected && (kicked || dropped) && retryBackoffSec < 60) {
-                retryBackoffSec *= 2;
+            // ★ 上限用显式 clamp，不要写成 `if (x < 60) x *= 2`。
+            //   那个写法在 40 时会翻到 **80**，实际上限是 80 而不是 60 ——
+            //   注释一直写"上限 60 秒"，与代码不符（2026-10-24 复查指出）。
+            //   这类"注释写 60、代码到 80"的小误差不致命，但它会让人
+            //   按错误的前提去推时序，属于该掐掉的类型。
+            if (everConnected && (kicked || dropped)) {
+                retryBackoffSec = (retryBackoffSec < 60) ? retryBackoffSec * 2 : 60;
+                if (retryBackoffSec > 60) retryBackoffSec = 60;
             }
             if (sess.running.load() && sess.wantReconnect.load()) {
                 sess.wantReconnect.store(false);
