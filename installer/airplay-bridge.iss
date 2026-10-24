@@ -57,6 +57,22 @@ WizardStyle=modern
 ; 用的是与 exe 同一枚图标，保持一致。
 ; （2026-10-24 遗留清单第 2 条）
 SetupIconFile=..\src\icons\app.ico
+; 安装包自身的版本信息（右键 Setup.exe → 属性 → 详细信息）。
+;
+; 不设这几项的话，属性页里 FileVersion 是**空的** ——
+; 用户报"我装的是哪个版本"时，点开安装包属性看不到任何东西，
+; 只能靠文件名。而文件名是可以被改的。
+; （2026-10-24 实测 v1.5.42 的包：ProductName 有、FileVersion 空）
+;
+; VersionInfoVersion 要的是四段数字（x.y.z.w），而 AppVersion 是
+; "1.5.42" 这种三段字符串 —— 拼一个 .0 补满。
+VersionInfoVersion={#AppVersion}.0
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppName} Setup
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}
+VersionInfoTextVersion={#AppVersion}
+VersionInfoCopyright=Apache-2.0
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}

@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.43] - 2026-10-24
+
+**中文**
+
+### 新增
+
+- 安装包自身的版本信息补全了。右键 Setup.exe 看「属性 → 详细信息」，
+  现在能看到版本号、发布者和说明，不再只有文件名能对照。
+
+**English**
+
+### Added
+
+- The installer now carries full version information. Its Properties → Details
+  page shows the version, publisher and description instead of relying on the
+  file name alone.
+
 ## [1.5.42] - 2026-10-24
 
 **中文**
