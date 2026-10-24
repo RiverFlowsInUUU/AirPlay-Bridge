@@ -141,6 +141,8 @@ const Entry kEntries[] = {
      "Make sure you clicked Yes in the User Account Control prompt."},
     {"本机已有本程序的放行规则，无需重复添加。",
      "The firewall rule for this app already exists — nothing to add."},
+    {"放行规则本来就是对的，程序正在重连。",
+     "The firewall rule was already correct. Reconnecting..."},
     {"若仍连不上，请确认接收端与本程序在同一网络下。",
      "If it still won't connect, check that the receiver is on the same network."},
 

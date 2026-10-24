@@ -3,6 +3,29 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.39] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复点「连接诊断」或「清理防火墙规则」时声音卡住最长 20 秒的问题。
+- 修复在禁止修改防火墙规则的电脑上点「连接诊断」，反而把原本能用的
+  放行规则删光、彻底连不上的问题。
+- 修复设备列表里偶尔出现「某台音箱的名字配着另一台机器的 IP」、
+  点了却连不上的问题。
+
+**English**
+
+### Fixed
+
+- Fixed playback stalling for up to 20 seconds after clicking Connection check
+  or Clean firewall rules.
+- Fixed Connection check wiping out the working firewall rule on PCs where
+  rules cannot be modified, leaving the app unable to connect at all.
+- Fixed the device list occasionally showing one speaker's name with another
+  machine's IP, which failed to connect when clicked.
+
 ## [1.5.38] - 2026-10-24
 
 **中文**

@@ -154,6 +154,20 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
                            reinterpret_cast<sockaddr*>(&from), &fromLen);
         if (got <= 12) continue;
 
+        // ★ 必须核对来源 IP —— 只收我们正在问的那台的应答。
+        //
+        //   原来 `from` 取出来就扔了，于是任何迟到的应答都会被当成
+        //   当前这台设备的答案：循环按 IP 一台台问，上一台的回包晚到
+        //   几百毫秒，就落进了下一台的窗口 —— 菜单里出现
+        //   「HomePod 的名字配着别的机器的 IP」，点连接必然失败。
+        //   （2026-10-23 外部审查 P2-6，2026-10-24 修）
+        //
+        //   同一台设备有多个 IP（有线 + WiFi）的重复条目问题不在这里：
+        //   那要靠"按 deviceId 去重"解决，是另一件事，见 filterDevices。
+        if (from.sin_addr.s_addr != dst.sin_addr.s_addr) {
+            continue;
+        }
+
         size_t pos = 12;
         uint16_t qd = r16(buf + 4);
         uint16_t an = r16(buf + 6);

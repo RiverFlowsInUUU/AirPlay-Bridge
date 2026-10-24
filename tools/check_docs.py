@@ -755,18 +755,26 @@ for _sec in _recent:
     if not re.search(r"(?m)^### \S", _sec):
         _STRUCT_BAD.append("%s 没有任何 `### 分组`（STYLE 第 2 条）" % _ver)
 
-    # 长度提示（不判 FAIL）：把每条拼好量字数
+    # 长度提示（不判 FAIL）：把每条拼好量字数。
+    #
+    # ★ 只量**含中文**的条目。英文不能按字符数卡：
+    #   英文一个词平均 5-6 字符，142 字符才 ~25 个词，一行读得完；
+    #   而中文 142 字就是实打实的长句。第一版不分语种，把三条英文
+    #   （128/142/103 字符）全报成"偏长" —— 正是"误报训练人忽略检查"
+    #   那个坑，自己又踩了一次。
+    def _flush(buf):
+        if buf and _CJK.search(buf) and len(buf) > 120:
+            _STRUCT_HINT.append(len(buf))
+
     _b = None
     for _ln in _sec.split("\n"):
         _t = _ln.strip()
         if _t.startswith("- "):
-            if _b and len(_b) > 120:
-                _STRUCT_HINT.append(len(_b))
+            _flush(_b)
             _b = _t
         elif _b is not None and _t:
             _b += " " + _t
-    if _b and len(_b) > 120:
-        _STRUCT_HINT.append(len(_b))
+    _flush(_b)
 
 if _STRUCT_BAD:
     fail("发布说明骨架",

@@ -1137,6 +1137,38 @@ bool elevateAndRunFixFirewall();
 bool elevateAndRunCleanFirewallRules();
 bool setAutoStart(bool enable);   // 前置声明：卸载清理要用
 
+// 等提权出来的那一份跑完，**期间继续派发消息**。
+//
+// 为什么不能直接 WaitForSingleObject(..., 20000)：这两个提权入口都是在
+// **主线程**上调的（菜单回调 / 启动提示回调）。一次等满 20 秒的话，
+// 整个托盘消息循环停摆 —— 串流中音频断供，看门狗每秒刷一条"主循环卡住"
+// 的误报。用户看到的是"点了连接诊断，声音卡了二十秒"。
+//
+// 改成 100ms 一小步：每步之间 PeekMessage 派发一次，UI 保持响应。
+// 命令行模式下没有窗口和消息队列，PeekMessageW(nullptr,...) 会直接返回
+// FALSE，只是空转 —— 无害，所以不需要为"有没有主循环"分支。
+// （2026-10-23 外部审查 P2-5，2026-10-24 修）
+bool waitProcessPumping(HANDLE proc, DWORD totalMs) {
+    const DWORD kStep = 100;
+    DWORD elapsed = 0;
+    for (;;) {
+        const DWORD slice = (totalMs - elapsed < kStep) ? (totalMs - elapsed) : kStep;
+        const DWORD r = WaitForSingleObject(proc, slice);
+        if (r == WAIT_OBJECT_0) return true;      // 结束了
+        if (r != WAIT_TIMEOUT) return false;      // 句柄异常
+
+        // 派发一条消息。不抽干：与 TrayIcon::pump 同样的理由（防重入）。
+        MSG msg;
+        if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+
+        elapsed += slice;
+        if (elapsed >= totalMs) return false;     // 超时，不等了
+    }
+}
+
 // 播放期间把系统时钟精度提到 1ms。
 //
 // 为什么需要：Windows 默认时钟粒度是 15.6ms，会让 std::this_thread::sleep_for
@@ -1280,18 +1312,46 @@ void checkFirewallRuleAtStartup() {
 int runFixFirewall(bool quiet = false) {
     logLine("--fix-firewall: 开始添加防火墙入站规则");
 
-    // 先删同名旧规则，再加 —— 保证只有一条，且 program 指向当前 exe。
-    // 删不掉不致命（可能本来就没有），继续往下走。
-    if (!deleteFirewallRuleByName())
-        logLine("--fix-firewall: 删除同名旧规则失败（可能没有管理员权限），继续尝试添加");
+    // ★ 顺序是「先加新的、成功了再删旧的」，不是「先删后加」。
+    //
+    //   原来是先 deleteFirewallRuleByName() 再 netsh add。在受组策略约束的
+    //   机器上（域环境禁止本地防火墙规则写入），add 会失败 —— 而此时
+    //   能用的规则**已经被删光了**。用户点了「连接诊断」，结果比不点还糟：
+    //   放行规则从「有一条能用的」变成「零条」。
+    //   （2026-10-23 外部审查 P2-4，2026-10-24 修）
+    //
+    //   现在的顺序：
+    //     ① 当前 exe 的规则已经在（firewallRuleExists 会核对 program= 路径，
+    //        不只是名字）→ 什么都不用做，规则本来就是对的；
+    //     ② 否则先 add；add 成功了才删同名旧规则。
+    //        这样任何一步失败都不会让「能用的规则」变少。
+    //
+    //   为什么不能「先加后删」直接照搬：netsh 遇到重名会自动加序号
+    //   （"… UDP 1"、"… UDP 2"），所以必须先判存在，否则每次点修复都会
+    //   多堆一条，越积越多。
+    const bool already = firewallRuleExists();
 
     // 直接跑 netsh.exe（不走 cmd.exe）：绝对路径 + 参数全部带引号，
     // cmd 的引号剥离规则反而会咬到 program= 里那个带空格的路径
     // （实测 "C:\...\cmd.exe /c "C:\...\netsh.exe" ..." 会报
     //   「不是内部或外部命令」，退出码 1）。
     const std::string cmd = netshAddRuleArgs(true);
-    logLine("--fix-firewall: 执行 " + cmd);
-    const int rc = runCommandLine(cmd);
+    int rc = 0;
+    if (already) {
+        logLine("--fix-firewall: 已有指向当前程序的放行规则，跳过添加");
+    } else {
+        logLine("--fix-firewall: 执行 " + cmd);
+        rc = runCommandLine(cmd);
+        // 加成功之后，才允许删掉同名旧规则（那些指向旧路径的）。
+        // 加失败就保留它们 —— 它们虽然不指向当前 exe，但至少没让规则归零，
+        // 用户下次换个位置装回来还能用。
+        if (rc == 0) {
+            if (!deleteFirewallRuleByName())
+                logLine("--fix-firewall: 删除同名旧规则失败，继续（新规则已加好）");
+        } else {
+            logLine("--fix-firewall: 添加失败，保留原有规则不动");
+        }
+    }
 
     // 顺手把陈旧规则清掉：这一份已经是管理员了，而启动检查里
     // 「还没放行 + 有陈旧规则」那一路就是靠这里一次性收拾干净的
@@ -1302,12 +1362,17 @@ int runFixFirewall(bool quiet = false) {
     std::string title;
     std::string msg;
     if (rc == 0) {
-        logLine("已添加防火墙入站规则（允许接收端回连）");
+        // already / 新加 分开写日志和文案 —— 用户点「修复」结果什么都没变
+        // 却被告知「已添加」，下次就不知道该不该相信这个提示了。
+        logLine(already ? "放行规则本来就指向当前程序，无需改动"
+                        : "已添加防火墙入站规则（允许接收端回连）");
         title = "AirPlay Bridge";
-        msg  = i18n::tr("已修复，程序正在重连。");
+        msg  = already ? i18n::tr("放行规则本来就是对的，程序正在重连。")
+                       : i18n::tr("已修复，程序正在重连。");
         msg += char(10);
         msg += char(10);
-        msg += i18n::tr("已添加防火墙入站规则，允许接收端回连本机做时钟同步。");
+        msg += already ? i18n::tr("本机已有本程序的放行规则，无需重复添加。")
+                       : i18n::tr("已添加防火墙入站规则，允许接收端回连本机做时钟同步。");
         msg += char(10);
         // 规则对已经建立的连接不一定立刻生效，所以提醒一句，
         // 而不是让用户对着一动不动的界面猜。
@@ -1413,13 +1478,12 @@ bool elevateAndRunFixFirewall() {
         return false;
     }
 
-    // 等那一份跑完再回收句柄。**不要等太久就 WaitForSingleObject INFINITE**：
-    // 它在等用户点 MessageBox，可能停很久 —— 那期间主循环走的是托盘
-    // 菜单的模态消息循环，主界面会僵住。这里等一小会儿拿结果，
-    // 没结束就放手（子进程自己会退，句柄由系统回收）。
+    // 等那一份跑完再回收句柄。**不能 WaitForSingleObject INFINITE**：
+    // 它在等用户点 MessageBox，可能停很久。
+    // 也不能一次等满 20 秒 —— 这里在主线程上，会把消息循环整段停掉，
+    // 串流中音频断供（见 waitProcessPumping 的说明）。
     if (sei.hProcess) {
-        const DWORD waited = WaitForSingleObject(sei.hProcess, 20000);
-        if (waited == WAIT_OBJECT_0) {
+        if (waitProcessPumping(sei.hProcess, 20000)) {
             DWORD code = 1;
             if (GetExitCodeProcess(sei.hProcess, &code) && code == 0)
                 logLine("防火墙入站规则已就绪，等待下一轮重连生效");
@@ -1465,11 +1529,9 @@ bool elevateAndRunCleanFirewallRules() {
         return false;
     }
 
-    // 同 --fix-firewall：只等一小会儿。那一份在等用户点提示框，
-    // 无限等会把主界面拖死。
+    // 同 --fix-firewall：等一小会儿且期间继续派发消息。
     if (sei.hProcess) {
-        const DWORD waited = WaitForSingleObject(sei.hProcess, 20000);
-        if (waited == WAIT_OBJECT_0) {
+        if (waitProcessPumping(sei.hProcess, 20000)) {
             DWORD code = 1;
             if (GetExitCodeProcess(sei.hProcess, &code) && code == 0)
                 logLine("陈旧防火墙规则清理进程已结束");
