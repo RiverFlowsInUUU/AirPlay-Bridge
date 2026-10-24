@@ -13,3 +13,68 @@
 // 托盘图标：两个状态
 102 ICON "connected.ico"
 103 ICON "idle.ico"
+
+// ---- 版本信息（资源管理器「属性 → 详细信息」）----
+//
+// 没有这一块时，用户右键 exe 看属性是一片空白 ——
+// 报问题说"我是 1.5.41"时得先去菜单里翻「关于」，
+// 企业软件清点和部分 AV 启发式对"无版本资源"也更不友好。
+// （2026-10-24 遗留清单第 2 条）
+//
+// 三个数字段由 CMake 传进来（APP_VER_MAJOR / MINOR / PATCH），
+// 来源是 project(... VERSION x.y.z)，与 APP_VERSION 同一处 ——
+// 不另开一份手写副本，否则又是"两处维护"。
+//
+// 没传时的兜底：全 0，编译能过但一眼看得出是没接入构建。
+#ifndef APP_VER_MAJOR
+#define APP_VER_MAJOR 0
+#endif
+#ifndef APP_VER_MINOR
+#define APP_VER_MINOR 0
+#endif
+#ifndef APP_VER_PATCH
+#define APP_VER_PATCH 0
+#endif
+#ifndef APP_VER_STRING
+#define APP_VER_STRING "0.0.0"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    APP_VER_MAJOR, APP_VER_MINOR, APP_VER_PATCH, 0
+ PRODUCTVERSION APP_VER_MAJOR, APP_VER_MINOR, APP_VER_PATCH, 0
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+ FILEFLAGS      0
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 语言 0x0804 = 简体中文，代码页 1200 = Unicode
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName",      "AirPlay Bridge"
+            VALUE "FileDescription",  "AirPlay Bridge"
+            VALUE "FileVersion",      APP_VER_STRING
+            VALUE "InternalName",     "AirPlayBridge"
+            VALUE "OriginalFilename", "AirPlayBridge.exe"
+            VALUE "ProductName",      "AirPlay Bridge"
+            VALUE "ProductVersion",   APP_VER_STRING
+        END
+        // 英文块：非中文系统上资源管理器显示这一份
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "AirPlay Bridge"
+            VALUE "FileDescription",  "AirPlay Bridge"
+            VALUE "FileVersion",      APP_VER_STRING
+            VALUE "InternalName",     "AirPlayBridge"
+            VALUE "OriginalFilename", "AirPlayBridge.exe"
+            VALUE "ProductName",      "AirPlay Bridge"
+            VALUE "ProductVersion",   APP_VER_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200, 0x409, 1200
+    END
+END

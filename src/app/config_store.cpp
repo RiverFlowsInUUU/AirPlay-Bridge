@@ -87,12 +87,15 @@ bool jsonGetBool(const std::string& json, const std::string& key, bool def) {
 // 这样 exe 是真正零外挂的：放哪儿都能跑，不在自己旁边堆文件。
 namespace {
 ConfigSaveFailHook g_saveFailHook = nullptr;
+ConfigRecoverFailHook g_recoverFailHook = nullptr;
 }  // namespace
 
 void setConfigSaveFailHook(ConfigSaveFailHook fn) { g_saveFailHook = fn; }
+void setConfigRecoverFailHook(ConfigRecoverFailHook fn) { g_recoverFailHook = fn; }
 
 namespace {
 void notifySaveFail() { if (g_saveFailHook) g_saveFailHook(); }
+void notifyRecoverFail() { if (g_recoverFailHook) g_recoverFailHook(); }
 }  // namespace
 
 std::string appDataDir() {
@@ -256,12 +259,37 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
                 f.close();
 
                 const std::string tmp = path + ".tmp";
+                bool wroteOk = false;
                 {
                     std::ofstream tf(tmp, std::ios::binary | std::ios::trunc);
-                    if (tf) tf << bakText;
+                    if (tf) {
+                        tf << bakText;
+                        tf.flush();
+                        wroteOk = static_cast<bool>(tf);
+                    }
                 }
-                MoveFileExW(acpToWide(tmp).c_str(), acpToWide(path).c_str(),
-                            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+                // ★ 必须看返回值。
+                //
+                //   原来这里直接丢弃 MoveFileExW 的结果 —— 失败时
+                //   既没有日志、又留一个 .tmp 残留。本文件开头那个
+                //   `std::ifstream f` 忘了 close() 时就是这种情况：
+                //   err=5（拒绝访问），写回静默失效，表面一切正常，
+                //   下次启动照样读到坏文件。
+                //   那是我 2026-10-24 实测踩到的，靠断言才发现。
+                //   （2026-10-24 遗留清单第 1 条：补日志 + 清 .tmp）
+                bool renamed = false;
+                if (wroteOk) {
+                    renamed = (MoveFileExW(acpToWide(tmp).c_str(),
+                                           acpToWide(path).c_str(),
+                                           MOVEFILE_REPLACE_EXISTING |
+                                           MOVEFILE_WRITE_THROUGH) != FALSE);
+                }
+                if (!renamed) {
+                    // 清掉半成品，别在用户目录里留垃圾
+                    DeleteFileW(acpToWide(tmp).c_str());
+                    // 通知主程序落一条日志：这次恢复只在本次启动有效
+                    notifyRecoverFail();
+                }
 
                 j.swap(bakText);     // 用备份当这次的内容，往下走正常解析
             } else {

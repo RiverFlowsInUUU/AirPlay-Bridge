@@ -32,7 +32,11 @@ endif()
 # 版本号唯一来源 —— 发版只改这一行（PROJECT_VERSION）。
 # 它通过下面的 target_compile_definitions(APP_VERSION=...) 注入到代码里，
 # 托盘菜单「关于」自动跟着走，不会再出现"忘了改源码里的版本号"。
-project(airplay_bridge VERSION 1.5.41 LANGUAGES CXX)
+#
+# 2026-10-24：同一个 PROJECT_VERSION 现在还喂给 exe 的 VERSIONINFO 资源
+# （见 src/icons/bridge.rc），资源管理器「属性 → 详细信息」才不空白。
+# 仍是单一来源 —— 资源文件里不另存一份版本号。
+project(airplay_bridge VERSION 1.5.42 LANGUAGES CXX)
 
 if(ALMA_ASAN)
     add_compile_options(/fsanitize=address /Zi)
@@ -98,6 +102,17 @@ target_include_directories(airplay_bridge PRIVATE
 # 引号在这里带上 —— APP_VERSION 在代码里当字符串用。
 target_compile_definitions(airplay_bridge PRIVATE
     APP_VERSION="${PROJECT_VERSION}")
+
+# VERSIONINFO 资源要的是**分开的数字段**（FILEVERSION 1,5,41,0），
+# 不能直接用 "1.5.41" 这个字符串。所以再传三个整数 + 一个显示用字符串。
+#
+# ★ 必须挂在 source-file 属性上，不能进 target_compile_definitions ——
+#   后者只传给 C/C++ 编译器（cl.exe），而 .rc 由 rc.exe 单独处理。
+#   不传的话 bridge.rc 里那几个 #ifndef 兜底生效，资源里会是 0.0.0 ——
+#   编译能过、属性页显示 0.0.0，很难发现。
+set_source_files_properties(src/icons/bridge.rc PROPERTIES
+    COMPILE_DEFINITIONS
+        "APP_VER_MAJOR=${PROJECT_VERSION_MAJOR};APP_VER_MINOR=${PROJECT_VERSION_MINOR};APP_VER_PATCH=${PROJECT_VERSION_PATCH};APP_VER_STRING=\"${PROJECT_VERSION}\"")
 
 target_link_libraries(airplay_bridge PRIVATE
     raop_sender

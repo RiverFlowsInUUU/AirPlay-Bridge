@@ -31,6 +31,8 @@ namespace {
 
 int g_fail = 0;
 int g_checks = 0;
+// 「恢复写回失败」钩子的调用次数（钩子是裸函数指针，不能捕获局部变量）
+int g_recoverFailCalls = 0;
 
 void check(bool condValue, const std::string& what) {
     ++g_checks;
@@ -288,6 +290,67 @@ int main() {
             check(static_cast<bool>(cf), "坏内容应留在 .corrupt 里");
         }
 
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+        removeFile(kFile + ".corrupt");
+    }
+
+    // ---- 4b-2. ★ 写回失败时必须通知（遗留清单第 1 条）----
+    //
+    // 造失败的办法：把主文件设成**只读**。Windows 上
+    // MOVEFILE_REPLACE_EXISTING 对只读目标是拒绝的。
+    // 这条测的就是「静默失败」——上一轮 MoveFileExW 返回 FALSE
+    // 而没人看，是靠断言才发现的。
+    std::printf("\n4b-2. ★ 写回失败要通知 + 清 .tmp\n");
+    {
+        removeFile(kFile);
+        removeFile(kFile + ".bak");
+        removeFile(kFile + ".corrupt");
+        removeFile(kFile + ".tmp");
+
+        BridgeConfig first;
+        first.lastDeviceId = "DEV-AAA";
+        first.volume       = 33;
+        saveConfig(kFile, first);
+        BridgeConfig second;
+        second.lastDeviceId = "DEV-BBB";
+        second.volume       = 66;
+        saveConfig(kFile, second);          // 生成 .bak = DEV-AAA
+
+        // 主文件写坏 + 设成只读（恢复读得动，写回写不动）
+        writeRaw(kFile, "{\"lastDeviceId\": \"DEV-BBB\"");
+        SetFileAttributesW(std::wstring(kFile.begin(), kFile.end()).c_str(),
+                           FILE_ATTRIBUTE_READONLY);
+
+        // 钩子是裸函数指针（不能捕获），用文件级 static 计数
+        g_recoverFailCalls = 0;
+        setConfigRecoverFailHook([]() { ++g_recoverFailCalls; });
+
+        BridgeConfig out;
+        const bool loaded = loadConfig(kFile, out);
+        check(loaded, "写回失败不影响本次加载（内存里已恢复）");
+        checkStr(out.lastDeviceId, "DEV-AAA", "内存里拿到的是备份内容");
+
+        {
+            std::FILE* tf = std::fopen((kFile + ".tmp").c_str(), "rb");
+            check(tf == nullptr, "写回失败后 .tmp 应被清掉");
+            if (tf) std::fclose(tf);
+        }
+
+        // 主文件仍是坏的（只读挡住了写回）—— 这正是要靠日志暴露的状态
+        {
+            std::ifstream mf(kFile, std::ios::binary);
+            std::stringstream ms;
+            ms << mf.rdbuf();
+            check(ms.str().find("DEV-AAA") == std::string::npos,
+                  "只读时写回确实失败（主文件仍是坏的）");
+        }
+
+        checkInt(g_recoverFailCalls, 1, "写回失败应触发一次恢复失败通知");
+
+        SetFileAttributesW(std::wstring(kFile.begin(), kFile.end()).c_str(),
+                           FILE_ATTRIBUTE_NORMAL);
+        setConfigRecoverFailHook(nullptr);
         removeFile(kFile);
         removeFile(kFile + ".bak");
         removeFile(kFile + ".corrupt");

@@ -51,6 +51,12 @@ OutputBaseFilename=AirPlay-Bridge-Setup-v{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; 安装包自己的图标（右键 Setup.exe → 属性 / 资源管理器里显示的那一枚）。
+; 不设的话是 Inno 的默认图标，跟程序图标不是一个东西，用户会以为是别的东西。
+; 路径相对于 .iss 所在目录（installer\），所以是 ..\src\icons\app.ico。
+; 用的是与 exe 同一枚图标，保持一致。
+; （2026-10-24 遗留清单第 2 条）
+SetupIconFile=..\src\icons\app.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}

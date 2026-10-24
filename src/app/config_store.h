@@ -94,6 +94,21 @@ std::string defaultConfigPath();
 using ConfigSaveFailHook = void (*)();
 void setConfigSaveFailHook(ConfigSaveFailHook fn);
 
+// 「从 .bak 恢复成功、但写回主文件失败」时的通知钩子。
+//
+// 为什么要单独一个而不是复用上面那个：
+//   两者的用户含义完全不同 ——
+//     · saveFail：设置改了存不住
+//     · 这个：这一次启动是好的（内存里已恢复），但**下次启动还会坏**
+//   日志里必须能分辨。否则将来有人报「主文件还是坏的」，
+//   只有一条笼统的"保存失败"根本对不上。
+//
+// 为什么需要钩子而不是直接打日志：config_store 里没有 logLine，
+// 它是 airplay_bridge.cpp 的静态函数。钩子让主程序决定文案。
+// （2026-10-24 遗留清单第 1 条）
+using ConfigRecoverFailHook = void (*)();
+void setConfigRecoverFailHook(ConfigRecoverFailHook fn);
+
 bool loadConfig(const std::string& path, BridgeConfig& out);
 bool saveConfig(const std::string& path, const BridgeConfig& cfg);
 

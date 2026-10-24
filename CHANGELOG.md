@@ -3,6 +3,34 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.42] - 2026-10-24
+
+**中文**
+
+### 新增
+
+- 程序文件和安装包的图标、版本信息现在都完整了。右键看「属性 → 详细信息」
+  能看到版本号、产品名和公司，不再是一片空白。
+
+### 修复
+
+- 配置文件从备份恢复后，若写回主文件失败，现在会写一条日志说明
+  「本次运行正常，但下次启动可能再次损坏」，并清掉残留的临时文件。
+
+**English**
+
+### Added
+
+- The executable and installer now carry complete icon and version information.
+  The Properties → Details page shows the version, product name and company
+  instead of being blank.
+
+### Fixed
+
+- If writing the recovered config back to the main file fails, a log entry now
+  explains that this run is fine but the next launch may break again, and the
+  leftover temporary file is removed.
+
 ## [1.5.41] - 2026-10-24
 
 **中文**
