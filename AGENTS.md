@@ -58,7 +58,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | **改 `installer/*.iss` 或 `.github/workflows/`** | **先查官方文档确认字段名** —— 这两类本地编译不了，写错只知道 CI 挂。[docs/PITFALLS.md](docs/PITFALLS.md) ⑥ 有完整事故记录 |
 | 提交 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「提交」 |
 | 发版 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「发布」+ [docs/RULES.md](docs/RULES.md) 的发布纪律 |
-| 写 README / 发布说明 | [docs/STYLE.md](docs/STYLE.md) |
+| **写 README / 发布说明（CHANGELOG）** | **先打开 [docs/STYLE.md](docs/STYLE.md) 再动笔**，不是写完回头看。发布说明有机器检查（`check_docs.py` 第 23 项），但检查器只挡禁用词，挡不住"自说自话" |
 | 某条禁令看不懂 | [docs/PITFALLS.md](docs/PITFALLS.md) |
 | 查术语 | [docs/GLOSSARY.md](docs/GLOSSARY.md) |
 | 汇报节奏 / 协作约定 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「七、协作方式」 |
@@ -90,6 +90,12 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
   ③ **注释逐字对得上代码吗？** 写「统一处理 / 两支共用」这类全称判断，
   写完回头核一遍 —— 错的注释比没有注释更坏。
   → [PITFALLS.md](docs/PITFALLS.md) ⑧
+- **写对外文字前，先打开那份规范** —— README / 发布说明看
+  [docs/STYLE.md](docs/STYLE.md)，界面文案看 STYLE 的 i18n 节。
+  **有规范却不看，等于没有规范**：2026-10-24 连发三版发布说明全写成
+  自我复盘（「1.5.35 里那套……仍未生效」），被用户当面指出
+  「有 docs/STYLE.md 你却不遵守」。现在 `check_docs.py` 第 23 项会拦
+  禁用词，但**拦不住自说自话** —— 那只能靠先读规范。
 - **一台机器上不允许两份副本并存** —— 发布渠道只保留安装版。
 - **不许猜** —— 不确定就标 `TODO(需人类确认)`，问人。
 
