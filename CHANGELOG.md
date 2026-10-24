@@ -3,6 +3,29 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.47] - 2026-10-24
+
+**中文**
+
+### 改进
+
+- 播放期间音频相关线程改用系统的高优先级多媒体调度。电脑同时在
+  编译、跑游戏或导出视频等高负载场景下，串流更不容易出现爆音或丢音。
+- Windows 11 下，程序在后台时的时钟精度不再被系统自动放宽
+  （系统默认会这样对待后台且无声音的程序），低延迟档位在后台
+  串流时的稳定性随之改善。
+
+**English**
+
+### Improved
+
+- Audio threads now run under the system's high-priority multimedia
+  scheduling during playback — streaming is less likely to crackle or
+  drop when the PC is busy compiling, gaming, or exporting.
+- On Windows 11, the timer resolution the app requests while playing is
+  no longer relaxed by the system when the app is in the background,
+  improving stability of the low-latency modes while backgrounded.
+
 ## [1.5.46] - 2026-10-24
 
 **中文**

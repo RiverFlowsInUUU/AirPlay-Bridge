@@ -17,6 +17,7 @@
 #include "wasapi_capture.h"
 
 #include <windows.h>
+#include <avrt.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
@@ -460,6 +461,19 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
                 bool owned;
                 ~ComGuard() { if (owned) CoUninitialize(); }
             } comGuard{comOwned};
+
+            // ★ 采集 worker 挂进 MMCSS「Pro Audio」调度类。
+            //   timeBeginPeriod 只保证按时醒；CPU 被编译/游戏/导出占满时，
+            //   醒了也未必抢得到时间片 —— GetBuffer 搬运不能被饿，饿的
+            //   是整段丢音（不是爆音，是缺块）。同样用 RAII：与 ComGuard
+            //   同理，提前 return 的路径不能漏撤销。
+            //   失败（返回 0）只是拿不到提升，不影响采集。
+            //   （2026-10-24 对比 WinAirCast 后补）
+            DWORD mmcssTask = 0;   // 官方要求：首次调用必须传 0
+            struct MmcssGuard {
+                HANDLE h;
+                ~MmcssGuard() { if (h) AvRevertMmThreadCharacteristics(h); }
+            } mmcss{AvSetMmThreadCharacteristicsW(L"Pro Audio", &mmcssTask)};
 
             DeviceCapture* dc = impl_->devices[i].get();
             DeviceQueue*   q  = impl_->queues[i].get();

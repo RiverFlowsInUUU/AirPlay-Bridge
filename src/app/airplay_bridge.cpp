@@ -43,6 +43,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <objbase.h>
+#include <avrt.h>
 #include <comdef.h>
 #include <netfw.h>
 
@@ -1176,6 +1177,61 @@ void setHighResTimer(bool on) {
     active = on;
     logLine(on ? "时钟精度已提到 1ms（播放期间）"
                : "时钟精度已恢复默认（停止播放）");
+}
+
+// ★ Win11 的后台定时器打折：显式豁免（一次性，进程级）。
+//
+//   官方文档（SetProcessInformation / PROCESS_POWER_THROTTLING_STATE）：
+//   Win11 默认对「窗口被完全遮挡 / 最小化 / 不可见，且无可闻音频」的进程
+//   **忽略其 timeBeginPeriod 请求**。本程序只采集不渲染，恰好落在
+//   「non-audible」里；而串流时它几乎总在后台 —— 上面的 1ms 提精度的
+//   效果在 Win11 后台会被系统收回，主循环节拍退回 ~15.6ms，浅缓冲
+//   （130-150ms 档）比 Win10 更容易爆音。
+//   「Always honor Timer Resolution Requests」的官方写法是：
+//     ControlMask = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+//     StateMask   = 0        // 0 = 关掉「忽略定时器」这个节流
+//   仅 Win11 22H2+ 认识这个位；老系统返回失败（参数无效），无副作用。
+//   注意这不破坏「只在播放期间提精度」的既有节制 —— 这里只是解除
+//   「后台打折」，没有活动请求时依然零成本。
+//   （2026-10-24 对比 WinAirCast 后补：他们宣传的 MMCSS 调度与这件事
+//    是两个正交的问题 —— 那个解决「醒了抢得到 CPU」，这个解决「按时醒」。）
+void exemptWin11TimerThrottling() {
+#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+#define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+#endif
+    PROCESS_POWER_THROTTLING_STATE pt{};
+    pt.Version     = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    pt.ControlMask = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+    pt.StateMask   = 0;
+    if (!SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling,
+                               &pt, sizeof(pt))) {
+        // 老 Windows 不认识这个位 —— 本来就没有后台打折，不用管。
+        logLine("Win11 定时器豁免未生效（本系统不需要或暂不支持）");
+    }
+}
+
+// ★ 播放期间把**主线程（pacer 所在线程）挂进 MMCSS「Pro Audio」调度类**。
+//
+//   与 setHighResTimer 成对使用（同开同关）。解决的是另一个问题：
+//   timeBeginPeriod 只保证「按时醒」，CPU 被编译 / 游戏 / 导出占满时，
+//   醒了也未必抢得到时间片 —— RTP 发送节拍照样断。MMCSS 让线程在
+//   就绪时获得高优先级调度（受系统管制，不会饿死别人），这正是
+//   商业竞品宣传的「Pro Audio 调度」。
+//   主线程同时跑着托盘 UI / 扫描 / 模态菜单 —— 优先级提升只作用于
+//   「就绪待跑」的时刻，阻塞调用（扫描、菜单）不占 CPU，不会因此
+//   变得更占；但「把 pacer 挪到专用线程」仍是更彻底的架构方向，
+//   这里先不动主循环骨架。
+//   失败（返回 0）只是拿不到提升，不影响功能。
+//   （2026-10-24 对比 WinAirCast 后补）
+void setPacerThreadPriority(bool on) {
+    static HANDLE mmcss = nullptr;
+    if (on && !mmcss) {
+        DWORD taskIdx = 0;   // 官方要求：首次调用必须传 0
+        mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIdx);
+    } else if (!on && mmcss) {
+        AvRevertMmThreadCharacteristics(mmcss);
+        mmcss = nullptr;
+    }
 }
 
 // 启动自检需要的三个结论，一次 COM 枚举算齐。
@@ -2328,6 +2384,7 @@ struct Session {
 
         // 要开始推流了：提高时钟精度，让主循环跑在设计节奏上。
         setHighResTimer(true);
+        setPacerThreadPriority(true);   // 与时钟精度同开（见其说明）
 
         // wantReconnect 也必须一起清掉。
         //
@@ -2399,6 +2456,7 @@ struct Session {
             //   把用户的声音送进一个没人采集的黑洞（P1-3）。
             rollbackTakeover();
             setHighResTimer(false);   // 同样别留着一个不断电的高精度定时器
+            setPacerThreadPriority(false);
             return false;
         }
 
@@ -2560,6 +2618,14 @@ struct Session {
 
 
         producer = std::thread([this, needResample]() {
+            // ★ 采集线程也挂进 MMCSS「Pro Audio」：CPU 被占满时，
+            //   环回数据从 WASAPI 缓冲搬到重采样/环形缓冲的这一步
+            //   不能被饿 —— 饿的是采集侧就会整段丢音（不是爆音，是缺块）。
+            //   线程体没有提前 return（run() 阻塞到 stop），头尾配对即可。
+            //   （2026-10-24 对比 WinAirCast 后补）
+            DWORD producerTask = 0;
+            HANDLE producerMmcss =
+                AvSetMmThreadCharacteristicsW(L"Pro Audio", &producerTask);
             capture->run([this, needResample](const int16_t* d, size_t n) {
                 // 先测峰值，再决定要不要推数据。
                 // 推之前测是必须的 —— 送进 ring 的是立体声交错样本，
@@ -2623,6 +2689,7 @@ struct Session {
                     }
                 }
             });
+            if (producerMmcss) AvRevertMmThreadCharacteristics(producerMmcss);
         });
 
         setPhase(PHASE_CONNECT);   // 打点：握手全在这一步里跑
@@ -2804,6 +2871,7 @@ struct Session {
         running.store(false);
         // 不再推流了 —— 立刻恢复系统时钟精度（不播放时不占任何时钟开销）。
         setHighResTimer(false);
+        setPacerThreadPriority(false);
         // 切回原来的默认设备
         // ★ 只有**恢复成功**才清标记 —— 这是 D4 的硬约束（docs/DECISIONS.md）：
         //   「失败必须保留标记，否则用户会永久失去声音且程序不再尝试恢复」。
@@ -2892,6 +2960,9 @@ struct Session {
             return;
         }
         standbyThread = std::thread([this]() {
+            // 待机耳同样挂 MMCSS：唤醒判定靠它，CPU 高负载时不能聋。
+            DWORD earTask = 0;
+            HANDLE earMmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &earTask);
             standbyEar->run([this](const int16_t* d, size_t n) {
                 int peak = 0;
                 const size_t samples = n * 2;
@@ -2906,6 +2977,7 @@ struct Session {
                                          .count());
                 }
             });
+            if (earMmcss) AvRevertMmThreadCharacteristics(earMmcss);
         });
     }
 
@@ -3031,6 +3103,11 @@ static void enableDpiAwareness() {
 // 改成从 GetCommandLineW 自己切分。
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     enableDpiAwareness();
+
+    // ★ 越早越好：Win11 的「后台进程忽略 timeBeginPeriod」豁免。
+    // 之后的 setHighResTimer(true) 才能在后台（串流的常态）兑现 1ms。
+    // 一次性进程级设置，老系统上调用失败无害（见其说明）。
+    exemptWin11TimerThrottling();
 
     // 托盘菜单跟随系统深浅色主题
     darkmode::init();
