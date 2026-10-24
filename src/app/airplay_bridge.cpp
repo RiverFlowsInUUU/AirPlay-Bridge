@@ -3203,6 +3203,14 @@ int main(int argc, char** argv) {
         Session sess;
         sess.cfg = &cfg;
         sess.host = host;
+        // ★ cfgPath 必须给。缺了它，这个会话的崩溃恢复标记一个都不会落盘：
+        //   接管默认播放设备后如果被强杀（Ctrl+C 之外的所有情况 ——
+        //   关窗、任务管理器、断电），本地标记没写进配置，
+        //   下次启动时那段"看到标记就把默认设备切回去"的逻辑看不到它，
+        //   于是**电脑永久停在 CABLE Input 上，完全没声音，任何模式都不自愈**。
+        //   托盘模式一直是给的，只有 console / 直连 IP 这条路漏了
+        //   （2026-10-23 外部审查 P2-3，此后连续四轮挂在待办第一位）。
+        sess.cfgPath = cfgPath;
         sess.onStatus = [](const std::string& s) {
             std::printf(">> %s\n", s.c_str());
             std::fflush(stdout);
@@ -4382,7 +4390,7 @@ int main(int argc, char** argv) {
                             // 日志里能看到峰值，一眼分辨是哪种情况 ——
                             // 这两种的修法完全不同。
                             //
-                            // ★ 每条会话只记一次（记完清掉 muteFromWake）。
+                            // ★ 每次静音只记一次。
                             //
                             //   第一版这里写着「正常播放不会走这里（外层要求
                             //   g_mutedByUs）」—— **那句注释是错的**：
@@ -4397,7 +4405,7 @@ int main(int argc, char** argv) {
                             //
                             // ★ 用独立的 once 标志，**不能清 muteFromWake**。
                             //   muteFromWake 还决定着 need（1 窗口还是 6 窗口）：
-                            //   清掉它等于把这条会话的判据从 1 降级到 6，
+                            //   清掉它等于把本次静音的判据从 1 降级到 6，
                             //   下次真出问题时反而要多等 30 秒。
                             //   两个语义分开：一个管"判据多严"，一个管"日志说过没有"。
                             if (fromWake && pk >= kSilencePeak && !muteNoSignalLogged) {

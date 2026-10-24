@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.38] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复命令行模式（`--console` 或直接指定 IP）被强行结束后，电脑可能彻底
+  没声音、重启程序也救不回来的问题。
+
+**English**
+
+### Fixed
+
+- Fixed the PC ending up completely silent after console mode (`--console` or
+  a direct IP) was killed, unrecoverable by restarting the app.
+
 ## [1.5.37] - 2026-10-24
 
 **中文**
