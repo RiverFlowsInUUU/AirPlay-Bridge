@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.45] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复配置文件损坏时，从备份恢复失败的那句提示在个别启动路径下不出现的
+  问题（例如已有实例在运行、又启动了第二个）。
+
+**English**
+
+### Fixed
+
+- Fixed the backup-restore failure notice missing on some startup paths
+  (for example when a second instance is launched while one is already running).
+
 ## [1.5.44] - 2026-10-24
 
 **中文**
