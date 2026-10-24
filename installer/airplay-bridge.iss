@@ -66,6 +66,12 @@ SetupIconFile=..\src\icons\app.ico
 ;
 ; VersionInfoVersion 要的是四段数字（x.y.z.w），而 AppVersion 是
 ; "1.5.42" 这种三段字符串 —— 拼一个 .0 补满。
+;
+; ⚠️ 前提：AppVersion 必须永远是**纯三段数字**。
+;    将来若用 "1.6.0-beta" 这类预发布标识，拼出来是 "1.6.0-beta.0"，
+;    Inno 不认（它要纯数字段），会在打包步骤报错中止 ——
+;    也就是说这个坑会在 CI 上炸，不会发出坏包（有兜底，风险可控）。
+;    真要做预发布版本时，这里要改成只取前三段数字。
 VersionInfoVersion={#AppVersion}.0
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Setup

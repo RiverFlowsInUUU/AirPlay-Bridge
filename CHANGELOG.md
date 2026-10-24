@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.44] - 2026-10-24
+
+**中文**
+
+### 修复
+
+- 修复配置文件损坏后，从备份恢复失败时那句提示日志不出现的问题
+  —— 之前它只在极少数情况下才会写出来。
+
+**English**
+
+### Fixed
+
+- Fixed the warning about a failed config restore never being logged —
+  it previously only appeared in rare cases.
+
 ## [1.5.43] - 2026-10-24
 
 **中文**

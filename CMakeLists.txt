@@ -36,7 +36,7 @@ endif()
 # 2026-10-24：同一个 PROJECT_VERSION 现在还喂给 exe 的 VERSIONINFO 资源
 # （见 src/icons/bridge.rc），资源管理器「属性 → 详细信息」才不空白。
 # 仍是单一来源 —— 资源文件里不另存一份版本号。
-project(airplay_bridge VERSION 1.5.43 LANGUAGES CXX)
+project(airplay_bridge VERSION 1.5.44 LANGUAGES CXX)
 
 if(ALMA_ASAN)
     add_compile_options(/fsanitize=address /Zi)
@@ -103,8 +103,9 @@ target_include_directories(airplay_bridge PRIVATE
 target_compile_definitions(airplay_bridge PRIVATE
     APP_VERSION="${PROJECT_VERSION}")
 
-# VERSIONINFO 资源要的是**分开的数字段**（FILEVERSION 1,5,41,0），
-# 不能直接用 "1.5.41" 这个字符串。所以再传三个整数 + 一个显示用字符串。
+# VERSIONINFO 资源要的是**分开的数字段**（FILEVERSION x,y,z,0），
+# 不能直接用 "${PROJECT_VERSION}" 这个字符串。
+# 所以再传三个整数 + 一个显示用字符串。
 #
 # ★ 必须挂在 source-file 属性上，不能进 target_compile_definitions ——
 #   后者只传给 C/C++ 编译器（cl.exe），而 .rc 由 rc.exe 单独处理。
