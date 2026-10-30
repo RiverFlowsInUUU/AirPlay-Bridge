@@ -3,6 +3,38 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.48] - 2026-10-30
+
+**中文**
+
+### 修复
+
+- 修复使用虚拟声卡接管时，程序把采集用的虚拟声卡本身静音的问题 ——
+  表现为连接成功却听不到声音，断开后也无法自动连回来。
+- 修复播放器自身音量较低时，正在播放的音乐被误判为静音、提前断开，
+  之后不再自动重连的问题。
+
+### 新增
+
+- 「关于」窗口显示当前连接设备的固件版本，例如 27.2。
+- 日志新增一行连接参数：延迟档位、对应帧数、对端固件版本。
+
+**English**
+
+### Fixed
+
+- Fixed the app muting the virtual audio cable it captures from when takeover
+  mode is active — the connection succeeded but stayed silent, and would not
+  reconnect afterwards.
+- Fixed quiet playback (low player volume) being treated as silence, which
+  disconnected early and never reconnected.
+
+### Added
+
+- The About dialog now shows the firmware version of the connected device.
+- The log now records the connection parameters: latency setting, frame count,
+  and receiver firmware version.
+
 ## [1.5.47] - 2026-10-24
 
 **中文**

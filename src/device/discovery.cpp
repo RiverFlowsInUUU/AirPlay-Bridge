@@ -236,6 +236,19 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
                     out.model = model;
                 }
                 if (!devid.empty()) out.deviceId = devid;
+
+                // 固件与能力位（诊断用，不参与决策）。
+                // ★ 只在非空时覆盖：一次发现会先后收到 _airplay._tcp 和
+                //   _raop._tcp 两条 TXT，后者没有 osvers/features 这些键，
+                //   无条件赋值会把先拿到的值冲成空字符串。
+                const std::string osv = txtGet(txt, "osvers");
+                if (!osv.empty()) out.osvers = osv;
+                const std::string srcv = txtGet(txt, "srcvers");
+                if (!srcv.empty()) out.srcvers = srcv;
+                const std::string feat = txtGet(txt, "features");
+                if (!feat.empty()) out.features = feat;
+                const std::string fx = txtGet(txt, "fex");
+                if (!fx.empty()) out.fex = fx;
                 gotTxt = true;
             }
         }
@@ -487,6 +500,36 @@ std::vector<AirPlayDevice> discoverAirPlayDevices(uint32_t timeoutMs) {
 
     if (wsaOwned) WSACleanup();
     return result;
+}
+
+bool probeAirPlayDevice(const std::string& host, AirPlayDevice& out, uint32_t waitMs) {
+    if (host.empty()) return false;
+
+    WSADATA wsa{};
+    const bool wsaOwned = (WSAStartup(MAKEWORD(2, 2), &wsa) == 0);
+
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == INVALID_SOCKET) {
+        if (wsaOwned) WSACleanup();
+        return false;
+    }
+
+    bool ok = false;
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_ANY);
+    local.sin_port = htons(0);   // 单播不需要绑 5353
+    if (bind(s, reinterpret_cast<sockaddr*>(&local), sizeof(local)) == 0) {
+        AirPlayDevice d;
+        if (queryOne(s, host, d, waitMs)) {
+            out = std::move(d);
+            ok = true;
+        }
+    }
+
+    closesocket(s);
+    if (wsaOwned) WSACleanup();
+    return ok;
 }
 
 } // namespace fxchain

@@ -356,7 +356,12 @@ bool fetchLatestRelease(std::string& tag, std::string& url) {
 
 // 静音判定的峰值阈值（int16 满量程 32767）。
 //
-// 20 约等于 -64dBFS。原先是 300（-40dBFS），太高了 —— 实测：
+// 5 约等于 -76dBFS。演变过程：
+//
+//   300（-40dBFS）→ 20（-64dBFS）→ 5（-76dBFS）
+//
+// 第一次下调的原因：实测「球赛解说安静时的环境声」只有 30~158、「钢琴尾音」
+// 334，而 300 会把它们整段判成静音，表现为频繁待机。
 //
 //   | 场景                        | 采集到的峰值 |
 //   |-----------------------------|--------------|
@@ -365,13 +370,21 @@ bool fetchLatestRelease(std::string& tag, std::string& url) {
 //   | 钢琴每拍衰减到尾部           | 334          |
 //   | 正常内容                     | 1700 ~ 5000  |
 //
-// 球赛那种"小但确实有声"的内容**一次都超不过 300**，于是被判成全程静音，
-// 表现为频繁待机（老板实际遇到的问题）。
+// 第二次下调（2026-10-30）的原因：上面那张表是在**播放器音量正常**时测的。
+// 实测发现两件事：
 //
-// 20 的取值：远高于实测的数字静音（0），又低于最轻的真实内容（30）。
-// 之所以往低取 —— 阈值偏低只会"该待机时不待机"（用户可把待机时长调长缓解），
-// 偏高则会"有声音也待机"（用户没有别的办法，只能关掉待机）。
-constexpr int kSilencePeak = 20;
+//   · **端点音量不影响环回** —— 同一音源把系统音量从 5% 调到 100%，
+//     采集峰值完全一致（40~65，只有相位差别）。
+//   · **会话音量（播放器自己的音量）会影响** —— 它在混音阶段就被应用了。
+//     WMP 会话音量 10% 时，同一段音乐峰值只有 **11**，卡在 20 以下 →
+//     被判全程静音 → 待机后永远醒不来（用户实际踩到的）。
+//
+// 所以 20 隐含假设「播放器音量接近满」。降到 5 以后，会话音量低到约 5%
+// 仍能判成有声；而实测的噪声底（数字静音 0，端点被静音时 0~2）仍在阈值之下。
+//
+// 取舍方向没变 —— 阈值偏低只会「该待机时不待机」（用户可调长待机缓解），
+// 偏高则会「有声音也待机」（用户没有别的办法，只能关掉待机）。
+constexpr int kSilencePeak = 5;
 
 // 「静音后采集不到电平」在**待机关闭**时，要连续几个 5 秒窗口才撤销静音。
 //
@@ -2249,6 +2262,16 @@ std::string deviceLabel(const AirPlayDevice& d) {
     return d.host;   // 拿不到名字就退回 IP，至少能区分
 }
 
+// 固件的诊断标签："27.2 (1005.13.2)"。
+// 缺字段时按有的拼，全空返回空串（老第三方接收端不广播这些键）。
+// ★ 只用于日志和「关于」，不参与任何协议判断 —— 见 discovery.h。
+std::string deviceFirmwareLabel(const AirPlayDevice& d) {
+    if (!d.osvers.empty() && !d.srcvers.empty())
+        return d.osvers + " (" + d.srcvers + ")";
+    if (!d.osvers.empty()) return d.osvers;
+    return d.srcvers;
+}
+
 // 菜单里显示的设备项：名字 + 局域网 IP。
 //
 // 带上 IP 是为了能区分同名设备 —— 家里有两台同型号 HomePod 时，
@@ -2305,6 +2328,10 @@ struct Session {
     std::string   host;
     std::string   deviceId;
     std::string   deviceName;
+    // 对端固件与 AirPlay 实现版本，例如 "27.2 (1005.13.2)"。
+    // 来自 mDNS TXT，**只用于显示与日志**。用 IP 直连或 --last 重连时
+    // 没有扫描结果，这里就是空 —— 日志会写「未知」，不要凭空填。
+    std::string   deviceFirmware;
 
     std::unique_ptr<RingBuffer<int16_t>> ring;
     std::unique_ptr<RaopLoop>            loop;
@@ -2616,6 +2643,30 @@ struct Session {
         sender->setAuth(RaopDeviceInfo::Auth::HapTransient, true, "", "", "");
         if (cfg) sender->setLatencyMs(cfg->latencyMs);   // 延迟必须 start() 前设
 
+        // 协商前的关键参数留痕。
+        //
+        // 为什么单独打一行：HomePod OS 27.2 把 Mac 音频改成「持久连接」之后，
+        // 接收端会按客户端声明的延迟和对端固件走不同的缓冲策略。用户报
+        // 「连上了没声音」「延迟变大了」时，得能一眼看出**我们报的是哪一档、
+        // 对端是哪一版** —— 现在日志里这两条都没有，只能靠猜。
+        //
+        // ★ 只打我们自己定的量。流类型 / 编解码是引擎里的常量，引擎紧跟其后
+        //   就会打 "AP2 stream SETUP ok, dataPort=... controlPort=..."；
+        //   latencyMax/Min 那些数在 patches/ 里，抄过来就多了一处要同步的
+        //   地方（RULES C14），所以这里不算、不写。
+        {
+            const int latencyMs = cfg ? cfg->latencyMs : 0;
+            if (latencyMs > 0) {
+                // 帧数按引擎的换算公式现算（ms x 采样率 / 1000），
+                // 不写死 6615 / 8820 这类派生值 —— 它们随档位变。
+                const long long frames =
+                    static_cast<long long>(latencyMs) * kAirPlayRate / 1000;
+                logLine("协商参数: 延迟 " + std::to_string(latencyMs) + "ms = " +
+                        std::to_string(frames) + " 帧 @" +
+                        std::to_string(kAirPlayRate) + "Hz；对端固件 " +
+                        (deviceFirmware.empty() ? std::string("未知") : deviceFirmware));
+            }
+        }
 
         producer = std::thread([this, needResample]() {
             // ★ 采集线程也挂进 MMCSS「Pro Audio」：CPU 被占满时，
@@ -3039,6 +3090,7 @@ bool resolveDevice(Session& sess, const BridgeConfig& cfg,
             sess.host = d.host;
             sess.deviceId = d.deviceId;
             sess.deviceName = d.name;
+            sess.deviceFirmware = deviceFirmwareLabel(d);
             return true;
         }
     }
@@ -3047,6 +3099,7 @@ bool resolveDevice(Session& sess, const BridgeConfig& cfg,
         sess.host = discovered[0].host;
         sess.deviceId = discovered[0].deviceId;
         sess.deviceName = discovered[0].name;
+        sess.deviceFirmware = deviceFirmwareLabel(discovered[0]);
         return true;
     }
     // 多个且没有历史：选第一个 HomePod
@@ -3055,12 +3108,14 @@ bool resolveDevice(Session& sess, const BridgeConfig& cfg,
             sess.host = d.host;
             sess.deviceId = d.deviceId;
             sess.deviceName = d.name;
+            sess.deviceFirmware = deviceFirmwareLabel(d);
             return true;
         }
     }
     sess.host = discovered[0].host;
     sess.deviceId = discovered[0].deviceId;
     sess.deviceName = discovered[0].name;
+    sess.deviceFirmware = deviceFirmwareLabel(discovered[0]);
     return true;
 }
 
@@ -3497,8 +3552,17 @@ int main(int argc, char** argv) {
         auto all = discoverAirPlayDevices(3000);
         auto devs = filterDevices(all, cfg);
         if (devs.empty()) std::printf("没有发现设备。\n");
-        for (auto& d : devs)
-            std::printf("  %s  %s\n", deviceLabel(d).c_str(), d.host.c_str());
+        for (auto& d : devs) {
+            // 固件 + 能力位一起打：--list 本来就是诊断入口，
+            // 排查「对端行为变了」时这两项是第一手信息。
+            std::string tail = deviceFirmwareLabel(d);
+            if (!d.features.empty()) {
+                if (!tail.empty()) tail += "  ";
+                tail += "features=" + d.features;
+            }
+            std::printf("  %s  %s%s%s\n", deviceLabel(d).c_str(), d.host.c_str(),
+                        tail.empty() ? "" : "  ", tail.c_str());
+        }
         CoUninitialize();
         return 0;
     }
@@ -3634,6 +3698,11 @@ int main(int argc, char** argv) {
         // 三条边界：
         //  1. 只在**没走虚拟声卡接管**时做 —— 接管中默认端点已经是虚拟设备，
         //     用户本来就听不到，静音它没有意义（而且会污染我们的判断）。
+        //     ★ 2026-10-30 实测：这条边界原来**没实现** —— 条件里查的是
+        //       preCaptureDevice（崩溃恢复标记），跟接管状态无关，于是
+        //       「已接管」之后紧跟着又打「已静音电脑扬声器」，而此刻默认端点
+        //       已经是 CABLE Input —— 静音的是采集源本身。后果：环回恒为 0，
+        //       表现为连上没声音、待机后再也醒不来（用户为此排查了一上午）。
         //  2. **用户本来就静音**的话，我们什么都不做 —— 断开时也不去打开，
         //     那是他自己设的状态，不该被一个音频程序改掉。
         //  3. 恢复只看 g_mutedByUs，不受开关影响 —— 用户中途关掉开关时，
@@ -3641,7 +3710,8 @@ int main(int argc, char** argv) {
         if (ok) {
             // muteGaveUp：本次运行已经因为「静音后采不到电平」放弃过自动静音，
             // 不再重试 —— 否则会话一重建就又静上，来回抖。
-            if (cfg.muteLocalOnConnect && cfg.preCaptureDevice.empty() &&
+            if (cfg.muteLocalOnConnect && !g_takeoverActive.load() &&
+                cfg.preCaptureDevice.empty() &&
                 !muteGaveUp && !g_mutedByUs.load()) {
                 g_wasMutedBefore.store(isSystemMuted());
                 if (!g_wasMutedBefore.load() && setSystemMuted(true)) {
@@ -3742,12 +3812,38 @@ int main(int argc, char** argv) {
     // 返回 true 表示会话已建起来（start() 成功返回，握手结果由 pump 决定）；
     // false 表示没有可用目标或 start() 直接失败 —— 此时不弹气泡，
     // 由调用方决定后续（重连循环里反复弹气泡是骚扰）。
-    auto startWithRememberedDevice = [&]() -> bool {
+    auto startWithRememberedDevice = [&](bool allowProbe) -> bool {
         if (sess.host.empty()) {
             if (cfg.lastHost.empty()) return false;   // 没记住任何设备
             sess.host = cfg.lastHost;
             sess.deviceId = cfg.lastDeviceId;
             sess.deviceName = cfg.lastDeviceName;
+            // 这条路径不扫网段，固件本来无从得知 —— 但「关于」和日志要显示它，
+            // 所以补一次单播查询（一次 UDP 往返，不扫网段）。
+            //
+            // ★ allowProbe=false 时**一次都不问**：待机唤醒走的就是这条路，
+            //   唤醒时多等 400ms，开头的声音已经错过了 —— 那正是当初
+            //   放弃扫描的原因。宁可那一轮日志写「未知」。
+            // ★ 必须清空：上一个会话可能连的是别的设备，留着就是错标。
+            sess.deviceFirmware.clear();
+            // 节流：重连循环每几秒就会进来一次，不能每次都等这 400ms。
+            static ULONGLONG lastProbeTick = 0;
+            const ULONGLONG nowTick = GetTickCount64();
+            if (allowProbe && nowTick - lastProbeTick >= 15000) {
+                lastProbeTick = nowTick;
+                AirPlayDevice probed;
+                if (probeAirPlayDevice(sess.host, probed)) {
+                    if (!probed.deviceId.empty() && !sess.deviceId.empty() &&
+                        probed.deviceId != sess.deviceId) {
+                        // IP 被别的设备占了。这条只记日志，不改连接目标 ——
+                        // 设备换 IP 后按 deviceid 重新找是另一条已存在的逻辑。
+                        logLine("注意: " + sess.host + " 上应答的设备与上次记录的不是同一台（" +
+                                probed.deviceId + " != " + sess.deviceId + "）");
+                    } else {
+                        sess.deviceFirmware = deviceFirmwareLabel(probed);
+                    }
+                }
+            }
         }
         std::string err;
         return sess.start(err, true);
@@ -3771,7 +3867,7 @@ int main(int argc, char** argv) {
         // 用户点"重新扫描"就是要真扫，不能被记住的设备挡住。
         const bool tryDirect = skipResolve || (!forceScan && !cfg.lastHost.empty());
         if (tryDirect) {
-            if (startWithRememberedDevice()) return;   // 直连成功
+            if (startWithRememberedDevice(!skipResolve)) return;   // 直连成功
             // 直连失败：静默回落。这里绝不能弹「启动失败」——
             // 重连循环每几秒来一次，会反复弹气泡。
             if (skipResolve) return;   // 待机唤醒没有回落路径，交给常规重连
@@ -4263,6 +4359,7 @@ int main(int argc, char** argv) {
                     sess.host = discovered[idx].host;
                     sess.deviceId = discovered[idx].deviceId;
                     sess.deviceName = discovered[idx].name;
+                    sess.deviceFirmware = deviceFirmwareLabel(discovered[idx]);
                     std::string err;
                     if (!sess.start(err)) {
                         logLine("启动失败: " + err);
@@ -4538,6 +4635,7 @@ int main(int argc, char** argv) {
                             sess.host = discovered[idx].host;
                             sess.deviceId = discovered[idx].deviceId;
                             sess.deviceName = discovered[idx].name;
+                            sess.deviceFirmware = deviceFirmwareLabel(discovered[idx]);
                             std::string err;
                             if (!sess.start(err)) {
                                 logLine("启动失败: " + err);
@@ -4599,6 +4697,15 @@ int main(int argc, char** argv) {
                         std::string about = "AirPlay Bridge";
                         about += char(10); about += char(10);
                         about += std::string(i18n::tr("版本")) + " v" + kAppVersion;
+                        // 已连接时补一行对端固件。
+                        // 排查「连上了没声音」时，用户截这张图就够 ——
+                        // 不用先教他去翻日志找 osvers。
+                        if (sess.connected.load() && !sess.deviceFirmware.empty()) {
+                            about += char(10);
+                            about += std::string(i18n::tr("对端设备")) + ": " +
+                                     (sess.deviceName.empty() ? sess.host : sess.deviceName) +
+                                     " (" + sess.deviceFirmware + ")";
+                        }
                         about += char(10); about += char(10);
                         about += kProjectUrl;
                         {
