@@ -416,6 +416,14 @@ bool muteGaveUp = false;
 // 只影响提示次数：冷却期过去后再次静音仍会静默自愈，只是不再打扰用户。
 bool muteHealNotified = false;
 
+// 「这台电脑静音后采不到声音，请装虚拟声卡」这条气泡说过没有。
+// 和上一条分开记：用户可能先遇到"端点本来就是静的"，再遇到"我们静了却采不到"，
+// 两件事的原因不同，各说一次才讲得清。
+bool muteAdviceShown = false;
+
+// 「没找到虚拟声卡，电脑会和设备同时出声」这条气泡说过没有。
+bool takeoverAdviceShown = false;
+
 // 本次静音是否发生在「待机唤醒」建起的会话里。
 // 唤醒说明用户正在播放 —— 这条判据把「静音后第一个窗口就无电平」
 // 变成足以定案的证据，不必等 30 秒（默认 5 秒待机根本等不到）。
@@ -2369,6 +2377,10 @@ struct Session {
     // 没有扫描结果，这里就是空 —— 日志会写「未知」，不要凭空填。
     std::string   deviceFirmware;
 
+    // 本次会话没找到可用的虚拟声卡（接管失败）—— 主循环据此弹一次提示。
+    // 放这里而不是直接弹：Session 里没有 tray，提示统一由主循环发。
+    bool          takeoverUnavailable = false;
+
     std::unique_ptr<RingBuffer<int16_t>> ring;
     std::unique_ptr<RaopLoop>            loop;
     std::unique_ptr<RaopSender>          sender;
@@ -2908,6 +2920,8 @@ struct Session {
         }
         if (target.empty()) {
             logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
+            // 交给主循环弹一次气泡（Session 里拿不到 tray）。
+            takeoverUnavailable = true;
             return;
         }
         savedRenderDevice = cur;
@@ -4031,6 +4045,16 @@ int main(int argc, char** argv) {
         g_mainTick.store(steadyNowMs());
         setPhase(PHASE_IDLE);
 
+        // 没找到虚拟声卡时提示一次（由 Session 置位，这里负责弹）。
+        // 为什么要说：这种情况下电脑和 AirPlay 设备会**同时出声**，后者慢约
+        // 200ms，听起来像回声。用户不知道原因，只会觉得「音质有问题」。
+        if (sess.takeoverUnavailable && !takeoverAdviceShown) {
+            takeoverAdviceShown = true;
+            tray.notify("AirPlay Bridge", i18n::tr(
+                "未检测到虚拟声卡，电脑和设备会同时出声（有轻微回声）。"
+                "安装 VB-Cable 后可让电脑静音。"));
+        }
+
         tray.pump([&](TrayEvent e) {
             // 左键和右键都弹菜单。
             // 只认右键的话，习惯左键的人会以为程序坏了 ——
@@ -5010,11 +5034,18 @@ int main(int argc, char** argv) {
                                     ? "待机唤醒后静音状态下采不到任何电平 —— "
                                       "这台机器的驱动会把环回一起静掉。"
                                       "已撤销静音，本次运行不再自动静音。"
-                                    : "采集端点在静音后收不到电平已超过 30 秒 —— "
-                                      "可能是这台机器的驱动会把环回一起静掉。"
-                                      "已撤销静音，本次运行不再自动静音；"
-                                      "如果不需要这个行为，"
-                                      "请在菜单里关掉「连接时静音电脑扬声器」。");
+                                    : "采集端点在静音后收不到电平 —— "
+                                      "这台机器的驱动会把环回一起静掉。"
+                                      "已撤销静音，本次运行不再自动静音。");
+                                // 只写日志等于没说：用户看到的是「连上了没声音」，
+                                // 不会去翻日志。这里用气泡把原因和出路讲清楚，
+                                // 一次就够（本次运行只弹一次）。
+                                if (!muteAdviceShown) {
+                                    muteAdviceShown = true;
+                                    tray.notify("AirPlay Bridge", i18n::tr(
+                                        "这台电脑在静音时无法采集声音，已自动恢复。"
+                                        "想让电脑自己不出声，请安装虚拟声卡（VB-Cable）。"));
+                                }
                             }
                         }
                     } else {

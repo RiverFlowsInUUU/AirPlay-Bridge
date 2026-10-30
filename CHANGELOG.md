@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.52] - 2026-10-30
+
+**中文**
+
+### 新增
+
+- 没找到虚拟声卡、或声卡在静音后采集不到声音时，弹提示说明原因，
+  并建议安装 VB-Cable。此前这些情况只写日志，用户只看到「连上了没声音」或回声。
+
+**English**
+
+### Added
+
+- When no virtual audio cable is found, or the sound card cannot capture audio
+  while muted, the app now explains why and suggests installing VB-Cable.
+  Previously these cases were only logged.
+
 ## [1.5.51] - 2026-10-30
 
 **中文**

@@ -130,6 +130,14 @@ const Entry kEntries[] = {
     {"电脑输出原本处于静音，已自动解除，否则无法采集声音。",
      "Computer output was muted; it has been unmuted so audio can be captured."},
 
+    // ── 气泡：静音导致采不到声音，已恢复（并指路虚拟声卡） ──
+    {"这台电脑在静音时无法采集声音，已自动恢复。想让电脑自己不出声，请安装虚拟声卡（VB-Cable）。",
+     "This PC cannot capture audio while muted, so it was restored. To keep the PC silent, install a virtual audio cable (VB-Cable)."},
+
+    // ── 气泡：没找到虚拟声卡，电脑和设备会同时出声 ──
+    {"未检测到虚拟声卡，电脑和设备会同时出声（有轻微回声）。安装 VB-Cable 后可让电脑静音。",
+     "No virtual audio cable found: both the PC and the device will play (slight echo). Install VB-Cable to keep the PC silent."},
+
     // ── 首次运行：选语言 ──
 
     // ── 首次运行：开机自启 ──
