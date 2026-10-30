@@ -61,6 +61,7 @@ Windows 托盘程序，把系统声音实时串流到 AirPlay 2 设备（HomePod
 | **写 README / 发布说明（CHANGELOG）** | **先打开 [docs/STYLE.md](docs/STYLE.md) 再动笔**，不是写完回头看。发布说明有机器检查（`check_docs.py` 第 23 项），但检查器只挡禁用词，挡不住"自说自话" |
 | 某条禁令看不懂 | [docs/PITFALLS.md](docs/PITFALLS.md) |
 | 查术语 | [docs/GLOSSARY.md](docs/GLOSSARY.md) |
+| 想换传输（type 103 / APAP / MDC）、或有人问「为什么不做得像 Apple 那样低延迟」 | [docs/APAP-MDC-EVALUATION.md](docs/APAP-MDC-EVALUATION.md) |
 | 汇报节奏 / 协作约定 | [docs/WORKFLOW.md](docs/WORKFLOW.md) 的「七、协作方式」 |
 | 改流式 DSP（重采样/滤波/编码） | [docs/RULES.md](docs/RULES.md) 的 **C11 分块不变性** —— 必须有不变量测试 |
 | 收到外部代码审查 | [docs/REVIEW-RESPONSE.md](docs/REVIEW-RESPONSE.md)（上一轮怎么回的、哪些没做） |
