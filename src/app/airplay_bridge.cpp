@@ -2285,6 +2285,29 @@ std::string deviceFirmwareLabel(const AirPlayDevice& d) {
     return d.srcvers;
 }
 
+// 已知的「虚拟输出」名字片段。两处用途：
+//   1. 判断当前默认设备是否**已经**是虚拟设备 —— 那就直接采它，不必接管；
+//   2. 接管时按这张表依次尝试 —— 用户装的未必是 VB-CABLE。
+//
+// 顺序有讲究：VB-CABLE 最常见，放前面；其余按名称特异性从高到低。
+// 只匹配渲染端点（setDefaultRenderDevice 内部只枚举 eRender），不会误切麦克风。
+//
+// ★ 宁可漏判也不要错判：这张表只用于"要不要接管"和"往哪接管"，
+//   真正的成败仍由 setDefaultRenderDevice 的返回值 + 复核决定。
+const char* const kVirtualSinks[] = {
+    "CABLE Input",     // VB-Audio Virtual Cable（默认推荐的那个）
+    "Voicemeeter",     // Voicemeeter / Banana / Potato 的输入通道
+    "Virtual Cable",
+    "VB-Audio",
+    "虚拟音频",         // 部分中文驱动/中文系统显示名
+};
+
+bool looksLikeVirtualSink(const std::string& name) {
+    for (const char* s : kVirtualSinks)
+        if (name.find(s) != std::string::npos) return true;
+    return false;
+}
+
 // 菜单里显示的设备项：名字 + 局域网 IP。
 //
 // 带上 IP 是为了能区分同名设备 —— 家里有两台同型号 HomePod 时，
@@ -2870,10 +2893,20 @@ struct Session {
         if (g_takeoverActive.load()) return;
         const std::string cur = getDefaultRenderDeviceName();
         if (cur.empty()) return;
-        // 只在自己不是虚拟声卡时切换，避免来回切死锁
-        if (cur.find("CABLE") != std::string::npos) return;
+        // 当前默认设备本来就是虚拟输出 → 直接采它就行，不需要接管。
+        // ★ 判据从「名字里含 CABLE」扩成整张已知虚拟声卡表：用户装 Voicemeeter
+        //   时，原来会被当成物理设备再去切 CABLE，切不到就白折腾一趟。
+        if (looksLikeVirtualSink(cur)) return;
 
-        if (!setDefaultRenderDevice("CABLE Input")) {
+        // 依次尝试已知的虚拟声卡（第一个能切过去的就用它）。
+        // ★ 原来只写死 "CABLE Input"：装了 Voicemeeter、或把 VB-CABLE 改名、
+        //   或只有别的虚拟驱动的用户，接管必然失败 → 退回「本机也出声」，
+        //   而 HomePod 晚 200ms，听起来就是回声。现在退而求其次也能接管。
+        std::string target;
+        for (const char* name : kVirtualSinks) {
+            if (setDefaultRenderDevice(name)) { target = name; break; }
+        }
+        if (target.empty()) {
             logLine("未找到虚拟声卡：无法隔离系统声音，它仍会送往电脑的输出设备");
             return;
         }
@@ -2886,7 +2919,9 @@ struct Session {
             tmp.preCaptureDevice = cur;
             saveConfig(cfgPath, tmp);
         }
-        logLine("已接管：默认播放设备切到 CABLE Input（原为 " + cur + "）");
+        // 日志写实际切到的设备名（候选里第一个命中的），不是写死的字符串。
+        logLine("已接管：默认播放设备切到 " + getDefaultRenderDeviceName() +
+                "（原为 " + cur + "）");
     }
     // 只负责「把接管撤销掉」，不碰采集/发送线程。
     //

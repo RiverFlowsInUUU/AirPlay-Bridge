@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.51] - 2026-10-30
+
+**中文**
+
+### 修复
+
+- 支持 VB-CABLE 以外的虚拟声卡（如 Voicemeeter）作为隔离输出。此前只认
+  「CABLE Input」，装了别的虚拟声卡时不会隔离，电脑和 AirPlay 设备会同时出声。
+
+**English**
+
+### Fixed
+
+- Virtual audio cables other than VB-CABLE (e.g. Voicemeeter) are now used for
+  isolation. Previously only "CABLE Input" was recognised, so sound played on
+  both the PC and the AirPlay device at the same time.
+
 ## [1.5.50] - 2026-10-30
 
 **中文**
