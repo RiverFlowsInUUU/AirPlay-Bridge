@@ -2639,7 +2639,7 @@ struct Session {
                               : std::string(i18n::tr("（直通）"))));
 
         sender->setInputFormat(engineInputRate);
-        sender->setIdentity({"AirPlay Bridge", g_deviceId, "MacBookPro18,3"});
+        sender->setIdentity({"AirPlay Bridge", g_deviceId, "Mac17,6"});
         sender->setAuth(RaopDeviceInfo::Auth::HapTransient, true, "", "", "");
         if (cfg) sender->setLatencyMs(cfg->latencyMs);   // 延迟必须 start() 前设
 

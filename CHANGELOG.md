@@ -3,6 +3,20 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.49] - 2026-10-30
+
+**中文**
+
+### 修改
+
+- 更新与接收端协商时使用的设备型号与系统版本标识。
+
+**English**
+
+### Changed
+
+- Updated the device model and system version reported to receivers.
+
 ## [1.5.48] - 2026-10-30
 
 **中文**

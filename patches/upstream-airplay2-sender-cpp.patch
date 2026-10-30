@@ -17,7 +17,7 @@ index 6f5c72d..c9d488b 100644
      else()
          target_compile_options(${target} PRIVATE -Wall -Wextra)
 diff --git a/src/raop_sender.cpp b/src/raop_sender.cpp
-index 0e282e1..50802cb 100644
+index 0e282e1..4018c2f 100644
 --- a/src/raop_sender.cpp
 +++ b/src/raop_sender.cpp
 @@ -98,8 +98,12 @@ struct RaopAp2State {
@@ -33,7 +33,15 @@ index 0e282e1..50802cb 100644
  constexpr int      kPayloadBytes    = kFramesPerPacket * kChannels * 2;
  constexpr int      kBacklogSize     = 1024;         // power of two
  constexpr int      kPacerMs         = 8;            // ~ 1 packet/tick
-@@ -426,6 +430,7 @@ void RaopSender::onFeedbackTimer_() {
+@@ -419,13 +423,14 @@ void RaopSender::onFeedbackTimer_() {
+         // is matched by FIFO + discarded (handleResponse_ FEEDBACK no-op).
+         std::string req = "POST /feedback RTSP/1.0\r\n";
+         req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
+-        req += "User-Agent: AirPlay/550.10\r\n";
++        req += "User-Agent: AirPlay/1005.13.2\r\n";
+         req += "DACP-ID: " + dacpId_ + "\r\n";
+         req += "Active-Remote: " + std::to_string(activeRemote_) + "\r\n";
+         req += "Client-Instance: " + dacpId_ + "\r\n";
          req += "Content-Length: 0\r\n\r\n";
          pendingMethods_.push_back("FEEDBACK");
          pendingIsHttp_.push_back(false);   // ignored by handleResponse_
@@ -41,6 +49,15 @@ index 0e282e1..50802cb 100644
          writeRtsp_(req);
      } else {
          sendRequest_("POST", "/feedback", {}, {});
+@@ -723,7 +728,7 @@ void RaopSender::sendRequest_(const std::string& method, const std::string& uri,
+                               const Extra& extra) {
+     std::string req = method + " " + uri + " RTSP/1.0\r\n";
+     req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
+-    req += "User-Agent: AirPlay/550.10\r\n";          // pyatv's UA string
++    req += "User-Agent: AirPlay/1005.13.2\r\n";          // pyatv's UA string
+     req += "DACP-ID: " + dacpId_ + "\r\n";
+     req += "Active-Remote: " + std::to_string(activeRemote_) + "\r\n";
+     req += "Client-Instance: " + dacpId_ + "\r\n";
 @@ -816,6 +821,19 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
          }
          eventPlainBuf_.append(reinterpret_cast<const char*>(dec->data()), dec->size());
@@ -87,6 +104,15 @@ index 0e282e1..50802cb 100644
          const size_t total = headEnd + 4 + size_t(contentLen > 0 ? contentLen : 0);
          if (eventPlainBuf_.size() < total) break;   // body still arriving
          eventPlainBuf_.erase(0, total);
+@@ -839,7 +872,7 @@ void RaopSender::onEventReadyRead_(std::span<const uint8_t> bytes) {
+         // no Content-Length/Audio-Latency (those can corrupt the receiver's
+         // realtime timeline). Echo CSeq when the request carried one.
+         std::string resp = "RTSP/1.0 200 OK\r\n";
+-        resp += "Server: AirTunes/550.10\r\n";
++        resp += "Server: AirTunes/1005.13.2\r\n";
+         if (!cseq.empty()) resp += "CSeq: " + cseq + "\r\n";
+         resp += "\r\n";
+         const int rlen = int(resp.size());
 @@ -1126,6 +1159,7 @@ void RaopSender::startStreaming_() {
      startTs_ = ntp2ts(ntpNow_(), kRaopRate);
      framesSent_ = 0;
@@ -95,6 +121,15 @@ index 0e282e1..50802cb 100644
      clockStart_ = now_();
      sendSyncPacket_(true);   // first sync carries the marker bit
      arm_(syncTimer_);
+@@ -1180,7 +1214,7 @@ void RaopSender::httpPost_(const std::string& uri, const std::string& contentTyp
+     // route the reply back to onPairingResponse_ via pendingIsHttp_.
+     std::string req = "POST " + uri + " HTTP/1.1\r\n";
+     req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
+-    req += "User-Agent: AirPlay/550.10\r\n";
++    req += "User-Agent: AirPlay/1005.13.2\r\n";
+     req += "Connection: keep-alive\r\n";
+     req += "X-Apple-HKP: " +
+            std::to_string(authMethod_ == RaopDeviceInfo::Auth::HapTransient ? 4 : 3) + "\r\n";
 @@ -1548,6 +1582,18 @@ void RaopSender::handlePairSetupM4_(const std::string& body) {
          ap2_->controlIn  = hkdfSha512("Control-Salt",
                                        "Control-Read-Encryption-Key",
@@ -114,7 +149,34 @@ index 0e282e1..50802cb 100644
          pairStage_ = PairStage::Done;
          afterAuthOk_();
          return;
-@@ -1859,6 +1905,26 @@ void RaopSender::sendAp2SetupStream_() {
+@@ -1743,7 +1789,7 @@ void RaopSender::sendAp2Rtsp_(const std::string& method, const std::string& uri,
+                               const std::string& body) {
+     std::string req = method + " " + uri + " RTSP/1.0\r\n";
+     req += "CSeq: " + std::to_string(cseq_++) + "\r\n";
+-    req += "User-Agent: AirPlay/550.10\r\n";
++    req += "User-Agent: AirPlay/1005.13.2\r\n";
+     req += "DACP-ID: " + dacpId_ + "\r\n";
+     req += "Active-Remote: " + std::to_string(activeRemote_) + "\r\n";
+     req += "Client-Instance: " + dacpId_ + "\r\n";
+@@ -1781,11 +1827,13 @@ void RaopSender::sendAp2SetupSession_() {
+     d.emplace_back("macAddress", Value::str(identity_.deviceId));
+     d.emplace_back("model", Value::str(identity_.model));
+     d.emplace_back("name", Value::str(identity_.name));
+-    d.emplace_back("osBuildVersion", Value::str("20F66"));
+-    d.emplace_back("osName", Value::str("iPhone OS"));
+-    d.emplace_back("osVersion", Value::str("16.5"));
++    // 26B123 = macOS 27.2 正式版的真实构建号（Apple Developer 发布版本页，
++    // 2026-10-26 发布；同日的 iOS 27.2 是 24B119，两者格式不同，别混用）。
++    d.emplace_back("osBuildVersion", Value::str("26B123"));
++    d.emplace_back("osName", Value::str("macOS"));
++    d.emplace_back("osVersion", Value::str("27.2"));
+     d.emplace_back("senderSupportsRelay", Value::boolean(false));
+-    d.emplace_back("sourceVersion", Value::str("690.7.1"));
++    d.emplace_back("sourceVersion", Value::str("1005.13.2"));
+     d.emplace_back("statsCollectionEnabled", Value::boolean(false));
+     const auto body = airplay::bplist::encode(Value::object(std::move(d)));
+     pairStage_ = PairStage::Ap2Session;
+@@ -1859,6 +1907,26 @@ void RaopSender::sendAp2SetupStream_() {
      stream.emplace_back("controlPort", Value::integer(localControlPort_));
      stream.emplace_back("ct", Value::integer(2));        // ALAC
      stream.emplace_back("isMedia", Value::boolean(true));
@@ -141,7 +203,7 @@ index 0e282e1..50802cb 100644
      stream.emplace_back("latencyMax", Value::integer(88200));
      stream.emplace_back("latencyMin", Value::integer(11025));
      stream.emplace_back("shk", Value::bytes(ap2_->audioKey));
-@@ -1981,6 +2047,39 @@ void RaopSender::sendAudioPacket_() {
+@@ -1981,6 +2049,39 @@ void RaopSender::sendAudioPacket_() {
      int16_t frames[kFramesPerPacket * kChannels];
      fillFrames_(frames, kFramesPerPacket);
  
@@ -236,7 +298,7 @@ index 5560966..985bd73 100644
  
      // -- input conditioning (device rate -> 44.1 kHz) -----------------
 diff --git a/test/core_tests.cpp b/test/core_tests.cpp
-index 0f72065..0e4c216 100644
+index 0f72065..694226b 100644
 --- a/test/core_tests.cpp
 +++ b/test/core_tests.cpp
 @@ -648,6 +648,42 @@ std::vector<int16_t> rampExpect(size_t samples, int16_t seed = 0) {
@@ -282,6 +344,15 @@ index 0f72065..0e4c216 100644
  // run a full AP2 session through the fake receiver in the given mode.
  void runAp2Handshake(Rig& r, FakeReceiver::Mode mode, RaopDeviceInfo::Auth auth,
                       const std::string& creds = {}, const char* pin = nullptr) {
+@@ -717,7 +753,7 @@ void testAp1Session() {
+     REQUIRE(reqs.size() == 1 && reqs[0].method == "OPTIONS", "OPTIONS goes out on connect");
+     const std::string dacp = reqs[0].h("dacp-id"), ar = reqs[0].h("active-remote");
+     CHECK(!dacp.empty() && dacp == reqs[0].h("client-instance"), "DACP-ID == Client-Instance");
+-    CHECK(out == "OPTIONS * RTSP/1.0\r\nCSeq: 0\r\nUser-Agent: AirPlay/550.10\r\nDACP-ID: " + dacp
++    CHECK(out == "OPTIONS * RTSP/1.0\r\nCSeq: 0\r\nUser-Agent: AirPlay/1005.13.2\r\nDACP-ID: " + dacp
+                  + "\r\nActive-Remote: " + ar + "\r\nClient-Instance: " + dacp
+                  + "\r\nX-Apple-Client-Name: airplay2-sender-cpp\r\n\r\n",
+           "OPTIONS request is byte-identical to the verified form");
 @@ -759,8 +795,11 @@ void testAp1Session() {
      reqs = parseRequests(stream);
      REQUIRE(reqs.size() == 1 && reqs[0].method == "RECORD", "RECORD follows the SETUP 200");
@@ -336,6 +407,15 @@ index 0f72065..0e4c216 100644
      // a stalled host catches up in a burst, capped at 16 packets
      r.advance(1000);
      dgs = r.io.takeUdp();
+@@ -948,7 +996,7 @@ void testAp2Transient() {
+         CHECK(s("timingProtocol") == "NTP" && i("timingPort") == 40003, "NTP timing on our timing port");
+         CHECK(s("sessionUUID").size() == 36 && s("sessionUUID") == [&] { std::string u = s("sessionUUID"); for (char& c : u) if (c >= 'a' && c <= 'z') c = char(c - 32); return u; }(),
+               "sessionUUID is an uppercase uuid");
+-        CHECK(s("osName") == "iPhone OS" && s("osVersion") == "16.5" && s("osBuildVersion") == "20F66" && s("sourceVersion") == "690.7.1",
++        CHECK(s("osName") == "macOS" && s("osVersion") == "27.2" && s("osBuildVersion") == "26B123" && s("sourceVersion") == "1005.13.2",
+               "os identity fields");
+         auto* b = root->find("isMultiSelectAirPlay");
+         CHECK(b && b->type == airplay::bplist::Value::Type::Bool && b->b, "isMultiSelectAirPlay true");
 @@ -967,7 +1015,19 @@ void testAp2Transient() {
          auto i = [&](const char* k) { auto* v = st.find(k); return v ? v->asInt(-1) : int64_t(-1); };
          CHECK(i("audioFormat") == 0x40000 && i("ct") == 2 && i("type") == 0x60 && i("spf") == 352 && i("sr") == 44100,
@@ -384,6 +464,22 @@ index 0f72065..0e4c216 100644
  
      // the event channel exists but transient pairing has no event keys: pushes are drained, not answered
      r.sender->onTcpConnected(RaopTcp::Event, {r.localIp, 50001}, {r.peerIp, 7001});
+@@ -1089,12 +1159,12 @@ void testAp2PinPairingThenStoredCredentials() {
+     r.sender->onTcpData(RaopTcp::Event, spanOf(std::string_view(frames).substr(7)));
+     {
+         const std::string replies = r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event));
+-        CHECK(replies == "RTSP/1.0 200 OK\r\nServer: AirTunes/550.10\r\nCSeq: 7\r\n\r\n"
+-                         "RTSP/1.0 200 OK\r\nServer: AirTunes/550.10\r\nCSeq: 8\r\n\r\n",
++        CHECK(replies == "RTSP/1.0 200 OK\r\nServer: AirTunes/1005.13.2\r\nCSeq: 7\r\n\r\n"
++                         "RTSP/1.0 200 OK\r\nServer: AirTunes/1005.13.2\r\nCSeq: 8\r\n\r\n",
+               "each event is answered with the minimal 200 (Server + CSeq only, no Content-Length)");
+     }
+     r.sender->onTcpData(RaopTcp::Event, spanOf(r.rx.pushEvent("POST /command RTSP/1.0\r\nContent-Length: 0\r\n\r\n")));
+-    CHECK(r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event)) == "RTSP/1.0 200 OK\r\nServer: AirTunes/550.10\r\n\r\n",
++    CHECK(r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event)) == "RTSP/1.0 200 OK\r\nServer: AirTunes/1005.13.2\r\n\r\n",
+           "no CSeq in -> no CSeq out");
+     CHECK(r.sender->active(), "still streaming");
+ 
 @@ -1104,7 +1174,12 @@ void testAp2PinPairingThenStoredCredentials() {
      auto dgs = r.io.takeUdp();
      REQUIRE(dgs.size() == 1 && dgs[0].s == RaopUdp::Audio, "audio packet");
