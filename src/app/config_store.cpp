@@ -185,11 +185,17 @@ bool jsonBracesBalanced(const std::string& s) {
         break;
     }
     if (end < 2) return false;
-    if (s[0] != char(123)) return false;        // 首必须是 {
+    // 容忍 UTF-8 BOM：用户用带 BOM 的编辑器手改过配置时，按原判据整份
+    // 配置会被判损坏，无 .bak 就静默丢光设置（2026-10-31 外部审查 P3-18）。
+    size_t b = (static_cast<unsigned char>(s[0]) == 0xEF &&
+                static_cast<unsigned char>(s[1]) == 0xBB &&
+                static_cast<unsigned char>(s[2]) == 0xBF) ? 3 : 0;
+    if (b && end < b + 2) return false;
+    if (s[b] != char(123)) return false;        // 首必须是 {
     if (s[end - 1] != char(125)) return false;  // 尾必须是 }
     int depth = 0;
     bool inStr = false;
-    for (size_t i = 0; i < end; ++i) {
+    for (size_t i = b; i < end; ++i) {
         const char c = s[i];
         if (inStr) {
             if (c == '\\') { ++i; continue; }   // 跳过转义字符本身

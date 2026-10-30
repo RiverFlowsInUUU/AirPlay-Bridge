@@ -122,7 +122,10 @@ bool queryOne(SOCKET s, const std::string& ip, AirPlayDevice& out, uint32_t wait
     sockaddr_in dst{};
     dst.sin_family = AF_INET;
     dst.sin_port = htons(5353);
-    dst.sin_addr.s_addr = inet_addr(ip.c_str());
+    // inet_addr 失败返回 INADDR_NONE（0xFFFFFFFF）—— 那是受限广播地址，
+    // 会向 255.255.255.255:5353 发包再空等。改 inet_pton，失败直接拒。
+    // （2026-10-31 外部审查 P3-22。）
+    if (InetPtonA(AF_INET, ip.c_str(), &dst.sin_addr) != 1) return false;
 
     if (sendto(s, reinterpret_cast<const char*>(pkt.data()),
                static_cast<int>(pkt.size()), 0,

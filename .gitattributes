@@ -25,3 +25,6 @@ CMakeLists.txt  text eol=lf
 # Windows 专用资源保持二进制
 *.ico    binary
 *.rc     text eol=crlf
+
+# 全局 LF（RULES.md 早已声明"已锁"，实际这行一直缺失 —— P3-13）
+* text=auto eol=lf

@@ -79,6 +79,8 @@ double snrDb(const std::vector<int16_t>& out, uint32_t rate, double freq) {
 
 } // namespace
 
+static int totalFailures = 0;
+
 int main() {
     const uint32_t inRate = 48000, outRate = 44100;
     const double amp = 0.8;
@@ -97,11 +99,17 @@ int main() {
         double peak = 0;
         for (auto s : out) peak = (std::max)(peak, std::fabs(double(s)) / 32767.0);
 
+        // ★ 失败必须计入退出码。以前只 printf FAIL —— 帧数/幅度回归时
+        //   CTest 照样绿，第 1 节形同虚设（2026-10-31 外部审查 P2-4）。
+        int sec1 = 0;
+        if (!(got > expect * 0.99 && got < expect * 1.01)) ++sec1;
+        if (!(peak > amp * 0.95 && peak < amp * 1.05)) ++sec1;
         std::printf("1. 基本正确性\n");
         std::printf("   帧数 %zu（期望约 %zu）%s\n", got, expect,
                     (got > expect * 0.99 && got < expect * 1.01) ? " OK" : " FAIL");
         std::printf("   峰值 %.3f（期望 %.3f）%s\n", peak, amp,
                     (peak > amp * 0.95 && peak < amp * 1.05) ? " OK" : " FAIL");
+        totalFailures += sec1;
     }
 
     // ---- 2. 质量曲线 ----
@@ -123,8 +131,12 @@ int main() {
         r.process(in.data(), in.size() / 2, out);
         const double snr = snrDb(out, outRate, 19900);
 
-        const int taps = kQualityMinTaps +
-                         (kQualityMaxTaps - kQualityMinTaps) * q / 100;
+        // 打印真实抽头数：下采样时按比例放大（resampler.h:70-77 的公式），
+        // 以前用 base 公式打印，48k->44.1k 时低报约一倍（P3-5）。
+        const int baseT = kQualityMinTaps +
+                          (kQualityMaxTaps - kQualityMinTaps) * q / 100;
+        const int taps = (baseT > 0 && outRate < inRate)
+                             ? int(baseT * inRate / outRate) + baseT : baseT;
         const char* mark = (prev > -900 && snr - prev < 0.3) ? "  <- 差不多到顶了" : "";
         std::printf("   %-8d %-8d %12.1f%s\n", q, taps, snr, mark);
         prev = snr;
@@ -266,5 +278,10 @@ int main() {
         std::printf("   全部安全\n");
     }
 
+    // 各节失败统一计入退出码（P2-4）。
+    if (totalFailures) {
+        std::printf("\n共 %d 项失败\n", totalFailures);
+        return 1;
+    }
     return 0;
 }

@@ -33,7 +33,16 @@ namespace fxchain {
 inline std::string audioDevLogPath() {
     char buf[MAX_PATH] = {};
     DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", buf, MAX_PATH);
-    std::string dir = (n > 0 && n < MAX_PATH) ? std::string(buf, n) : std::string(".");
+    // ★ 绝不能回落 "."（托盘程序工作目录可能是任何地方，如 system32）
+    //   —— config_store.cpp 同一问题已修过，这里同步（P3-23）。
+    std::string dir;
+    if (n > 0 && n < MAX_PATH) {
+        dir.assign(buf, n);
+    } else {
+        char t[MAX_PATH] = {};
+        if (GetTempPathA(MAX_PATH, t) > 0) dir = t;
+        else dir = ".";
+    }
     dir += "\\AirPlayBridge\\";
     CreateDirectoryA(dir.c_str(), nullptr);
     return dir + "audio-devices.log";

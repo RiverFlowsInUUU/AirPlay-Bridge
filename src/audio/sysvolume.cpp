@@ -225,21 +225,6 @@ bool setSystemMutedOn(bool muted, const std::string& endpointIdUtf8) {
 
 // ---- 默认设备切换 ----
 
-std::string getDefaultRenderDeviceId() {
-    ComPtr<IMMDeviceEnumerator> en;
-    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                IID_PPV_ARGS(&en)))) return {};
-
-    ComPtr<IMMDevice> dev;
-    if (FAILED(en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) return {};
-
-    LPWSTR id = nullptr;
-    if (FAILED(dev->GetId(&id)) || !id) return {};
-    std::string out = wideToUtf8(id);
-    CoTaskMemFree(id);
-    return out;
-}
-
 std::string getDefaultRenderDeviceName() {
     ComPtr<IMMDeviceEnumerator> en;
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,

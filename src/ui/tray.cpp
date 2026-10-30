@@ -27,6 +27,11 @@ constexpr UINT WM_TRAY_CALLBACK = WM_APP + 1;
 constexpr UINT_PTR kMenuPumpTimer = 0x41;
 constexpr UINT     kMenuPumpMs    = 10;
 std::function<void()> g_menuPump;
+// 心跳定时器的嵌套深度：showMenu 可重入（回调里再弹子菜单/二次菜单），
+// 只有最外层负责 Set/Kill。以前无条件 Kill，内层菜单一关心跳就没了，
+// 而外层回调还在跑 —— 音频无人喂，表现为「点某些菜单项，声音断了」。
+// （2026-10-31 外部审查 P2-1。）
+int g_menuPumpDepth = 0;
 std::function<void()> g_quitRequest;   // WM_CLOSE -> 主循环
 
 // Explorer 重启后会广播这条消息（消息号是动态的，必须运行时取）。
@@ -70,6 +75,16 @@ HICON makeDotIcon(bool connected) {
     HBITMAP color = CreateDIBSection(hdc, reinterpret_cast<BITMAPINFO*>(&bi),
                                      DIB_RGB_COLORS, &bits, nullptr, 0);
     HBITMAP mask = CreateBitmap(SZ, SZ, 1, 1, nullptr);
+    // ★ GDI 资源耗尽时这两个调用会失败 —— 继续往下就是写空指针。
+    //   本函数是「缺图标时的回退」，自己再崩就没有任何图标可言了。
+    //   （2026-10-31 外部审查 P2-5。）
+    if (!color || !mask || !bits) {
+        if (color) DeleteObject(color);
+        if (mask) DeleteObject(mask);
+        DeleteDC(memDC);
+        DeleteDC(hdc);
+        return nullptr;
+    }
 
     HGDIOBJ oldBmp = SelectObject(memDC, color);
 
@@ -475,7 +490,8 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     }
 
     // 菜单一弹出来，主循环就进不去了 —— 先用定时器把音频心跳接上
-    if (g_menuPump) SetTimer(d_->hwnd, kMenuPumpTimer, kMenuPumpMs, nullptr);
+    if (g_menuPump && g_menuPumpDepth++ == 0)
+        SetTimer(d_->hwnd, kMenuPumpTimer, kMenuPumpMs, nullptr);
 
     POINT pt;
     GetCursorPos(&pt);
@@ -503,7 +519,8 @@ void TrayIcon::showMenu(const std::vector<TrayMenuItem>& menu,
     // 和 TrackPopupMenu 期间是同一个机制。
     if (cmd != 0 && cb) cb(cmd);
 
-    if (g_menuPump) KillTimer(d_->hwnd, kMenuPumpTimer);
+    if (g_menuPump && --g_menuPumpDepth == 0)
+        KillTimer(d_->hwnd, kMenuPumpTimer);
 }
 
 void TrayIcon::setMenuPump(std::function<void()> pump) {

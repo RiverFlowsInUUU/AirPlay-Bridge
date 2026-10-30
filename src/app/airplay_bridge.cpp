@@ -404,6 +404,8 @@ constexpr int kMuteNoSignalPasses = 1;
 
 // 「静音后采集不到电平」的连续窗口计数（主循环专用，仅主线程读写）。
 int muteNoSignalPasses = 0;
+// 上一窗口「有声吗」—— 电平日志只在翻转时记（P2-3）。
+bool lastLevelLoud = false;
 
 // 已经因为「采集不到电平」放弃过静音：本次进程内不再自动静音。
 //
@@ -3516,7 +3518,7 @@ int main(int argc, char** argv) {
     // 会以为电脑坏了（完全没声音，且不知道发生了什么）。
     if (!cfg.preCaptureDevice.empty()) {
         const std::string nowDev = getDefaultRenderDeviceName();
-        if (nowDev.find("CABLE") == std::string::npos) {
+        if (!looksLikeVirtualSink(nowDev)) {
             // 当前不是虚拟声卡 —— 说明问题已经不存在了（用户自己切回去了，
             // 或者上次其实正常退出只是标记没来得及清）。这条记录已经过期。
             cfg.preCaptureDevice.clear();
@@ -3564,6 +3566,15 @@ int main(int argc, char** argv) {
 
     // 值不在档位上时不再吸附到最近档位 —— 滑块调出来的 7.5 秒会被吸成 8 秒。
     // 菜单里这种情况由「自定义（滑块）」那一项承接勾选（见菜单构建处）。
+    // --volume 命令行直设音量（0–100，写进配置持久化）。
+    // 以前解析完就丢 —— 文档宣称有效、实际静默忽略（2026-10-31 外部审查 P2-2）。
+    // 语义与菜单同一套：钳制范围、写 cfg、落盘。
+    if (volume >= 0) {
+        volume = volume < 0 ? 0 : (volume > 100 ? 100 : volume);
+        cfg.volume = volume;
+        saveConfig(cfgPath, cfg);
+        logLine("命令行 --volume " + std::to_string(volume) + "%，已保存");
+    }
     if (volume < 0) volume = cfg.volume;
 
     // 枚举可选采集端点，供托盘菜单使用。
@@ -4968,11 +4979,19 @@ int main(int argc, char** argv) {
                             " 帧推不进缓冲环（音频不连续，会造成爆音）");
                     lastDropped = dNow;
                 }
-                // 采集电平：诊断期间每窗口都记一条（看清链路才有得判断）。
+                // 采集电平：只在「有声/无声」状态翻转时记一条。
+                // 以前每 5 秒无条件一条 —— 注释承诺「正常播放时一条都不写」，
+                // 实际挂机 10 小时就把 512KB 日志轮转掉，排查昨天的断连时
+                // 日志只剩半天。（2026-10-31 外部审查 P2-3。）
                 {
                     const int pk = g_peakWindowMax.exchange(0);
-                    logLine("采集电平：本 5 秒最大峰值 " + std::to_string(pk) +
-                            "（静音阈值 " + std::to_string(kSilencePeak) + "）");
+                    const bool loudNow = pk >= kSilencePeak;
+                    if (loudNow != lastLevelLoud) {
+                        logLine(std::string(loudNow ? "采集到声音（" : "采集转入静音（") +
+                                "峰值 " + std::to_string(pk) +
+                                "，阈值 " + std::to_string(kSilencePeak) + "）");
+                        lastLevelLoud = loudNow;
+                    }
 
                     // ★ 采集端点在静音后还采不采得到东西，**是驱动相关的**：
                     //   WASAPI loopback 一般在端点静音之前抽信号（我们实测过，

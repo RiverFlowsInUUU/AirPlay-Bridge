@@ -55,7 +55,7 @@ int showQualityDialog(int currentLevel);
 // 返回新的十分之一秒值；取消返回 -1。
 int showStandbyDialog(int currentTenths);
 
-// 音质档位名（关闭 / 标准 / 高 / 极高 / 至臻）。
+// 音质档位名（快速 / 标准 / 高 / 极高 / 至臻）—— 与实现一致，最低档是「快速」不是「关闭」。
 // 菜单和滑块共用，保证两边显示一致。
 const char* qualityLevelName(int level);
 

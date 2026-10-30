@@ -68,7 +68,12 @@ def save_ico(img, path):
     """img 是原图，小尺寸自动换用简化版。"""
     flat = flatten_for_small(img)
     frames = [shrink_icon(flat if s <= SMALL_MAX else img, s) for s in SIZES]
-    frames[-1].save(path, format="ICO", sizes=[(s, s) for s in SIZES])
+    # ★ 必须 append_images：Pillow 在没有它时会对每个目标尺寸从传入的
+    #   那张基图重新降采样，frames[0..n-1] 根本不进文件 —— 小尺寸简化
+    #   管线（去网布、锐化）从未生效。已用 Pillow 12.3 最小重现验证，
+    #   加上后自定义帧才被采用。（2026-10-31 外部审查 P2-7。）
+    frames[-1].save(path, format="ICO", sizes=[(s, s) for s in SIZES],
+                    append_images=frames[:-1])
     print("  " + path)
 
 

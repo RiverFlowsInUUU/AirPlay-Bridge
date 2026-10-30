@@ -3,6 +3,46 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.55] - 2026-10-31
+
+**中文**
+
+### 修复
+
+- 修复使用 VB-CABLE 以外的虚拟声卡（如 Voicemeeter）时，程序异常退出后
+  下次启动不再恢复默认播放设备的问题 —— 声音会一直留在虚拟设备上。
+- 修复打开某些菜单后再关闭，声音会停几秒的问题。
+- 命令行参数 `--volume <n>` 此前被静默忽略，现已生效并保存。
+- 降低日志写入量：空闲与正常播放期间不再每 5 秒记录一条采集电平，
+  日志保留期延长约十倍。
+- 若干健壮性加固：配置文件容忍 UTF-8 BOM、版本号解析防溢出、
+  非法 IP 不再广播、GDI 资源耗尽时不再崩溃。
+
+### 新增
+
+- 配置的采集设备打不开时，日志会记录回退原因。
+
+**English**
+
+### Fixed
+
+- Fixed the default playback device not being restored after a crash when a
+  virtual cable other than VB-CABLE (e.g. Voicemeeter) was in use — sound
+  stayed stuck on the virtual device.
+- Fixed audio dropping for a few seconds after closing certain menus.
+- The `--volume <n>` command-line switch was silently ignored; it now works
+  and persists.
+- Reduced log volume: the capture level is no longer logged every 5 seconds
+  while idle or playing, extending the log retention roughly tenfold.
+- Hardening: config files with a UTF-8 BOM no longer read as corrupted,
+  version parsing no longer overflows, invalid IPs are rejected instead of
+  broadcast to, and tray icon fallback no longer crashes when GDI is exhausted.
+
+### Added
+
+- When the configured capture device cannot be opened, the log now records
+  why it fell back.
+
 ## [1.5.54] - 2026-10-30
 
 **中文**

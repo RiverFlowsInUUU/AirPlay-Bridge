@@ -785,6 +785,24 @@ elif _STRUCT_HINT:
 else:
     ok("发布说明骨架", "%d 版均含日期/双语/分组，条目长度正常" % len(_recent))
 
+# ㉕ CHANGELOG 最新一节的版本号必须等于 CMakeLists 的 project VERSION。
+#
+#   release.yml 在 tag 发布时若 CHANGELOG 缺当前版本节，以前只 ::warning，
+#   release 照发、正文只剩校验和（P2-8）。护栏在这里补一层：
+#   本地/CI 改文档时就能发现，不必等到发版。
+_cver = re.search(r"project\(airplay_bridge\s+VERSION\s+([0-9.]+)", _cm)
+_chg = read("CHANGELOG.md") or ""
+_chgver = re.search(r"(?m)^## \[([^\]]+)\]", _chg)
+if _cver and _chgver:
+    if _cver.group(1) != _chgver.group(1):
+        fail("版本三方一致",
+             "CMakeLists VERSION=%s 但 CHANGELOG 最新节是 [%s] —— 发版前必须同步"
+             % (_cver.group(1), _chgver.group(1)))
+    else:
+        ok("版本三方一致", "CMakeLists / CHANGELOG 均为 %s" % _cver.group(1))
+elif not _cver:
+    fail("版本三方一致", "CMakeLists.txt 里找不到 project(airplay_bridge VERSION …) 锚点")
+
 # ---------------------------------------------------------------- 输出
 
 print("")

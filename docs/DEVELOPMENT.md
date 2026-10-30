@@ -8,7 +8,7 @@
 |---|---|
 | 系统 | Windows 10 / 11，x64 |
 | 编译器 | Visual Studio 2022 或更新（需 C++ 桌面工作负载） |
-| 构建 | CMake ≥ 3.20 |
+| 构建 | CMake ≥ 3.16 |
 | 图标 | Python 3 + Pillow（仅改图标时需要） |
 | 发布 | `gh` CLI（已登录） |
 
@@ -28,10 +28,10 @@ cd AirPlay-Bridge
 cd third_party/airplay2-sender-cpp
 git apply ../../patches/upstream-airplay2-sender-cpp.patch
 cd ../..
-
+```
 
 **改过 `third_party/` 里的文件之后，必须立刻重新生成补丁**（[RULES.md](RULES.md) C13）——
-本地编译读的是工作区，CI 打包读的是 `patches/`，不同步就等于「你测的和用户装的不是同一份代码」。
+本地编译读的是工作区，CI 打包读的是 `patches/`，不同步就等于「你测的和用户装的不是同一份代码」：
 
 ```bash
 cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch
@@ -40,6 +40,8 @@ cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2
 **验证不能只看「CI 绿了」** —— 在一份干净的 `git archive HEAD` 上 `git apply` 一遍，
 再 grep 关键实现值，确认打出来的和你本地的一样。`check-patch.yml` 里有一份「标志性行」
 清单做防陈旧检查，**新增关键实现时要同步更新那份清单**。
+
+```bash
 cmake -S . -B build -G "<本机生成器>" -A x64
 cmake --build build --config Release
 ```

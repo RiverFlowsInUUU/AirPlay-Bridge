@@ -31,7 +31,12 @@ inline bool isNewerVersion(const std::string& remote, const std::string& local) 
         for (size_t k = start; k < v.size(); ++k) {
             const char c = v[k];
             if (c >= '0' && c <= '9') {
-                cur = cur * 10 + (c - '0');
+                // 饱和累加：v 来自 GitHub API 的 tag 字符串（外部输入），
+                // 超长数字段按普通 int 累加是有符号溢出 UB。
+                // 比较语义不变 —— 超过上限后停在 INT_MAX。
+                // （2026-10-31 外部审查 P3-21。）
+                if (cur > (2147483647 - 9) / 10) cur = 2147483647;
+                else cur = cur * 10 + (c - '0');
                 has = true;
             } else if (c == '.') {
                 out.push_back(has ? cur : 0);

@@ -298,7 +298,7 @@ index 5560966..985bd73 100644
  
      // -- input conditioning (device rate -> 44.1 kHz) -----------------
 diff --git a/test/core_tests.cpp b/test/core_tests.cpp
-index 0f72065..694226b 100644
+index 0f72065..2455914 100644
 --- a/test/core_tests.cpp
 +++ b/test/core_tests.cpp
 @@ -648,6 +648,42 @@ std::vector<int16_t> rampExpect(size_t samples, int16_t seed = 0) {
@@ -512,7 +512,7 @@ index 0f72065..694226b 100644
      // 10 packets consume 3520 output frames ~ 3831 input frames
      for (int i = 0; i < 10; ++i) r.advance(8);
      dgs = r.io.takeUdp();
-@@ -1447,6 +1531,132 @@ void testResampler() {
+@@ -1447,6 +1531,137 @@ void testResampler() {
  
  } // namespace
  
@@ -584,8 +584,13 @@ index 0f72065..694226b 100644
 +            "Content-Length: -5" + std::string(1, 13) + std::string(1, 10) +
 +            std::string(1, 13) + std::string(1, 10);
 +        r.sender->onTcpData(RaopTcp::Event, spanOf(r.rx.pushEvent(req)));
-+
-+        //   而 0 是合法值 —— 所以「会话结束了没」区分不出来。
++        // 负数走 contentLen < 0 -> fail_()：会话结束、事件通道无 200。
++        // 两个判据与相邻块同一套 —— ①缺一会漏"没结束"，②缺一会漏"还在回 200"。
++        // ★ 这个块以前零断言 —— 分支被改坏时照样绿（2026-10-31 外部审查 P2-10）。
++        const std::string why = "negative Content-Length ends the session";
++        const std::string replies =
++            r.rx.readEventReplies(r.io.takeTcp(RaopTcp::Event));
++        CHECK(!r.sender->active() && replies.empty(), why.c_str());
 +        r.sender->stop();
 +    }
 +    {   // overflowing
@@ -645,7 +650,7 @@ index 0f72065..694226b 100644
  int main() {
      std::printf("== raop core tests (in-process fake receiver, no sockets) ==\n");
      testFormatter();
-@@ -1456,6 +1666,7 @@ int main() {
+@@ -1456,6 +1671,7 @@ int main() {
      testAp2PinPairingThenStoredCredentials();
      testStrictReceiverAuth();
      testFailurePaths();

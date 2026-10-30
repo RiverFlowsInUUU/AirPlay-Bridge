@@ -205,6 +205,13 @@ jobs:
             END { for (i = 1; i <= outn; ++i) print out[i] }
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
+            # tag 发布时正文为空 = 用户看到的 release 只有一堆校验和。
+            # 手动触发（试打包）可容忍，正式 tag 必须挡下。
+            # （2026-10-31 外部审查 P2-8。）
+            if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+              echo "::error::CHANGELOG.md 里没有 v$V 那一节 —— 发版前必须先写发布说明"
+              exit 1
+            fi
             echo "::warning::CHANGELOG.md 里没找到 v$V 那一节，发布说明会为空"
           fi
           echo "--- 本版说明 ---"; cat release-notes.md

@@ -57,9 +57,6 @@ bool setSystemMutedOn(bool muted, const std::string& endpointIdUtf8);
 
 // ---- 默认播放设备切换 ----
 
-// 取当前默认播放设备的 ID（设备名中的 GUID 部分）。失败返回空串。
-std::string getDefaultRenderDeviceId();
-
 // 取当前默认播放设备的可读名字
 std::string getDefaultRenderDeviceName();
 

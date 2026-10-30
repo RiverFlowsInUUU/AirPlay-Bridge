@@ -377,6 +377,12 @@ bool WasapiCapture::open(std::string* errOut) {
         std::string err2;
         if (dc2->open(def, err2)) {
             impl_->devices.push_back(std::move(dc2));
+            // 回退成功也要留下「为什么回退」—— 用户报「音源不对」时，
+            // 没有这条就只能靠猜（P3-1）。
+            if (errOut) {
+                *errOut += "配置的采集端点打开失败（" + err +
+                           "），已回退到系统默认设备；";
+            }
         }
     }
 
@@ -521,6 +527,9 @@ void WasapiCapture::run(const AudioChunkCallback& cb) {
                         // 运行中失效 —— 记到另一个计数器，
                         // 上层据此给出「播放中设备失效」而不是「启动失败」
                         runtimeFailures_.fetch_add(1);
+                        // 退出前显式停流：client->Release() 虽然隐式会停，
+                        // 但显式 Stop 让「线程退出 = 流已停」不变量成立（P3-3）。
+                        if (dc->client) dc->client->Stop();
                         return;                        // 本设备线程退出，别空转
                     }
                     ++dc->starved;
