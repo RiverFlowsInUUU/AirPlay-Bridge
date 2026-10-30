@@ -3,6 +3,22 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.54] - 2026-10-30
+
+**中文**
+
+### 修复
+
+- 待机唤醒改为按「累计有声时长」判断：既不会因单帧电平毛刺误唤醒，
+  也不会在系统音量较低时漏掉真实声音。
+
+**English**
+
+### Fixed
+
+- Standby wake-up now uses accumulated audio time: single-frame spikes no
+  longer wake it, and quiet playback at low system volume is still detected.
+
 ## [1.5.53] - 2026-10-30
 
 **中文**

@@ -3080,34 +3080,44 @@ struct Session {
             // 待机耳同样挂 MMCSS：唤醒判定靠它，CPU 高负载时不能聋。
             DWORD earTask = 0;
             HANDLE earMmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &earTask);
-            // ★ 必须「连续有声」才唤醒，不能看见一个尖峰就醒。
+            // ★ 判据：累计有声时间（不是"连续"，也不是单帧）。
             //
-            //   2026-10-30 实测：空闲待机时会出现孤立的电平毛刺（设备切换、
-            //   驱动抖动、系统提示音），单帧超过阈值就唤醒 → 表现为
-            //   「没人放音乐，却每隔几十秒自己连上一次又断开」。
-            //   改成要求持续有声 150ms 才认，毛刺基本被滤掉；
-            //   而真正的音乐/视频从第一秒起就是连续的，150ms 无感。
-            auto loudSince = std::chrono::steady_clock::time_point{};
-            bool loudActive = false;
-            standbyEar->run([this, &loudSince, &loudActive](const int16_t* d, size_t n) {
+            //   2026-10-30 两次踩坑的合并结论：
+            //   · 只看单帧 → 空闲时一个电平毛刺就唤醒，表现为「没人放音乐，
+            //     每几十秒自己连上一次又断开」（实测峰值 5~11 的孤立尖峰）。
+            //   · 改「连续 150ms」→ 又太严：系统音量 5% 时音乐峰值本来就在
+            //     阈值附近抖，中间掉一帧就清零重来，低频/安静曲目前奏会醒不来。
+            //
+            //   现在用带衰减的累加器：有声就加分，无声只减一半速率。
+            //   孤立毛刺（10~30ms）加不到 150；真正的音乐即使电平起伏，
+            //   累计也很快过线 —— 两头都兼顾。
+            auto lastCb = std::chrono::steady_clock::now();
+            double loudMs = 0.0;
+            standbyEar->run([this, &lastCb, &loudMs](const int16_t* d, size_t n) {
                 int peak = 0;
                 const size_t samples = n * 2;
                 for (size_t i = 0; i < samples; ++i) {
                     const int v = d[i] < 0 ? -static_cast<int>(d[i]) : d[i];
                     if (v > peak) peak = v;
                 }
+
+                const auto now = std::chrono::steady_clock::now();
+                double dtMs = std::chrono::duration<double, std::milli>(now - lastCb).count();
+                lastCb = now;
+                if (dtMs > 200.0) dtMs = 200.0;   // 设备暂停很久后恢复，别一次加满
+
                 if (peak >= kSilencePeak) {
-                    const auto now = std::chrono::steady_clock::now();
-                    if (!loudActive) { loudActive = true; loudSince = now; }
-                    if (now - loudSince >= std::chrono::milliseconds(150)) {
-                        standbyWakePeak.store(peak);
-                        standbyWake.store(true);
-                        lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                             now.time_since_epoch())
-                                             .count());
-                    }
+                    loudMs = std::min(600.0, loudMs + dtMs);
                 } else {
-                    loudActive = false;   // 断了就从下一个连续段重新计时
+                    loudMs = std::max(0.0, loudMs - dtMs * 0.5);   // 衰减，容忍小起伏
+                }
+
+                if (loudMs >= 150.0) {
+                    standbyWakePeak.store(peak);
+                    standbyWake.store(true);
+                    lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         now.time_since_epoch())
+                                         .count());
                 }
             });
             if (earMmcss) AvRevertMmThreadCharacteristics(earMmcss);

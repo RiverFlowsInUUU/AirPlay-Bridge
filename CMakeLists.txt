@@ -36,7 +36,7 @@ endif()
 # 2026-10-24：同一个 PROJECT_VERSION 现在还喂给 exe 的 VERSIONINFO 资源
 # （见 src/icons/bridge.rc），资源管理器「属性 → 详细信息」才不空白。
 # 仍是单一来源 —— 资源文件里不另存一份版本号。
-project(airplay_bridge VERSION 1.5.53 LANGUAGES CXX)
+project(airplay_bridge VERSION 1.5.54 LANGUAGES CXX)
 
 if(ALMA_ASAN)
     add_compile_options(/fsanitize=address /Zi)
