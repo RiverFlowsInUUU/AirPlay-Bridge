@@ -3,6 +3,35 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.50] - 2026-10-30
+
+**中文**
+
+### 修复
+
+- 修复关闭程序后电脑输出可能一直停在静音、再次打开后放音乐也连不上的问题。
+- 修复「连接时静音电脑扬声器」在部分声卡上要等 30 秒才发现采不到声音，
+  期间一直无声的问题。现在 5 秒内就会恢复。
+
+### 新增
+
+- 检测到电脑输出处于静音时自动解除，并提示一次 —— 静音状态下无法采集声音。
+
+**English**
+
+### Fixed
+
+- Fixed computer output staying muted after the app was closed, which made the
+  next session unable to connect at all.
+- Fixed "mute computer speakers when connected" taking up to 30 seconds to
+  notice that no audio could be captured on some sound cards. It now recovers
+  within 5 seconds.
+
+### Added
+
+- If the computer output is muted, the app now unmutes it and says so once —
+  no audio can be captured while it is muted.
+
 ## [1.5.49] - 2026-10-30
 
 **中文**

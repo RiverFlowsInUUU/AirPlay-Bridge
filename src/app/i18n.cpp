@@ -126,6 +126,10 @@ const Entry kEntries[] = {
     //   查表取第一条，英文界面会显示成 "Devices:"。所以换个不撞的 key。
     {"对端设备", "Device"},
 
+    // ── 气泡：采集端点原本静音、程序自动解除 ──
+    {"电脑输出原本处于静音，已自动解除，否则无法采集声音。",
+     "Computer output was muted; it has been unmuted so audio can be captured."},
+
     // ── 首次运行：选语言 ──
 
     // ── 首次运行：开机自启 ──
