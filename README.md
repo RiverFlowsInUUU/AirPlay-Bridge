@@ -6,109 +6,82 @@
 
 **English** · [中文](README.zh-CN.md)
 
-Streams Windows system audio to AirPlay 2 devices, from the tray.
-
-A replacement for TuneBlade, which stopped working on HomePod OS 27 —
-and a free, open-source option alongside WinAirCast, ToneRelay and SoundHop.
+Streams Windows system audio to AirPlay 2 devices, from the tray. A free,
+open-source replacement for TuneBlade after HomePod OS 27 — covers HomePod,
+Apple TV and other receivers.
 
 ## 📦 Install
 
 Download `AirPlay-Bridge-Setup-vX.Y.Z.exe` from
 [Releases](https://github.com/RiverFlowsInUUU/AirPlay-Bridge/releases/latest)
-and run it. No virtual audio device needed.
+and run it. Windows 10 / 11, 64-bit.
 
-Windows 10 / 11, 64-bit. The installer bundles its runtime and installs to
-`Program Files\AirPlayBridge` — **upgrades need no reconfiguration**, since the
-firewall rule and startup entry follow that location.
-
-> Windows may block it once on first run — click **More info** → **Run anyway**.
+Installs to `Program Files\AirPlayBridge` with its runtime bundled —
+**upgrades need no reconfiguration**, since the firewall rule and startup entry
+follow that location. Windows may block it once: **More info** → **Run anyway**.
 
 ### 🔊 When you need a virtual audio cable
 
-Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free, reboot after)
-when this PC has speakers or headphones that would play the same audio.
+| Your setup | Install it? |
+|---|---|
+| Speakers or headphones that would play the same audio | **Yes**, otherwise the PC plays too (about 200 ms behind — sounds like an echo) |
+| A sound card with nothing plugged in | No, nobody hears it |
+| No playback device listed in Windows | **Yes**, there is nothing to capture |
 
-On connect the app switches the default playback device to the cable, so system
-audio reaches the AirPlay device only.
-
-No audible output? Skip it — a dummy or remote-playback endpoint, a headless mini
-PC, or speakers that stay off. The app still streams, and mutes this PC by
-default.
-
-One exception: if Windows lists no playback device at all, there is nothing to
-capture. The cable provides one.
-
-> The cable never changes what gets streamed — the audio is identical either way.
+Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free, reboot
+after). On connect the app switches the default device to it, so system audio
+reaches the AirPlay device only. The cable never changes what gets streamed.
 
 ## 🚀 First run
 
 - Asks for interface language and whether to start at login (once each)
-- Scans the local network and connects to what it finds
-- Checks the firewall rule, with a one-click fix if it's missing
+- Scans the local network, connects what it finds, and checks the firewall rule
+  (one-click fix if it's missing)
 
 ## ✨ Features
 
 **Audio & connection**
 
 - 🆓 Free and open source (Apache-2.0)
-- 🎵 AirPlay 2 with secure pairing (plus legacy AirPlay 1) — HomePod,
-  Apple TV and other AirPlay receivers
-- 🎚 Lossless 16-bit/44.1 kHz; latency (100–300 ms), volume, resampler
-  quality and standby are all adjustable
-- 💪 Glitch-resistant under load — audio threads run under MMCSS
-  Pro Audio scheduling, and the 1 ms timer stays honored on Windows 11
-  even when the app is in the background
+- 🎵 AirPlay 2 with secure pairing (plus legacy AirPlay 1) — HomePod, Apple TV
+  and other receivers
+- 🎚 Lossless 16-bit/44.1 kHz; latency (100–300 ms), volume, quality and
+  standby are all adjustable
+- 💪 Glitch-resistant under load — audio threads run under MMCSS Pro Audio, and
+  Windows 11 keeps the 1 ms timer even in the background
 
 **Reliability**
 
-- 🔄 Auto-reconnect — after drops, IP changes, or when another device
-  steals the receiver
+- 🔄 Auto-reconnect — after drops, IP changes, or when another device takes over
 - ⏰ Sleep/wake — streaming resumes on its own after the PC wakes
-- 🛟 Force-kill safe — the audio device and mute state are restored on
-  next launch
-- 💾 Config is written atomically and auto-recovered from a backup if
-  the file ever gets corrupted
-- 🩺 Capture watchdog — an unplugged or busy capture device falls back
-  to the default or reconnects automatically
+- 🛟 Force-kill safe — audio device and mute state are restored on next launch
+- 💾 Config written atomically, auto-recovered from a backup if corrupted
+- 🩺 Capture watchdog — an unplugged or busy device falls back or reconnects
 
 **Everyday use**
 
-- 🔎 Finds AirPlay devices on the local network
-- 🙈 Hide devices you don't want to see
-- 🔇 Mutes this PC on connect — and un-mutes the right device, even if
-  the default output changed mid-session
-- 😴 Standby when silent — device screen off, back on the first sound
-- 🖥 Starts at login, remembers your settings, one instance at a time
-- 🌐 English or Chinese interface
-- ℹ️ Version and update check under **About**
+- 🔎 Finds AirPlay devices, 🙈 hides the ones you don't want
+- 🔇 Mutes this PC on connect, and restores the right device afterwards
+- 😴 Standby when silent — screen off, back on the first sound
+- 🖥 Starts at login, remembers settings, one instance at a time
+- 🌐 English or Chinese; ℹ️ version and update check under **About**
 
 ## 🖱 Usage
 
-Left- or right-click the tray icon.
+Left- or right-click the tray icon:
 
 ```
 ✓ Connected
-  <device name>
-  <device IP>
+  <device name> / <device IP>
 ────────────────
   Disconnect
-  Devices  ›
-     <device name>        ← devices found are listed right here
-     Scan again
-     ──────────────
-     Hide devices  ›
-     Capture from  ›
+  Devices  ›     ← devices found, Scan again, Hide devices, Capture from
   Latency  200ms  ›
   Volume  45%  ›
   Quality  Maximum  ›
 ────────────────
-  More settings  ›
-     Connection check
-     Standby when silent  ›
-     Mute this PC
-     Run at startup
-     Language  ›
-     Logs
+  More settings  ›  ← Connection check, Standby when silent, Mute this PC,
+                      Run at startup, Language, Logs
   About
 ────────────────
   Quit
@@ -125,9 +98,8 @@ When the rule is fine, **More settings › Connection check** says so.
 | Quality | Fast / Standard / High / Very high / Maximum | continuous slider (0–100) | on reconnect |
 | Standby when silent | 5 / 10 / 15 / 20 s | continuous slider (0–20) | immediately |
 
-Bold marks the default shipped with the app. Latency below 250 ms risks
-crackling; 250 ms is the tested sweet spot and 130 ms is experimental.
-Standby at 0 turns the feature off.
+Bold marks the default. Latency below 250 ms risks crackling; 250 ms is the
+tested sweet spot and 130 ms is experimental. Standby at 0 turns it off.
 
 ## 🔇 No sound
 
@@ -138,21 +110,21 @@ Standby at 0 turns the feature off.
 ## ⏳ Stuck on "Connecting"
 
 The receiver calls back into this PC for clock sync, so the app needs an inbound
-firewall rule. It checks this at startup; if the rule is missing:
+firewall rule. It checks this at startup:
 
 | Step | Action |
 |---|---|
 | 1 | Tray menu → More settings → Connection check |
 | 2 | Approve the admin prompt |
 
-By hand: Windows Security → **Firewall & network protection** → **Allow an app
-through firewall** → AirPlay Bridge → tick **Private**. Not listed? **Change
-settings** → **Allow another app** → **Browse**.
+By hand: Windows Security → Firewall & network protection → Allow an app
+through firewall → AirPlay Bridge → tick **Private**. Not listed? **Allow
+another app** → **Browse**.
 
 ## ⚠️ Known limitations
 
-- Without a virtual audio cable, sound stays on this PC's output device (muted by
-  default — switchable from the menu)
+- Without a virtual audio cable, sound stays on this PC's output device (muted
+  by default — switchable from the menu)
 - Changing latency or quality requires one reconnect
 - Windows only
 - A few seconds of silence after a drop
