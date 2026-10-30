@@ -149,20 +149,6 @@ By hand: Windows Security → **Firewall & network protection** → **Allow an a
 through firewall** → AirPlay Bridge → tick **Private**. Not listed? **Change
 settings** → **Allow another app** → **Browse**.
 
-## 🧩 Compatibility
-
-| Receiver | Firmware | Status |
-|---|---|---|
-| HomePod mini (1st gen) | 27.2 | Verified: connect, stream, standby, wake |
-| HomePod (1st gen) | 27.2 | Not tested |
-| HomePod mini 2 | 27.2 | Not tested |
-| HomePod (2nd gen) | 27.2 | Not tested |
-| Apple TV 4K | 27.2 | Not tested |
-
-AirPlay 1 (RAOP) stops working on receiver OS 27 and later. This app uses AirPlay 2 and is unaffected.
-Receiver firmware 27.0 / 27.1 uses the same AirPlay 2 path; no differences seen.
-The receiver firmware version is shown in the About dialog and in the log.
-
 ## ⚠️ Known limitations
 
 - Without a virtual audio cable, sound stays on this PC's output device (muted by
