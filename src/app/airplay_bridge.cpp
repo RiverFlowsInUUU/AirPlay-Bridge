@@ -2408,6 +2408,10 @@ struct Session {
     // 待机期间不做任何周期性重连试探：那会让屏幕反复亮起，正是要避免的。
     std::atomic<bool> standbyActive{false};   // 已进入待机
     std::atomic<bool> standbyWake{false};     // 待机中听到声音了
+    // 唤醒那一刻耳朵读到的峰值 —— 只用于日志取证。
+    // 「没放音乐却反复唤醒」时，看这个数是几十还是上万，能立刻分清
+    // "噪声误触发" 和 "真的有音频在走"（2026-10-30 排查用）。
+    std::atomic<int>  standbyWakePeak{0};
     // 本次会话是「待机唤醒」建起来的吗。
     //
     // 能唤醒说明 standbyEar 刚听到声音 —— 用户此刻**正在播放**。
@@ -3076,7 +3080,16 @@ struct Session {
             // 待机耳同样挂 MMCSS：唤醒判定靠它，CPU 高负载时不能聋。
             DWORD earTask = 0;
             HANDLE earMmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &earTask);
-            standbyEar->run([this](const int16_t* d, size_t n) {
+            // ★ 必须「连续有声」才唤醒，不能看见一个尖峰就醒。
+            //
+            //   2026-10-30 实测：空闲待机时会出现孤立的电平毛刺（设备切换、
+            //   驱动抖动、系统提示音），单帧超过阈值就唤醒 → 表现为
+            //   「没人放音乐，却每隔几十秒自己连上一次又断开」。
+            //   改成要求持续有声 150ms 才认，毛刺基本被滤掉；
+            //   而真正的音乐/视频从第一秒起就是连续的，150ms 无感。
+            auto loudSince = std::chrono::steady_clock::time_point{};
+            bool loudActive = false;
+            standbyEar->run([this, &loudSince, &loudActive](const int16_t* d, size_t n) {
                 int peak = 0;
                 const size_t samples = n * 2;
                 for (size_t i = 0; i < samples; ++i) {
@@ -3084,10 +3097,17 @@ struct Session {
                     if (v > peak) peak = v;
                 }
                 if (peak >= kSilencePeak) {
-                    standbyWake.store(true);
-                    lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         std::chrono::steady_clock::now().time_since_epoch())
-                                         .count());
+                    const auto now = std::chrono::steady_clock::now();
+                    if (!loudActive) { loudActive = true; loudSince = now; }
+                    if (now - loudSince >= std::chrono::milliseconds(150)) {
+                        standbyWakePeak.store(peak);
+                        standbyWake.store(true);
+                        lastLoudMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             now.time_since_epoch())
+                                             .count());
+                    }
+                } else {
+                    loudActive = false;   // 断了就从下一个连续段重新计时
                 }
             });
             if (earMmcss) AvRevertMmThreadCharacteristics(earMmcss);
@@ -3100,7 +3120,8 @@ struct Session {
     // resolveDevice 要扫约 2.5 秒，等它扫完开头几秒的声音就丢了。
     void leaveStandby() {
         if (!standbyActive.load()) return;
-        logLine("检测到声音，退出待机并重连");
+        logLine("检测到声音（峰值 " + std::to_string(standbyWakePeak.load()) +
+                "），退出待机并重连");
         clearStandbyState();
     }
 };

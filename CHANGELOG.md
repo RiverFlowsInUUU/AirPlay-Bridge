@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.53] - 2026-10-30
+
+**中文**
+
+### 修复
+
+- 修复没有播放任何音频时，程序偶尔自己连上一次又断开的问题（待机状态被
+  单帧电平毛刺误唤醒）。现在需要连续有声才会唤醒。
+
+**English**
+
+### Fixed
+
+- Fixed the app occasionally reconnecting and disconnecting on its own while
+  nothing was playing — a single-frame level spike could wake it from standby.
+  Continuous audio is now required.
+
 ## [1.5.52] - 2026-10-30
 
 **中文**
