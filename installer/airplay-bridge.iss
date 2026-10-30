@@ -195,7 +195,8 @@ begin
   // 必须用完整路径。Inno 的 Exec 靠 PATH 找可执行文件，实测找不到
   // taskkill —— 结果就是「旧实例没被杀掉」，而它占着 exe 文件，
   // 安装跳过不覆盖，装完还是旧版本（表现为「装了新版还是老样子」）。
-  Tool := ExpandConstant('{sys}\taskkill.exe');   ; Inno 字符串不处理 \\ 转义，双写会展开成字面双反斜杠（P3-10）
+  // Inno 字符串不处理 \ 转义，双写会展开成字面双反斜杠（P3-10）。
+  Tool := ExpandConstant('{sys}\taskkill.exe');
   if not Exec(Tool, '/F /IM "' + AN + '"', '', SW_HIDE, ewWaitUntilTerminated, R) then
     Log('结束旧实例：无法启动 taskkill（' + Tool + '）')
   else
