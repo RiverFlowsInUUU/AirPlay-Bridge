@@ -82,7 +82,10 @@ HICON makeDotIcon(bool connected) {
         if (color) DeleteObject(color);
         if (mask) DeleteObject(mask);
         DeleteDC(memDC);
-        DeleteDC(hdc);
+        // hdc 来自 GetDC(nullptr)，必须用 ReleaseDC 释放；
+        // DeleteDC 只用于 CreateDC 的句柄，对它调用会静默失败 → 屏幕 DC 泄漏
+        // （复审 R3：与下方正常路径的 ReleaseDC 保持一致）。
+        ReleaseDC(nullptr, hdc);
         return nullptr;
     }
 

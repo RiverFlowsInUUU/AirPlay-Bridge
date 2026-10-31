@@ -12,8 +12,7 @@ on:
     paths:
       - 'docs/**'
       - 'AGENTS.md'
-      - 'CHANGELOG.md'          # 同上（P3-12）
-      - 'CHANGELOG.md'          # 第㉓/㉔项检查的正是它，改了要跑（P3-12）
+      - 'CHANGELOG.md'          # 第㉓/㉔项检查的正是它，改了要跑（P3-12/R4）
       - 'README*.md'
       - 'src/**'                 # 代码是真值来源（档位表、滑块范围都在 src 里）
       - 'tools/**'

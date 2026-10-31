@@ -131,12 +131,9 @@ int main() {
         r.process(in.data(), in.size() / 2, out);
         const double snr = snrDb(out, outRate, 19900);
 
-        // 打印真实抽头数：下采样时按比例放大（resampler.h:70-77 的公式），
-        // 以前用 base 公式打印，48k->44.1k 时低报约一倍（P3-5）。
-        const int baseT = kQualityMinTaps +
-                          (kQualityMaxTaps - kQualityMinTaps) * q / 100;
-        const int taps = (baseT > 0 && outRate < inRate)
-                             ? int(baseT * inRate / outRate) + baseT : baseT;
+        // 打印真实抽头数：直接问 resampler（含下采样放大与奇偶修正），
+        // 以前用 base 公式打印，48k->44.1k 时低报约一倍（P3-5/R4）。
+        const int taps = r.taps();
         const char* mark = (prev > -900 && snr - prev < 0.3) ? "  <- 差不多到顶了" : "";
         std::printf("   %-8d %-8d %12.1f%s\n", q, taps, snr, mark);
         prev = snr;

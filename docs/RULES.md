@@ -66,9 +66,13 @@ git diff > ../../patches/upstream-airplay2-sender-cpp.patch
 
 ### C3 — 行尾必须是 LF
 
-`.gitattributes` 已锁 `* text=auto eol=lf` 与 `*.patch -text`。补丁带 CRLF 时
-`git apply` 会 reject。自检：`file patches/upstream-airplay2-sender-cpp.patch` ——
-出现 `with CRLF line terminators` 即为异常。
+`.gitattributes` 已锁全局 `* text=auto eol=lf`（置于文件最前），其后的特化规则
+覆盖它：`*.patch` / `*.diff` 为 `-text`（永不转换），`*.ico binary`，
+`*.rc text eol=crlf`。补丁带 CRLF 时 `git apply` 会 reject。自检：
+`file patches/upstream-airplay2-sender-cpp.patch` —— 出现
+`with CRLF line terminators` 即为异常。改动 .gitattributes 后用
+`git check-attr text eol diff -- <代表文件>` 复核特化是否仍生效
+（全局行必须排在特化之前，Git 是后行覆盖）。
 
 ### C4 — Mbed TLS 钉在 3.6.0
 

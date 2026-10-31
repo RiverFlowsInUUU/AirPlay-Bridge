@@ -3,6 +3,28 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.56] - 2026-10-31
+
+**中文**
+
+### 修复
+
+- 修复上一版引入的行尾规则覆盖问题：全局行尾规则现在排在文件最前，
+  补丁不转换、图标二进制、资源 CRLF 三条特化规则恢复生效。
+- 采集设备回退的原因说明现在会真正写入日志（上一版写进了没人读取的缓冲区）。
+- 修复托盘图标回退路径的一处资源释放方式错误。
+
+**English**
+
+### Fixed
+
+- Fixed an attribute-ordering regression from the previous release: the global
+  line-ending rule now comes first in .gitattributes, so the patch/icon/rc
+  specialisations take effect again.
+- The reason for a capture-device fallback is now actually written to the log
+  (the previous release wrote it into a buffer nobody read).
+- Fixed a resource-release mistake in the tray icon fallback path.
+
 ## [1.5.55] - 2026-10-31
 
 **中文**

@@ -1,30 +1,23 @@
 # 统一行尾，别让 Windows 的 core.autocrlf 破坏补丁。
 #
+# ★ 全局规则必须放在最前：Git 的 .gitattributes 是「后行覆盖」，
+#   特化规则只有排在全局行之后才生效。R1（2026-10-31 复审）：
+#   曾把全局行追加到文件末尾，结果 `*.patch -text`、`*.ico binary`、
+#   `*.rc eol=crlf` 三个特化全部被吞 —— 用 `git check-attr` 复核过。
+#
 # 背景：patches/*.patch 是 unified diff，上下文行必须与上游源文件逐字节吻合。
 # 上游源文件是 LF，若 patch 在 checkout 时被转成 CRLF，`git apply` 会
 # 报 "patch does not apply" —— 任何 Windows 用户 clone 后都编译不了。
-# 这里显式声明：补丁永远用 LF 存、用 LF 检出。
 
+# ---- 全局默认：文本统一 LF 入库、LF 检出 ----
+* text=auto eol=lf
+
+# ---- 特化：覆盖全局行（必须排在上面那行之后）----
+
+# 补丁永不转换 —— patch 上下文要与上游逐字节吻合
 *.patch  -text
 *.diff   -text
 
-# 源码统一 LF 入库（C/C++、CMake、脚本）
-*.c      text eol=lf
-*.cc     text eol=lf
-*.cpp    text eol=lf
-*.h      text eol=lf
-*.hpp    text eol=lf
-*.txt    text eol=lf
-*.cmake  text eol=lf
-CMakeLists.txt  text eol=lf
-*.py     text eol=lf
-*.md     text eol=lf
-*.yml    text eol=lf
-*.yaml   text eol=lf
-
-# Windows 专用资源保持二进制
+# Windows 专用资源
 *.ico    binary
 *.rc     text eol=crlf
-
-# 全局 LF（RULES.md 早已声明"已锁"，实际这行一直缺失 —— P3-13）
-* text=auto eol=lf

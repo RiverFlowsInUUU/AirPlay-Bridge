@@ -2531,7 +2531,12 @@ struct Session {
             capture = std::make_unique<WasapiCapture>(wcfg);
         }
         setPhase(PHASE_CAPTURE_OPEN);   // 打点：开采集设备可能耗时
-        if (!capture->open(&err)) {
+        const bool captureOpened = capture->open(&err);
+        // errOut 在成功路径也可能带回退说明（P3-1）：配置的采集端点打不开、
+        // 回退默认设备时，WasapiCapture 会把原因写进 err —— 复审 R2 指出
+        // 这条以前落在没人读的缓冲区里。成功也要记。
+        if (captureOpened && !err.empty()) logLine(err);
+        if (!captureOpened) {
             capture.reset();   // 失败路径不留半成品
             // ★ 必须撤销接管 —— 默认设备已经切到 CABLE 了，不撤销就等于
             //   把用户的声音送进一个没人采集的黑洞（P1-3）。
@@ -3570,7 +3575,7 @@ int main(int argc, char** argv) {
     // 以前解析完就丢 —— 文档宣称有效、实际静默忽略（2026-10-31 外部审查 P2-2）。
     // 语义与菜单同一套：钳制范围、写 cfg、落盘。
     if (volume >= 0) {
-        volume = volume < 0 ? 0 : (volume > 100 ? 100 : volume);
+        volume = volume > 100 ? 100 : volume;   // 外层已保证 >= 0（R4）
         cfg.volume = volume;
         saveConfig(cfgPath, cfg);
         logLine("命令行 --volume " + std::to_string(volume) + "%，已保存");

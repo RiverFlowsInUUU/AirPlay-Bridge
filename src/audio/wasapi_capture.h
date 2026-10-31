@@ -59,6 +59,8 @@ public:
     WasapiCapture& operator=(const WasapiCapture&) = delete;
 
     // 打开采集。成功返回 true，失败填 errOut。
+    // ★ 成功时 errOut 也可能带回退说明（配置端点打不开 → 回退默认设备），
+    //   调用方应在成功路径检查非空并记日志（复审 R2）。
     // 返回实际采集的设备数量（可通过 deviceCount() 取）。
     bool open(std::string* errOut = nullptr);
 
