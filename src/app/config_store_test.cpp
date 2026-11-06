@@ -454,6 +454,25 @@ int main() {
         loadConfig(kFile, o2);
         checkInt(o2.volume, 0, "volume -5 -> 0");
         checkInt(o2.latencyMs, 1000, "latencyMs 5000 -> 1000");
+
+        // 待机时长的钳制必须跟 kStandbyLevels 的最大档一致（3000 = 5 分钟）。
+        // 漏掉这条的话，菜单里选 5 分钟、重启变回 20 秒 —— 「菜单里选了、
+        // 重启又变回去」这个现象在 RULES 里被点名过，就是靠这条钉住的。
+        writeRaw(kFile, "{\"standbyTenths\": 9999}");
+        BridgeConfig o3;
+        loadConfig(kFile, o3);
+        checkInt(o3.standbyTenths, 3000, "standbyTenths 9999 -> 3000");
+
+        writeRaw(kFile, "{\"standbyTenths\": 3000}");
+        BridgeConfig o4;
+        loadConfig(kFile, o4);
+        checkInt(o4.standbyTenths, 3000, "standbyTenths 3000 原样保留（最大档）");
+
+        writeRaw(kFile, "{\"standbyTenths\": -5}");
+        BridgeConfig o5;
+        loadConfig(kFile, o5);
+        checkInt(o5.standbyTenths, 0, "standbyTenths -5 -> 0");
+
         removeFile(kFile);
     }
 

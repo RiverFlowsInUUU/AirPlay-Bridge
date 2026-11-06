@@ -3,6 +3,49 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.57] - 2026-11-06
+
+**中文**
+
+### 修复
+
+- 播放中途本地缓冲被抽干后，声音会以一声「咔」重新出现；现在改为平滑淡入。
+- 长时间播放后爆音变频繁、并伴随断连时，可先看日志里的「本地缓冲见底」：
+  它出现说明问题在本地缓冲，没出现则更可能出在网络上。
+
+### 新增
+
+- 日志新增「本地缓冲见底」计数（窗口内抽干的轮数与最低水位）。
+  此前只有反方向的「音频丢帧」可见，缓冲被抽干是完全静默的。
+
+### 修改
+
+- 无声音时待机新增 30 秒 / 1 分钟 / 2 分钟 / 5 分钟四档，
+  滑块上限从 20 秒放宽到 300 秒。有声书、播客、长视频的章节间隔
+  不再必然触发断连。默认档位不变。
+
+**English**
+
+### Fixed
+
+- Audio came back with a click after the local buffer ran dry mid-playback;
+  it now fades in.
+- When crackling grows more frequent during long playback and comes with
+  dropouts, check the new "local buffer bottomed out" log line: present means
+  the local buffer is at fault, absent points at the network.
+
+### Added
+
+- The log now counts how often the local buffer ran dry, with the lowest
+  level in the window. Previously only the opposite direction (dropped
+  frames) was visible.
+
+### Changed
+
+- Standby when silent gains 30 s / 1 min / 2 min / 5 min presets, and the
+  slider now goes up to 300 s. Chapter gaps in audiobooks, podcasts and long
+  videos no longer force a disconnect. The default is unchanged.
+
 ## [1.5.56] - 2026-10-31
 
 **中文**

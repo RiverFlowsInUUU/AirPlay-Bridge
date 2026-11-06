@@ -17,7 +17,7 @@ index 6f5c72d..c9d488b 100644
      else()
          target_compile_options(${target} PRIVATE -Wall -Wextra)
 diff --git a/src/raop_sender.cpp b/src/raop_sender.cpp
-index 0e282e1..4018c2f 100644
+index 0e282e1..f389ec4 100644
 --- a/src/raop_sender.cpp
 +++ b/src/raop_sender.cpp
 @@ -98,8 +98,12 @@ struct RaopAp2State {
@@ -203,10 +203,33 @@ index 0e282e1..4018c2f 100644
      stream.emplace_back("latencyMax", Value::integer(88200));
      stream.emplace_back("latencyMin", Value::integer(11025));
      stream.emplace_back("shk", Value::bytes(ap2_->audioKey));
-@@ -1981,6 +2049,39 @@ void RaopSender::sendAudioPacket_() {
-     int16_t frames[kFramesPerPacket * kChannels];
-     fillFrames_(frames, kFramesPerPacket);
+@@ -1979,7 +2047,60 @@ std::string RaopSender::encodeAlacFrame_(const int16_t* frames, int nFrames) {
  
+ void RaopSender::sendAudioPacket_() {
+     int16_t frames[kFramesPerPacket * kChannels];
+-    fillFrames_(frames, kFramesPerPacket);
++    const size_t got = fillFrames_(frames, kFramesPerPacket);
++
++    // 【欠载后重新布防淡入】—— 与下面「开局淡入」同一套机制，只是触发点不同。
++    //
++    // 开局淡入只在 start() 里布防一次，用完（fadeInLeft_ == 0）就不再来。
++    // 但补零不只发生在会话开头：**播放中途本地缓冲环被抽干时，fillFrames_
++    // 同样会用零填满这一包**。于是流中间出现「真实音频 → 数字静音 → 真实音频」，
++    // 前后各一道台阶。前一道（切成静音）已经发出去了，补不回来；后一道正是
++    // 下面注释里说的「接收端输出级进入空闲态、又被满幅信号突然叫醒」——
++    // 用户听到的就是那一声「咔」，而且长会话里会反复出现。
++    //
++    // 所以只要有实质缺帧，就把 fadeInLeft_ 打回 -1，让下面那段扫描在音频
++    // 重新出现的那一包上重新布防，接缝变回 200ms 淡入。
++    //
++    // 判据取「缺满半包」（<176 帧，即补了 4ms 以上的零）才布防，两个理由：
++    //   ① 少补几帧（不足 4ms）本来就听不出来，为它淡入反而亏；
++    //   ② 缓冲环长期偏紧时几乎每一包都会少补一两帧，若照单全收，淡入会一路
++    //      被重新布防 —— 增益永远升不到满值，听感从「偶尔咔一声」变成
++    //      「持续的吞吐」。放宽这个判据就会踩这个坑。
++    //   （2026-11-06 用户反馈「长期连接后爆音变频繁」时加的。）
++    if (got < size_t(kFramesPerPacket) / 2) fadeInLeft_ = -1;
++
 +    // 【开局淡入】消掉「会话开头那段静音 → 真实音频」的接缝。
 +    //
 +    // 背景：会话建立时 ring 还是空的（采集尚未送出数据），所以开头若干包
@@ -239,10 +262,9 @@ index 0e282e1..4018c2f 100644
 +            if (--fadeInLeft_ <= 0) break;
 +        }
 +    }
-+
+ 
      // 12-byte RTP header (big-endian, shared by AP1 + AP2).
      std::string header;
-     header.reserve(12);
 diff --git a/src/raop_sender.h b/src/raop_sender.h
 index 5560966..985bd73 100644
 --- a/src/raop_sender.h

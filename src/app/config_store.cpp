@@ -400,8 +400,10 @@ bool loadConfig(const std::string& path, BridgeConfig& out) {
         if (out.language.empty()) out.language = "en";
     }
 
-    if (out.standbyTenths < 0)   out.standbyTenths = 0;
-    if (out.standbyTenths > 200) out.standbyTenths = 200;
+    // 钳制上限必须跟 kStandbyLevels 的最大档一致（3000 = 5 分钟）。
+    // 改档位表时这里要一起改，否则「菜单里选了 5 分钟，重启变回 20 秒」。
+    if (out.standbyTenths < 0)    out.standbyTenths = 0;
+    if (out.standbyTenths > 3000) out.standbyTenths = 3000;
 
     // ignoredDeviceIds: 简单的字符串数组解析
     size_t arr = j.find("\"ignoredDeviceIds\"");

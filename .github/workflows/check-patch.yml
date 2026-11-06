@@ -81,6 +81,7 @@ jobs:
                stream.emplace_back("latencyMin", Value::integer(11025));
           +    void setLatencyMs(int ms) {
           +        ap2_->eventIn  = hkdfSha512("Events-Salt",
+          +    if (got < size_t(kFramesPerPacket) / 2) fadeInLeft_ = -1;
           MARKERS
           if [ "$fail" -ne 0 ]; then
             echo "重新生成：cd third_party/airplay2-sender-cpp && git diff > ../../patches/upstream-airplay2-sender-cpp.patch"

@@ -189,13 +189,23 @@ constexpr int kCaptureDeviceMenuBase = 1700;
 
 // 无声音时待机的固定档位（内部单位是十分之一秒）。
 // 更短的档位（0/1/3 秒）实测体验很差 —— 一停就断，换歌和安静段落都会误触，
-// 所以整档砍掉，只保留 5/6/8/10 秒这四档；中间值走「自定义（滑块）」。
+// 所以整档砍掉；中间值走「自定义（滑块）」。
+//
+// 长档位（30 秒以上）是给「一直在播、但内容本身停顿很长」的场景加的：
+// 有声书、播客、长视频的章节间隔，20 秒上限会稳定触发断连 —— 每次断连都
+// 要重建整个会话（扫描 + 握手 + SETUP），接收端屏幕还会闪一下，
+// 用户看到的就是「听久了老是断」。
+// 默认值不变（50 = 5 秒），所以现有用户升级后行为完全一样，只是多几个选项。
 struct StandbyLevel { int tenths; const char* label; };
 const StandbyLevel kStandbyLevels[] = {
-    {  50, "5 秒" },
-    { 100, "10 秒" },
-    { 150, "15 秒" },
-    { 200, "20 秒" },
+    {   50, "5 秒" },
+    {  100, "10 秒" },
+    {  150, "15 秒" },
+    {  200, "20 秒" },
+    {  300, "30 秒" },
+    {  600, "1 分钟" },
+    { 1200, "2 分钟" },
+    { 3000, "5 分钟" },
 };
 constexpr int kStandbyLevelCount = sizeof(kStandbyLevels) / sizeof(kStandbyLevels[0]);
 
@@ -1866,6 +1876,20 @@ std::atomic<uint64_t> g_clippedSamples{0};      // 峰值触顶（可能削波�
 // 数字输出上，系统几乎不渲染），而不在后续链路。
 std::atomic<int> g_peakWindowMax{0};
 
+// 本地缓冲环的「最低水位」与「见底轮数」—— 爆音的另一半证据。
+//
+// 为什么需要：环被**推满**（丢帧）早就有计数了，但反方向 —— 环被**抽干** ——
+// 一直是静默的。抽干时引擎拿不到足够样本，只能给这一包补零，听感同样是
+// 「咔」；而日志里一个字都没有，用户报「爆音」时无法判断问题出在本地缓冲
+// （我们自己的时序）还是网络（丢包重传），两者的修法完全不同。
+// 2026-11-06 那份反馈日志就卡在这里：13 小时、19 次会话，丢帧和削波都是 0，
+// 于是「爆音」既不能证实也不能排除。
+//
+// 采样点放在每轮 pump() 之后：pacer 刚抽过水，那一刻就是本轮的最低点。
+// 水位单位是**帧**（环里存交错样本，除以声道数才是帧）。
+std::atomic<long long> g_ringLowFrames{-1};   // 窗口内最低水位；-1 = 本窗口还没采到样
+std::atomic<uint64_t>  g_ringEmptyTicks{0};   // 窗口内「抽完剩 0 帧」的轮数
+
 constexpr int kFirewallHintAfterFails = 3;
 
 // 如果本机已经有一条覆盖本程序的入站放行规则，就说明防火墙大概率
@@ -2385,6 +2409,14 @@ struct Session {
 
     std::unique_ptr<RingBuffer<int16_t>> ring;
     std::unique_ptr<RaopLoop>            loop;
+
+    // 本次会话的缓冲环是否已经进过数据。
+    //
+    // 只给「本地缓冲见底」这条诊断用：会话刚建立时环本来就是空的
+    // （采集还在往里面灌第一批），那几个 tick 的 0 水位是**正常启动**，
+    // 不是欠载。不区分的话，每个会话开头都会记一条「见底」，
+    // 这条诊断立刻退化成噪音。进过一次数据之后再看 0，才是真的被抽干。
+    bool ringPrimed = false;
     std::unique_ptr<RaopSender>          sender;
     std::unique_ptr<WasapiCapture>       capture;
     // 采集侧重采样：把设备采样率转到 44100，
@@ -2563,6 +2595,7 @@ struct Session {
         // 注意：本地 ring 深度与"延迟"不是一回事——延迟是告诉接收端
         // 往后排多久再播，本地缓冲够喂就行，不必跟着延迟一起放大。
         ring = std::make_unique<RingBuffer<int16_t>>(1u << 15);
+        ringPrimed = false;   // 新会话从空环开始，「见底」诊断要重新等第一次进数
         loop = std::make_unique<RaopLoop>();
 
         RaopEvents ev;
@@ -2887,6 +2920,22 @@ struct Session {
         // 一轮变成 70ms —— 点托盘会觉得钝。
         setPhase(PHASE_NET_PUMP);
         loop->pump(*sender, std::chrono::milliseconds(10));
+
+        // 采一次本地缓冲环的水位（pacer 刚抽过水，此刻最低）。
+        // 只在已连上时采 —— 没连上时没人消费，水位恒满，采了也没意义。
+        // 成本是一次原子读 + 一次原子写，不进热路径的预算。
+        //
+        // ringPrimed 的作用见它的声明：会话开头的空环不算欠载。
+        if (ring && connected.load()) {
+            const long long f = static_cast<long long>(ring->availableRead() / 2);
+            if (f > 0) {
+                ringPrimed = true;
+            } else if (ringPrimed) {
+                g_ringEmptyTicks.fetch_add(1, std::memory_order_relaxed);
+            }
+            const long long prev = g_ringLowFrames.load(std::memory_order_relaxed);
+            if (prev < 0 || f < prev) g_ringLowFrames.store(f, std::memory_order_relaxed);
+        }
     }
 
     // 非阻塞版本，给「菜单打开期间的心跳」用。
@@ -4973,6 +5022,9 @@ int main(int argc, char** argv) {
             static uint64_t lastDropped = 0;
             static uint64_t lastClipped = 0;
             static long long lastHealthCheck = 0;
+            // 「缓冲见底」的状态与上次记录时间（详见下面的块）。
+            static bool      ringLowLogged  = false;
+            static long long lastRingLowLog = 0;
             const long long nowH = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
             if (nowH - lastHealthCheck >= 5000) {
@@ -4983,6 +5035,36 @@ int main(int argc, char** argv) {
                     logLine("音频丢帧：累计 " + std::to_string(dNow) +
                             " 帧推不进缓冲环（音频不连续，会造成爆音）");
                     lastDropped = dNow;
+                }
+
+                // 本地缓冲环见底 —— 与上面「丢帧」是同一个病的两端。
+                //
+                // 见底 = 引擎这一包拿不到足够样本、只能补零，听感同样是爆音。
+                // 严重性不在「偶发」：环一旦被抽干就不会自己回到「刚好够」，
+                // 它会一直贴着 0 走 —— 之后每一次发送停顿都变成一次补零。
+                // 所以这条一旦出现，用户听到的爆音就可以归属到本地缓冲，
+                // 与网络丢包无关；两者的修法完全不同（加水位 vs 调重传）。
+                //
+                // 只在「开始见底」时记一条，持续见底则每分钟补一条 ——
+                // 长期偏紧的机器每 5 秒都会见底，不节流会自己把日志刷掉
+                // （512KB 轮转，见 RULES C6b）。
+                {
+                    const long long lowF = g_ringLowFrames.exchange(-1);
+                    const uint64_t  emptyTicks = g_ringEmptyTicks.exchange(0);
+                    if (emptyTicks > 0) {
+                        // 环里恒定是 44100（采集侧已经转好，见 RULES C7），
+                        // 所以帧 -> 毫秒直接除。
+                        const long long lowMs = lowF < 0 ? 0 : lowF * 1000 / 44100;
+                        if (!ringLowLogged || nowH - lastRingLowLog >= 60000) {
+                            ringLowLogged  = true;
+                            lastRingLowLog = nowH;
+                            logLine("本地缓冲见底：" + std::to_string(emptyTicks) +
+                                    " 轮抽完（窗口内最低水位 " + std::to_string(lowMs) +
+                                    " ms）—— 引擎会给这几包补零，音频短促断续");
+                        }
+                    } else {
+                        ringLowLogged = false;
+                    }
                 }
                 // 采集电平：只在「有声/无声」状态翻转时记一条。
                 // 以前每 5 秒无条件一条 —— 注释承诺「正常播放时一条都不写」，

@@ -699,7 +699,7 @@ int showStandbyDialog(int currentTenths) {
                          "安静段落里误断，太长则熄屏迟钝。"
                          "拖到最左边（0 秒）表示关掉这个功能。");
     spec.minValue = 0;     // 0 = 关闭（不参与静音计时）
-    spec.maxValue = 200;   // 20.0 秒
+    spec.maxValue = 3000;  // 300.0 秒；与 kStandbyLevels 的最大档一致
     spec.tickFreq = 0;
     spec.unit = i18n::tr("秒");
     spec.displayDivisor = 10;   // 内部十分之一秒 -> 显示秒
