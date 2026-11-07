@@ -196,6 +196,12 @@ constexpr int kCaptureDeviceMenuBase = 1700;
 // 要重建整个会话（扫描 + 握手 + SETUP），接收端屏幕还会闪一下，
 // 用户看到的就是「听久了老是断」。
 // 默认值不变（50 = 5 秒），所以现有用户升级后行为完全一样，只是多几个选项。
+//
+// ★ 单位一律用「秒」，不要写成「1 分钟 / 5 分钟」。
+//   滑块的显示单位是秒（内部十分之一秒 ÷ 10），菜单和滑块必须同一套说法：
+//   菜单写「5 分钟」而滑块到顶显示「300.0 秒」时，用户从滑块拖到 300 秒，
+//   回头看到勾打在「5 分钟」上，只会认为勾错了 —— 两个说法指同一个值，
+//   却让人以为菜单没跟上。（2026-11-07 用户就是这样报的，别再改回分钟。）
 struct StandbyLevel { int tenths; const char* label; };
 const StandbyLevel kStandbyLevels[] = {
     {   50, "5 秒" },
@@ -203,9 +209,9 @@ const StandbyLevel kStandbyLevels[] = {
     {  150, "15 秒" },
     {  200, "20 秒" },
     {  300, "30 秒" },
-    {  600, "1 分钟" },
-    { 1200, "2 分钟" },
-    { 3000, "5 分钟" },
+    {  600, "60 秒" },
+    { 1200, "120 秒" },
+    { 3000, "300 秒" },
 };
 constexpr int kStandbyLevelCount = sizeof(kStandbyLevels) / sizeof(kStandbyLevels[0]);
 

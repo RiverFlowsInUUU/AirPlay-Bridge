@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)，
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [1.5.58] - 2026-11-07
+
+**中文**
+
+### 修复
+
+- 无声音时待机的档位和滑块对同一个时长写法不一致：滑块拖到 300 秒时，
+  菜单里勾的却是「5 分钟」。现在两处统一按秒显示（30 / 60 / 120 / 300 秒）。
+
+**English**
+
+### Fixed
+
+- Standby presets and the slider labelled the same duration differently: at
+  300 s the menu ticked "5 min". Both now read in seconds
+  (30 / 60 / 120 / 300 s).
+
 ## [1.5.57] - 2026-11-06
 
 **中文**

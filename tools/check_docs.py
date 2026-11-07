@@ -254,6 +254,46 @@ else:
             fail("待机档位 (%s)" % rel,
                  "表格写 %s，代码是 %s" % (got, want))
 
+# -------------------------------------------------- ④b 待机档位：标签 == 数值
+
+# 2026-11-07 踩过的：档位标签写成「5 分钟」，而滑块的显示单位是秒
+# （内部十分之一秒 ÷ 10 → 到顶显示「300.0 秒」）。同一个时长两套说法，
+# 用户从滑块拖到 300 秒、回到菜单看到的却是勾在「5 分钟」上 ——
+# 判定成"勾错了"完全合理，而代码按值判定其实没错。**错的是标签。**
+#
+# 所以钉两条：标签里的数字必须等于 tenths/10；滑块上限必须等于最大档。
+# 再有人把档位改回「N 分钟」或者只改一边的范围，这里会红。
+if st is not None:
+    text = read(CORE) or ""
+    seg = text[text.find("kStandbyLevels[]"):]
+    seg = seg[:seg.find("};")] if "};" in seg else seg
+    pairs = [(int(t), lbl) for t, lbl in
+             re.findall(r"\{\s*(\d+)\s*,\s*\"([^\"]+)\"\s*\}", seg)]
+    if len(pairs) != len(st):
+        fail("待机档位标签", "解析到 %d 个标签，数组里有 %d 个档位"
+             % (len(pairs), len(st)))
+    else:
+        bad = []
+        for tenths, lbl in pairs:
+            nums = re.findall(r"\d+", lbl)
+            if not nums or int(nums[0]) * 10 != tenths or "秒" not in lbl:
+                bad.append("%s（应为 %d 秒）" % (lbl, tenths // 10))
+        if bad:
+            fail("待机档位标签", "标签与数值对不上：%s" % "、".join(bad))
+        else:
+            ok("待机档位标签", "标签数字 == tenths/10，单位统一为秒（%d 档）"
+               % len(pairs))
+
+    rng = slider_range(DIALOG, "showStandbyDialog")
+    if rng is None:
+        fail("待机滑块上限", "在 %s 的 showStandbyDialog 里读不到 spec.maxValue"
+             % DIALOG)
+    elif rng[1] != max(st):
+        fail("待机滑块上限", "滑块最大 %d，最大档位是 %d —— 只能改一边会不一致"
+             % (rng[1], max(st)))
+    else:
+        ok("待机滑块上限", str(rng[1]))
+
 # -------------------------------------------------- ⑤ 约束编号范围
 
 rules = read("docs/RULES.md")

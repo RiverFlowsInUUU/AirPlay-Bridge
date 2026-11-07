@@ -255,6 +255,8 @@ CI 每次 push 都跑（`.github/workflows/check-docs.yml`），
 | 延迟滑块范围 | `latency_dialog.cpp` 的 `spec.min/max` |
 | 音量档位数量 | `kVolumeLevels` |
 | 待机档位 | `kStandbyLevels` |
+| 待机档位**标签里的秒数**与数值一致（防止混用「分钟」） | `kStandbyLevels` 的 tenths ÷ 10 |
+| 待机滑块上限 = 最大档 | `showStandbyDialog` 的 `spec.maxValue` |
 | 文档里的 `C1–Cn` | `RULES.md` 里的最大编号 |
 | 文档里的「补丁覆盖 N 个文件」 | patch 里的 `diff --git` 数 |
 
